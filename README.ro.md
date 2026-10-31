@@ -40,6 +40,16 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - Rezolvarea oricărui triunghi (LLL, LUL, ULU, LUU, LLU cu cazul ambiguu): arie, perimetru, R, r, înălțimi; se poate deschide pe tablă
 - Convertor grade ↔ radiani, tabel de valori, formule (reducere, sume, unghi dublu, transformări, ecuații, triunghi)
 
+**Calculator de derivate și integrale**
+- **Derivate pas cu pas:** fiecare regulă aplicată (sumă, produs, cât, funcție compusă, puteri, exponențiale, logaritmi, funcții trigonometrice și inverse), cu formula generală, rezultatul „brut” și cel simplificat; derivate de ordin superior; merge offline
+- **Integrale pas cu pas**, cu [SymPy](https://www.sympy.org) rulat în browser prin [Pyodide](https://pyodide.org): substituție, integrare prin părți (inclusiv cazul ciclic), fracții simple, substituții trigonometrice, integrale tabelare — explicate în română, cu `ln|u|` ca la școală
+- Integrale definite și improprii, cu detectarea divergenței (ex. `∫₋₁² dx/x²` e divergentă din cauza lui x = 0) și verificare numerică independentă (metoda Simpson)
+- Recunoaște primitivele neelementare (ex. `e^(x²)` → erfi) și, unde se poate, demonstrează asta cu algoritmul Risch
+- **Verifică răspunsul elevului:** scrii derivata sau primitiva găsită de elev și e comparată cu cea corectă (la integrale: derivata ei trebuie să dea f, deci constanta nu contează)
+- Rezultatul și pașii se adaugă cu un click în notițele unei ședințe
+
+Motorul SymPy (~15–20 MB) se descarcă la prima deschidere a tab-ului de integrale, apoi rămâne în cache.
+
 **Simboluri**
 - Alfabetul grecesc complet (mici și mari), integrale de toate felurile (simple, duble, triple, curbilinii, de suprafață, închise, definite, improprii, prin părți), analiză, trigonometrie, operații, relații, mulțimi și logică, geometrie și vectori, săgeți, matrici și sisteme
 - Căutare după nume; click inserează simbolul în câmpul de notițe activ
@@ -98,6 +108,7 @@ src/
   journal/             elevi, listă de ședințe, editorul de ședință
   geometry/            modelul scenei, motorul de construcții, tabla interactivă
   trig/                cercul trigonometric, grafice, rezolvarea triunghiului, formule
+  calculus/            motorul de derivate, worker-ul SymPy (integrale), explicarea pașilor, pagina calculatorului
   symbols/             lista de simboluri, paleta, inserarea în text
   components/          randare Markdown + LaTeX, dialoguri
   platform.ts          diferențele web / desktop (salvarea fișierelor)

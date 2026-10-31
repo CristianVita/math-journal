@@ -46,6 +46,16 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - Solve any triangle (SSS, SAS, ASA, AAS, and SSA including the ambiguous case): area, perimeter, circumradius, inradius, heights; open the result on the board
 - Degrees ↔ radians converter, table of special values, identities (reduction, sum and difference, double angle, sum-to-product, equations, triangle formulas)
 
+**Calculus calculator**
+- **Derivatives, step by step:** every rule applied (sum, product, quotient, chain rule, powers, exponentials, logs, trig and inverse trig), each shown with the general formula, the raw result and the simplified one; higher-order derivatives; works offline
+- **Integrals, step by step**, powered by [SymPy](https://www.sympy.org) running in the browser via [Pyodide](https://pyodide.org): substitution, integration by parts (including the cyclic case), partial fractions, trig substitution, table integrals — explained in Romanian, with `ln|u|` as taught in school
+- Definite and improper integrals, with divergence detection (e.g. `∫₋₁² dx/x²` diverges because of x = 0) and an independent numeric check (Simpson's rule)
+- Recognises non-elementary antiderivatives (e.g. `e^(x²)` → erfi) and proves non-elementarity with the Risch algorithm when possible
+- **Check a student's answer:** type the derivative or antiderivative the student found; it is compared with the correct one (for integrals: its derivative must give back f, so the constant does not matter)
+- Add the result and the steps to a session's notes in one click
+
+The SymPy engine (~15–20 MB) is downloaded the first time the integral tab is opened, then cached.
+
 **Symbols**
 - Full Greek alphabet (lower and upper case), every kind of integral (single, double, triple, line, surface, closed, definite, improper, by parts), calculus, trigonometry, operators, relations, sets and logic, geometry and vectors, arrows, matrices and systems
 - Search by name; one click inserts the symbol at the cursor in the active note
@@ -104,6 +114,7 @@ src/
   journal/             students, session list, session editor
   geometry/            scene model, construction engine, interactive board
   trig/                unit circle, plots, triangle solver, formulas
+  calculus/            derivative engine, SymPy worker (integrals), step explanations, calculator page
   symbols/             symbol list, palette, insert-at-cursor
   components/          Markdown + LaTeX rendering, dialogs
   platform.ts          web vs. desktop differences (saving files)

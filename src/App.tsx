@@ -5,11 +5,12 @@ import SessionEditor from './journal/SessionEditor'
 import BoardPage from './pages/BoardPage'
 import SymbolsPage from './pages/SymbolsPage'
 import TrigPage from './trig/TrigPage'
+import CalculusPage from './calculus/CalculusPage'
 import { emptyScene, type Scene } from './geometry/types'
 import { db } from './db'
 import './symbols/insert'
 
-type Page = 'journal' | 'board' | 'trig' | 'symbols'
+type Page = 'journal' | 'board' | 'trig' | 'calculus' | 'symbols'
 
 const BOARD_KEY = 'math-journal:board'
 
@@ -53,6 +54,7 @@ export default function App() {
     { id: 'journal', label: 'Jurnal', icon: '📓' },
     { id: 'board', label: 'Tablă', icon: '📐' },
     { id: 'trig', label: 'Trigonometrie', icon: '◔' },
+    { id: 'calculus', label: 'Calculator', icon: '∂' },
     { id: 'symbols', label: 'Simboluri', icon: '∑' },
   ]
 
@@ -84,6 +86,7 @@ export default function App() {
                   <ul>
                     <li><b>Tablă</b> — puncte, drepte, segmente, cercuri, poligoane, unghiuri de orice măsură, perpendiculare, paralele, bisectoare, grafice.</li>
                     <li><b>Trigonometrie</b> — cercul trigonometric interactiv, grafice sin/cos/tg/ctg, rezolvarea oricărui triunghi, formule.</li>
+                    <li><b>Calculator</b> — derivate și integrale pas cu pas, integrale definite și improprii, verificarea răspunsului elevului.</li>
                     <li><b>Simboluri</b> — alfabetul grecesc, toate tipurile de integrale și sute de simboluri LaTeX.</li>
                   </ul>
                 </div>
@@ -97,6 +100,7 @@ export default function App() {
             <TrigPage onOpenInBoard={(s) => { setBoard(s); setPage('board') }} />
           </main>
         )}
+        {page === 'calculus' && <main className="content full"><CalculusPage /></main>}
         {page === 'symbols' && <main className="content full"><SymbolsPage /></main>}
       </div>
     </div>
