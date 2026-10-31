@@ -22,6 +22,7 @@ import {
   uid,
 } from './engine'
 import { usePrompt } from '../components/PromptDialog'
+import { saveFile } from '../platform'
 
 type Tool =
   | 'move' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'polygon' | 'regular'
@@ -509,13 +510,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     clone.querySelectorAll('[data-ui]').forEach((n) => n.remove())
     return new XMLSerializer().serializeToString(clone)
   }
-  const download = (href: string, name: string) => {
-    const a = document.createElement('a')
-    a.href = href
-    a.download = name
-    a.click()
-  }
-  const exportSvg = () => download(URL.createObjectURL(new Blob([svgText()], { type: 'image/svg+xml' })), 'figura.svg')
+  const exportSvg = () => saveFile('figura.svg', new Blob([svgText()], { type: 'image/svg+xml' }))
   const exportPng = () => {
     const img = new Image()
     img.onload = () => {
@@ -528,7 +523,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       ctx.scale(2, 2)
       ctx.drawImage(img, 0, 0)
       try {
-        download(c.toDataURL('image/png'), 'figura.png')
+        c.toBlob((blob) => (blob ? saveFile('figura.png', blob) : exportSvg()), 'image/png')
       } catch {
         exportSvg() // canvas tainted by embedded formulas: fall back to SVG
       }

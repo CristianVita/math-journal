@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Source for `npm run tauri icon src-tauri/app-icon.svg`; paths only, no fonts. -->
+  <rect x="48" y="48" width="928" height="928" rx="200" fill="#4f46e5"/>
+  <path d="M250 760 L520 760 L520 490" fill="none" stroke="#c7d2fe" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M520 640 A120 120 0 0 0 400 760" fill="none" stroke="#fbbf24" stroke-width="30" stroke-linecap="round"/>
+  <path d="M640 210 C560 150 470 200 490 320 L560 700 C580 820 500 870 420 810" fill="none" stroke="#ffffff" stroke-width="78" stroke-linecap="round"/>
+</svg>

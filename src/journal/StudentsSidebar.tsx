@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, exportBackup, importBackup } from '../db'
 import StudentForm from './StudentForm'
+import { saveFile } from '../platform'
 
 export default function StudentsSidebar({ selected, onSelect }: { selected?: number; onSelect: (id: number) => void }) {
   const students = useLiveQuery(() => db.students.orderBy('name').toArray(), []) ?? []
@@ -17,11 +18,7 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
   const filtered = students.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
 
   const doExport = async () => {
-    const blob = new Blob([await exportBackup()], { type: 'application/json' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `jurnal-meditatii-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
+    await saveFile(`jurnal-meditatii-${new Date().toISOString().slice(0, 10)}.json`, await exportBackup())
   }
 
   const doImport = async (f: File) => {

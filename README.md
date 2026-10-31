@@ -42,11 +42,39 @@ npm run dev
 
 Apoi deschide http://localhost:5173.
 
+> Pe Windows, dacă PowerShell refuză `npm` („running scripts is disabled”), folosește `npm.cmd` în loc de `npm`.
+
 Build pentru web (fișierele statice ajung în `dist/`):
 
 ```bash
 npm run build
 ```
+
+## Aplicația desktop (Windows / Linux)
+
+Aplicația desktop folosește [Tauri 2](https://tauri.app): același cod, într-o fereastră nativă. Datele se păstrează local, în profilul aplicației. Backup-ul și exporturile PNG/SVG deschid fereastra „Salvează ca” a sistemului.
+
+Cerințe: [Rust](https://rustup.rs) și, pe Linux, `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`.
+
+```bash
+npm run tauri dev                      # fereastra desktop cu reîncărcare live
+npm run tauri build                    # installer pentru sistemul curent
+npm run tauri build -- --bundles nsis  # doar installer-ul .exe pentru Windows
+```
+
+Installer-ul ajunge în `src-tauri/target/release/bundle/`.
+
+## Publicare automată (GitHub Actions)
+
+- **Web:** `.github/workflows/pages.yml` publică site-ul pe GitHub Pages la fiecare push pe `main`. Trebuie activat o singură dată, din *Settings → Pages → Source: GitHub Actions*.
+- **Desktop:** `.github/workflows/release.yml` construiește installerele pentru Windows (`.exe`) și Linux (`.AppImage`, `.deb`, `.rpm`) la fiecare tag `v*`:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Installerele apar într-un release *draft* pe GitHub. Îl verifici și apoi îl publici.
 
 ## Structură
 
@@ -59,4 +87,6 @@ src/
   trig/                cercul trigonometric, grafice, rezolvarea triunghiului, formule
   symbols/             lista de simboluri, paleta, inserarea în text
   components/          randare Markdown + LaTeX, dialoguri
+  platform.ts          diferențele web / desktop (salvarea fișierelor)
+src-tauri/             aplicația desktop (Tauri): configurare, iconițe, permisiuni
 ```
