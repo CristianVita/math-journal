@@ -11,6 +11,7 @@ Rulează în browser și ca aplicație desktop pentru Windows și Linux ([Tauri]
 Installerele sunt pe pagina [Releases](https://github.com/CristianVita/math-journal/releases/latest):
 
 - **Windows:** `…_x64-setup.exe` (sau `.msi`)
+- **Windows, fără instalare:** `…_x64-portable.exe` — îl pornești direct (are nevoie de WebView2, inclus în Windows 11 și în Windows 10 actualizat)
 - **Linux:** `.AppImage` (orice distribuție), `.deb` (Ubuntu/Debian), `.rpm` (Fedora)
 
 Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „Mai multe informații” → „Rulează oricum”.

@@ -15,6 +15,7 @@ Get the installer for your system from the [latest release](https://github.com/C
 | System | File |
 |---|---|
 | Windows | `…_x64-setup.exe` (or the `.msi`) |
+| Windows, no install | `…_x64-portable.exe` — just run it (needs WebView2, built into Windows 11 and updated Windows 10) |
 | Linux, any distro | `….AppImage` (make it executable, then run it) |
 | Ubuntu / Debian / Mint | `….deb` |
 | Fedora / openSUSE | `….rpm` |

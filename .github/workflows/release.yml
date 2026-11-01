@@ -1,5 +1,5 @@
 # Builds the desktop app for Windows and Linux when a version tag (v0.1.0, v0.2.0, …) is pushed,
-# and attaches the installers to a draft GitHub release.
+# and attaches the installers (plus a portable Windows exe) to a draft GitHub release.
 name: Release desktop
 
 on:
@@ -42,11 +42,31 @@ jobs:
       - run: npm ci
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: 'Jurnal Meditații v__VERSION__'
-          releaseBody: 'Windows: descarcă fișierul *-setup.exe. Linux: .AppImage (orice distribuție), .deb (Ubuntu/Debian) sau .rpm (Fedora).'
+          releaseBody: 'Windows: *-setup.exe instalează aplicația; *-portable.exe pornește direct, fără instalare. Linux: .AppImage (orice distribuție), .deb (Ubuntu/Debian) sau .rpm (Fedora).'
           releaseDraft: true
           prerelease: false
+
+      # The app exe itself runs without installing (the UI is embedded; Windows 10/11 ship WebView2).
+      # Uploaded by release id: a draft release cannot be looked up by its tag.
+      - name: Portable Windows exe
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+          VERSION: ${{ steps.tauri.outputs.appVersion }}
+        run: |
+          name="Jurnal.Meditatii_${VERSION}_x64-portable.exe"
+          cp src-tauri/target/release/math-journal.exe "$name"
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/vnd.microsoft.portable-executable" \
+            --data-binary @"$name" \
+            "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${name}" > /dev/null
+          echo "uploaded $name"
