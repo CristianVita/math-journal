@@ -15,6 +15,8 @@ export type PointDep =
   | { kind: 'bisectorFoot'; a: string; v: string; b: string }
   // foot of the perpendicular from `point` to `line` (orthogonal projection)
   | { kind: 'foot'; point: string; line: string }
+  // at signed distance `dist` from `through`, along `ref` (or perpendicular to it): ends of finite parallels
+  | { kind: 'along'; through: string; ref: string; perp: boolean; dist: number }
 
 export interface PointObj {
   id: string

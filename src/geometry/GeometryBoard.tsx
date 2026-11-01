@@ -69,7 +69,7 @@ export function triangleFromInput(kind: string, values: string[]): Triangle | st
 
 type Tool =
   | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'triangle' | 'polygon' | 'regular'
-  | 'angle' | 'lineAngle' | 'construct' | 'midpoint' | 'perpendicular' | 'parallel' | 'bisector'
+  | 'angle' | 'lineAngle' | 'construct' | 'midpoint' | 'perpendicular' | 'mediatrix' | 'parallel' | 'bisector'
   | 'intersection' | 'text' | 'pen' | 'delete'
 
 const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
@@ -88,6 +88,7 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'construct', icon: '∡', label: 'Construiește unghi de x°', hint: ['Vârful unghiului', 'Direcția primei laturi (apoi introduci măsura și lungimile laturilor)'] },
   { id: 'midpoint', icon: '⋯', label: 'Mijloc', hint: ['Click pe un segment sau pe primul punct', 'Al doilea punct'] },
   { id: 'perpendicular', icon: '⊥', label: 'Perpendiculară', hint: ['Click pe dreaptă (sau segment) și pe punct, în orice ordine', 'Acum al doilea element (dreapta sau punctul)'] },
+  { id: 'mediatrix', icon: '⊥M', label: 'Mediatoare', hint: ['Click pe segmentul căruia vrei să-i construiești mediatoarea'] },
   { id: 'parallel', icon: '∥', label: 'Paralelă', hint: ['Click pe dreaptă (sau segment) și pe punct, în orice ordine', 'Acum al doilea element (dreapta sau punctul)'] },
   { id: 'bisector', icon: '⦟', label: 'Bisectoare', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură (apoi alegi până unde merge bisectoarea)'] },
   { id: 'intersection', icon: '✕', label: 'Intersecție', hint: ['Prima dreaptă / segment', 'A doua dreaptă / segment'] },
@@ -232,7 +233,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       if (movable.has(o.id) && (o.type === 'point' || o.type === 'text')) base.pts.set(o.id, { x: o.x, y: o.y })
       if (movable.has(o.id) && o.type === 'path') base.paths.set(o.id, o.points)
       // sides of a fixed length (constructed angle, bisector) must grow with the figure
-      if (ids.has(o.id) && o.type === 'point' && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint')) base.dists.set(o.id, o.dep.dist)
+      if (ids.has(o.id) && o.type === 'point' && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint' || o.dep.kind === 'along')) base.dists.set(o.id, o.dep.dist)
     }
     return base
   }
@@ -245,7 +246,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       }
       if (o.type === 'path' && base.paths.has(o.id))
         return { ...o, points: base.paths.get(o.id)!.map(([x, y]) => { const p = f({ x, y }); return [p.x, p.y] as [number, number] }) }
-      if (o.type === 'point' && base.dists.has(o.id) && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint'))
+      if (o.type === 'point' && base.dists.has(o.id) && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint' || o.dep.kind === 'along'))
         return { ...o, dep: { ...o.dep, dist: base.dists.get(o.id)! * k } }
       return o
     })
@@ -391,6 +392,50 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     objs.push(l)
     return l
   }
+
+  // ---------- lines through a point: infinite, or a segment of a chosen length ----------
+  type Extent = { mode: 'line' } | { mode: 'centered' | 'from'; length: number }
+
+  const askExtent = async (title: string): Promise<Extent | null> => {
+    const vals = await askForm(title, [
+      {
+        label: 'Cât de lungă',
+        value: 'line',
+        options: [
+          { value: 'line', label: 'dreaptă (infinită)' },
+          { value: 'centered', label: 'segment, cu punctul la mijloc' },
+          { value: 'from', label: 'segment, pornind din punct' },
+        ],
+      },
+      { label: 'Lungimea segmentului', value: '4', showIf: { field: 0, value: ['centered', 'from'] } },
+    ])
+    if (!vals) return null
+    if (vals[0] === 'line') return { mode: 'line' }
+    const length = Number(vals[1].replace(',', '.'))
+    if (!(length > 0)) {
+      await ask('Lungimea trebuie să fie un număr pozitiv.', '', true)
+      return null
+    }
+    return { mode: vals[0] as 'centered' | 'from', length }
+  }
+
+  /** Parallel / perpendicular to `ref` through `through`; returns the id of the drawn line or segment. */
+  const drawThrough = (objs: GObj[], kind: 'parallel' | 'perpendicular', through: string, ref: string, ext: Extent): string => {
+    if (ext.mode === 'line') return newLine(objs, 'line', { kind, through, ref }, { dashed: true }).id
+    const perp = kind === 'perpendicular'
+    // the ends are construction points: hidden, and they follow the point and the line
+    const end = (d: number) => {
+      const p = newPoint(objs, { x: 0, y: 0 }, { kind: 'along', through, ref, perp, dist: d })
+      p.hidden = true
+      return p.id
+    }
+    const a = ext.mode === 'centered' ? end(-ext.length / 2) : through
+    const b = end(ext.mode === 'centered' ? ext.length / 2 : ext.length)
+    return newLine(objs, 'segment', { kind: 'twoPoints', a, b }, { dashed: true, showLength: true }).id
+  }
+
+  const rightMark = (objs: GObj[], l1: string, l2: string) =>
+    objs.push({ id: uid(), type: 'lineAngle', l1, l2, s1: 1, s2: 1, color, showValue: false, rightMark: true } satisfies LineAngleObj)
 
   // ---------- tool clicks ----------
   const onToolClick = async (s: Vec) => {
@@ -655,8 +700,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         const at = resolve({ objects: objs, view }).points.get(pt.id)
         const onLine = ref && at ? distToLine(at, { ...ref, kind: 'line' }) < 1e-9 : false
         if (tool === 'parallel' || onLine) {
-          // a parallel has no foot; a perpendicular at a point of the line is the whole line
-          newLine(objs, 'line', { kind: tool, through: pt.id, ref: ln.id }, { dashed: true })
+          // a parallel has no foot; a perpendicular at a point of the line goes both ways from it
+          const ext = await askExtent(tool === 'parallel' ? 'Paralela' : 'Perpendiculara în punctul de pe dreaptă')
+          if (!ext) break
+          const drawn = drawThrough(objs, tool, pt.id, ln.id, ext)
+          if (tool === 'perpendicular') rightMark(objs, drawn, ln.id)
           commit(objs)
           break
         }
@@ -665,6 +713,21 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         const seg = newLine(objs, 'segment', { kind: 'twoPoints', a: pt.id, b: foot.id }, { dashed: true, showLength: true })
         // right-angle mark at the foot, between the new segment (towards the point) and the line
         objs.push({ id: uid(), type: 'lineAngle', l1: seg.id, l2: ln.id, s1: -1, s2: 1, color, showValue: false, rightMark: true } satisfies LineAngleObj)
+        commit(objs)
+        break
+      }
+      case 'mediatrix': {
+        // perpendicular bisector: through the midpoint of a segment, perpendicular to it
+        const segHit = hitTest(s, (o) => o.type === 'segment', 10)
+        if (!segHit || segHit.type !== 'segment' || segHit.dep.kind !== 'twoPoints') {
+          flash('Click pe un segment.')
+          break
+        }
+        const ext = await askExtent('Mediatoarea segmentului')
+        if (!ext) break
+        const m = newPoint(objs, { x: 0, y: 0 }, { kind: 'midpoint', a: segHit.dep.a, b: segHit.dep.b })
+        const drawn = drawThrough(objs, 'perpendicular', m.id, segHit.id, ext)
+        rightMark(objs, drawn, segHit.id)
         commit(objs)
         break
       }

@@ -7,8 +7,8 @@ export interface PromptField {
   hint?: string
   /** makes the field a choice instead of a text box */
   options?: { value: string; label: string }[]
-  /** show this field only while another field (by index) has the given value */
-  showIf?: { field: number; value: string }
+  /** show this field only while another field (by index) has the given value (or one of them) */
+  showIf?: { field: number; value: string | string[] }
 }
 
 interface State {
@@ -54,7 +54,11 @@ export function usePrompt() {
       >
         <div className="modal-title">{state.title}</div>
         {state.fields.map((f, i) => {
-          if (f.showIf && state.values[f.showIf.field] !== f.showIf.value) return null
+          if (f.showIf) {
+            const v = state.values[f.showIf.field]
+            const want = f.showIf.value
+            if (Array.isArray(want) ? !want.includes(v) : v !== want) return null
+          }
           const set = (val: string) => setState({ ...state, values: state.values.map((v, j) => (j === i ? val : v)) })
           return (
             <label key={i} className="field">
