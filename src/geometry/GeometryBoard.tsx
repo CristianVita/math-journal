@@ -13,12 +13,14 @@ import {
   dependsOn,
   dist,
   distToLine,
+  figureOf,
   formatNum,
   intersectLines,
   mul,
   nextLabel,
   norm,
   resolve,
+  rotate,
   sub,
   uid,
 } from './engine'
@@ -103,6 +105,9 @@ interface Props {
   readOnly?: boolean // thumbnail mode: no toolbar, no interaction, view fitted to the figure
 }
 
+/** Positions (and fixed lengths) of a figure when a scale / rotate gesture starts. */
+type XformBase = { pts: Map<string, Vec>; paths: Map<string, [number, number][]>; dists: Map<string, number> }
+
 // `at`: where on the line the user clicked (the angle-between-lines tool uses it to pick a side)
 type Pick = { kind: 'point' | 'line'; id: string; at?: Vec }
 
@@ -149,8 +154,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     | { mode: 'pan'; start: Vec; view: Scene['view'] }
     | { mode: 'move'; ids: string[]; start: Vec; orig: Map<string, Vec>; moved: boolean }
     | { mode: 'pen'; id: string }
+    | { mode: 'xform'; kind: 'scale' | 'rotate'; pivot: Vec; start: Vec; base: XformBase; moved: boolean }
     | null
   >(null)
+  const [xformLabel, setXformLabel] = useState<string | null>(null)
+  const [hoverHandle, setHoverHandle] = useState<'scale' | 'rotate' | null>(null)
 
   useEffect(() => {
     const el = wrapRef.current
@@ -171,6 +179,95 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const v = l1 && l2 ? intersectLines(l1, l2) : null
     if (!l1 || !l2 || !v) return null
     return { v, a: add(v, mul(norm(l1.d), o.s1)), b: add(v, mul(norm(l2.d), o.s2)) }
+  }
+
+  // ---------- the selected figure: move it, scale it, rotate it ----------
+  const selObj = selected ? scene.objects.find((o) => o.id === selected) : undefined
+  const figure = useMemo(() => {
+    if (!selObj || selObj.type === 'point' || selObj.type === 'function') return null
+    const ids = figureOf(scene, selObj.id)
+    const objs = scene.objects.filter((o) => ids.has(o.id))
+    // a transformation moves the free points (everything else is built on them), freehand paths and texts
+    const movable = new Set(
+      objs.filter((o) => (o.type === 'point' && o.dep.kind === 'free') || o.type === 'path' || o.type === 'text').map((o) => o.id),
+    )
+    if (!movable.size) return null
+    const pts: Vec[] = []
+    for (const o of objs) {
+      if (o.type === 'point') {
+        const p = resolved.points.get(o.id)
+        if (p) pts.push(p)
+      } else if (o.type === 'path') o.points.forEach(([x, y]) => pts.push({ x, y }))
+      else if (o.type === 'text') pts.push({ x: o.x, y: o.y })
+      else if (o.type === 'circle') {
+        const c = resolved.points.get(o.center)
+        const t = resolved.points.get(o.through)
+        if (c && t) {
+          const r = dist(c, t)
+          pts.push({ x: c.x - r, y: c.y - r }, { x: c.x + r, y: c.y + r })
+        }
+      }
+    }
+    if (!pts.length) return null
+    const vertices = objs.filter((o): o is PointObj => o.type === 'point' && !o.hidden && !!resolved.points.get(o.id))
+    const avg = (list: Vec[]) => mul(list.reduce((s, p) => add(s, p), { x: 0, y: 0 }), 1 / list.length)
+    const centroid = avg(vertices.length ? vertices.map((o) => resolved.points.get(o.id)!) : pts)
+    return { ids, movable, pts, vertices, centroid }
+  }, [scene, selObj, resolved])
+  const [pivotId, setPivotId] = useState('center')
+  useEffect(() => setPivotId('center'), [selected])
+  const pivot = figure ? (pivotId !== 'center' && resolved.points.get(pivotId)) || figure.centroid : null
+
+  const xformBase = (movable: Set<string>, ids: Set<string>): XformBase => {
+    const base: XformBase = { pts: new Map(), paths: new Map(), dists: new Map() }
+    for (const o of sceneRef.current.objects) {
+      if (movable.has(o.id) && (o.type === 'point' || o.type === 'text')) base.pts.set(o.id, { x: o.x, y: o.y })
+      if (movable.has(o.id) && o.type === 'path') base.paths.set(o.id, o.points)
+      // sides of a fixed length (constructed angle, bisector) must grow with the figure
+      if (ids.has(o.id) && o.type === 'point' && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint')) base.dists.set(o.id, o.dep.dist)
+    }
+    return base
+  }
+  /** Objects with every movable part of the figure sent through f; k scales the fixed lengths. */
+  const applyXform = (base: XformBase, f: (p: Vec) => Vec, k: number): GObj[] =>
+    sceneRef.current.objects.map((o) => {
+      if ((o.type === 'point' || o.type === 'text') && base.pts.has(o.id)) {
+        const p = f(base.pts.get(o.id)!)
+        return { ...o, x: p.x, y: p.y }
+      }
+      if (o.type === 'path' && base.paths.has(o.id))
+        return { ...o, points: base.paths.get(o.id)!.map(([x, y]) => { const p = f({ x, y }); return [p.x, p.y] as [number, number] }) }
+      if (o.type === 'point' && base.dists.has(o.id) && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint'))
+        return { ...o, dep: { ...o.dep, dist: base.dists.get(o.id)! * k } }
+      return o
+    })
+  const rotateFigure = (deg: number) => {
+    if (!figure || !pivot) return
+    const a = (deg * Math.PI) / 180
+    commit(applyXform(xformBase(figure.movable, figure.ids), (p) => rotate(p, pivot, a), 1))
+  }
+  const scaleFigure = (k: number) => {
+    if (!figure || !pivot || !(k > 0)) return
+    commit(applyXform(xformBase(figure.movable, figure.ids), (p) => add(pivot, mul(sub(p, pivot), k)), k))
+  }
+
+  /** Screen-space box around the selected figure, with its handles. */
+  const selectionBox = () => {
+    if (!figure) return null
+    const s = figure.pts.map(toScreen)
+    const pad = 12
+    const x0 = Math.min(...s.map((p) => p.x)) - pad
+    const x1 = Math.max(...s.map((p) => p.x)) + pad
+    const y0 = Math.min(...s.map((p) => p.y)) - pad
+    const y1 = Math.max(...s.map((p) => p.y)) + pad
+    return { x0, x1, y0, y1, corners: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], rot: { x: (x0 + x1) / 2, y: y0 - 30 } }
+  }
+  const handleAt = (s: Vec): 'scale' | 'rotate' | null => {
+    const box = selectionBox()
+    if (!box) return null
+    if (dist(s, box.rot) <= 11) return 'rotate'
+    if (box.corners.some((c) => Math.abs(c.x - s.x) <= 8 && Math.abs(c.y - s.y) <= 8)) return 'scale'
+    return null
   }
 
   const toScreen = useCallback(
@@ -588,6 +685,12 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       void onToolClick(s)
       return
     }
+    // the handles of the selected figure come first: they sit on its edge
+    const handle = figure && pivot ? handleAt(s) : null
+    if (handle && figure && pivot) {
+      drag.current = { mode: 'xform', kind: handle, pivot, start: toWorld(s), base: xformBase(figure.movable, figure.ids), moved: false }
+      return
+    }
     const hit = hitTest(s)
     setSelected(hit?.id ?? null)
     if (!hit) {
@@ -595,7 +698,16 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       setPanning(true)
       return
     }
-    const ids = hit.type === 'text' ? [hit.id] : hit.type === 'path' ? [hit.id] : freePointsOf(hit)
+    // a vertex moves alone (reshaping the figure); grabbing any other part moves the whole figure
+    let ids: string[]
+    if (hit.type === 'point') ids = freePointsOf(hit)
+    else if (hit.type === 'text' || hit.type === 'path') ids = [hit.id]
+    else {
+      const fig = figureOf(sceneRef.current, hit.id)
+      ids = sceneRef.current.objects
+        .filter((o) => fig.has(o.id) && ((o.type === 'point' && o.dep.kind === 'free') || o.type === 'path' || o.type === 'text'))
+        .map((o) => o.id)
+    }
     if (!ids.length) return
     const orig = new Map<string, Vec>()
     for (const o of scene.objects) {
@@ -616,6 +728,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     if (!d) {
       const h = hitTest(s)
       setHover(h?.id ?? null)
+      setHoverHandle(tool === 'move' && figure ? handleAt(s) : null)
       return
     }
     if (d.mode === 'pan') {
@@ -651,12 +764,38 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       }) }
       sceneRef.current = next
       onChange(next)
+    } else if (d.mode === 'xform') {
+      if (!d.moved) {
+        setPast((p) => [...p.slice(-80), sceneRef.current])
+        setFuture([])
+        d.moved = true
+      }
+      let f: (p: Vec) => Vec
+      let k = 1
+      if (d.kind === 'rotate') {
+        let deg = ((Math.atan2(w.y - d.pivot.y, w.x - d.pivot.x) - Math.atan2(d.start.y - d.pivot.y, d.start.x - d.pivot.x)) * 180) / Math.PI
+        deg = ((deg + 540) % 360) - 180
+        // whole degrees; Shift snaps to 15°
+        deg = e.shiftKey ? Math.round(deg / 15) * 15 : Math.round(deg)
+        const a = (deg * Math.PI) / 180
+        f = (p) => rotate(p, d.pivot, a)
+        setXformLabel(`${deg > 0 ? '+' : ''}${deg}°`)
+      } else {
+        k = dist(w, d.pivot) / Math.max(1e-9, dist(d.start, d.pivot))
+        k = Math.max(0.05, Math.round(k * 100) / 100)
+        f = (p) => add(d.pivot, mul(sub(p, d.pivot), k))
+        setXformLabel(`×${formatNum(k)}`)
+      }
+      const next = { ...sceneRef.current, objects: applyXform(d.base, f, k) }
+      sceneRef.current = next
+      onChange(next)
     }
   }
 
   const onPointerUp = () => {
     drag.current = null
     setPanning(false)
+    setXformLabel(null)
   }
 
   const onWheel = (e: React.WheelEvent) => {
@@ -1012,7 +1151,10 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             onWheel={readOnly ? undefined : onWheel}
             onContextMenu={(e) => e.preventDefault()}
             style={{
-              cursor: panning ? 'grabbing' : spaceHeld || tool === 'pan' ? 'grab' : tool === 'move' ? (hover ? 'pointer' : 'grab') : 'crosshair',
+              cursor: panning ? 'grabbing'
+                : spaceHeld || tool === 'pan' ? 'grab'
+                : tool === 'move' ? (hoverHandle === 'scale' ? 'nwse-resize' : hoverHandle === 'rotate' ? 'alias' : hover ? 'move' : 'grab')
+                : 'crosshair',
               touchAction: 'none',
             }}
           >
@@ -1027,6 +1169,26 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             {scene.objects.filter((o) => o.type !== 'polygon' && o.type !== 'point').map(renderObj)}
             {preview()}
             {scene.objects.filter((o): o is PointObj => o.type === 'point').map(renderPoint)}
+            {!readOnly && tool === 'move' && figure && pivot && (() => {
+              const box = selectionBox()!
+              const pv = toScreen(pivot)
+              return (
+                <g data-ui className="selection">
+                  <rect x={box.x0} y={box.y0} width={box.x1 - box.x0} height={box.y1 - box.y0} className="sel-box" />
+                  <line x1={box.rot.x} y1={box.rot.y + 6} x2={box.rot.x} y2={box.y0} className="sel-box" />
+                  <circle cx={box.rot.x} cy={box.rot.y} r={7} className="sel-rotate"><title>Trage pentru a roti (Shift = pași de 15°)</title></circle>
+                  {box.corners.map((c, i) => (
+                    <rect key={i} x={c.x - 5} y={c.y - 5} width={10} height={10} className="sel-scale"><title>Trage pentru a mări / micșora</title></rect>
+                  ))}
+                  <g className="sel-pivot">
+                    <circle cx={pv.x} cy={pv.y} r={6} />
+                    <line x1={pv.x - 10} y1={pv.y} x2={pv.x + 10} y2={pv.y} />
+                    <line x1={pv.x} y1={pv.y - 10} x2={pv.x} y2={pv.y + 10} />
+                  </g>
+                  {xformLabel && <text x={box.rot.x + 14} y={box.rot.y + 4} className="measure sel-label">{xformLabel}</text>}
+                </g>
+              )
+            })()}
           </svg>
           {!readOnly && <div className="board-status">
             <b>{toolInfo.label}:</b> {hint}
@@ -1035,7 +1197,13 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           </div>}
         </div>
 
-        {sel && !readOnly && <Inspector o={sel} scene={scene} resolvedLen={(id) => {
+        {sel && !readOnly && <Inspector o={sel} scene={scene} figureTools={figure && pivot ? {
+          pivots: [{ id: 'center', label: 'centrul figurii' }, ...figure.vertices.map((p) => ({ id: p.id, label: `vârful ${p.label}` }))],
+          pivot: pivotId,
+          setPivot: setPivotId,
+          rotate: rotateFigure,
+          scale: scaleFigure,
+        } : undefined} resolvedLen={(id) => {
           const l = L(id)
           return l ? dist(l.a, l.b) : null
         }} onPatch={(p) => updateObj(sel.id, p)} onDelete={() => {
@@ -1154,12 +1322,48 @@ function FunctionPlot({ o, hl, toScreen, toWorld, W, H }: {
   )
 }
 
-function Inspector({ o, scene, onPatch, onDelete, resolvedLen }: {
+interface FigureTools {
+  pivots: { id: string; label: string }[]
+  pivot: string
+  setPivot: (id: string) => void
+  rotate: (deg: number) => void
+  scale: (k: number) => void
+}
+
+/** Exact rotation / scaling of the whole selected figure, around the chosen pivot. */
+function FigurePanel({ t }: { t: FigureTools }) {
+  const [deg, setDeg] = useState('90')
+  const [k, setK] = useState('2')
+  const num = (s: string) => Number(s.replace(',', '.'))
+  return (
+    <div className="insp-figure">
+      <div className="insp-sub">Toată figura</div>
+      <div className="insp-note">Trage de interior sau de o latură ca s-o muți; colțurile chenarului o măresc, cercul de sus o rotește.</div>
+      <label className="insp-row">În jurul
+        <select value={t.pivot} onChange={(e) => t.setPivot(e.target.value)}>
+          {t.pivots.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </label>
+      <div className="insp-row">
+        <input type="text" inputMode="decimal" value={deg} onChange={(e) => setDeg(e.target.value)} style={{ width: 56 }} />°
+        <button className="btn small" onClick={() => isFinite(num(deg)) && t.rotate(num(deg))} title="Rotește în sens trigonometric (invers acelor de ceasornic)">↺ Rotește</button>
+        <button className="btn small" onClick={() => isFinite(num(deg)) && t.rotate(-num(deg))} title="Rotește în sensul acelor de ceasornic">↻</button>
+      </div>
+      <div className="insp-row">
+        ×<input type="text" inputMode="decimal" value={k} onChange={(e) => setK(e.target.value)} style={{ width: 56 }} />
+        <button className="btn small" onClick={() => num(k) > 0 && t.scale(num(k))}>Scalează</button>
+      </div>
+    </div>
+  )
+}
+
+function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
   o: GObj
   scene: Scene
   onPatch: (p: Partial<GObj>) => void
   onDelete: () => void
   resolvedLen: (id: string) => number | null
+  figureTools?: FigureTools
 }) {
   const names: Record<GObj['type'], string> = {
     point: 'Punct', segment: 'Segment', line: 'Dreaptă', ray: 'Semidreaptă', circle: 'Cerc',
@@ -1174,6 +1378,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen }: {
 
   return (
     <div className="inspector">
+      {figureTools && <FigurePanel t={figureTools} />}
       <div className="insp-title">{title}</div>
       <div className="insp-row">
         <span>Culoare</span>

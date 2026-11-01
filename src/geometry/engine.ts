@@ -187,6 +187,32 @@ export function dependsOn(o: GObj): string[] {
   }
 }
 
+/**
+ * The whole figure `id` belongs to: every object connected to it through shared points or lines,
+ * in either direction (a triangle's sides, vertices, angles, bisectors…).
+ */
+export function figureOf(scene: Scene, id: string): Set<string> {
+  const links = new Map<string, Set<string>>()
+  const link = (a: string, b: string) => {
+    if (!links.has(a)) links.set(a, new Set())
+    if (!links.has(b)) links.set(b, new Set())
+    links.get(a)!.add(b)
+    links.get(b)!.add(a)
+  }
+  for (const o of scene.objects) for (const d of dependsOn(o)) link(o.id, d)
+  const out = new Set([id])
+  const queue = [id]
+  while (queue.length) {
+    for (const next of links.get(queue.pop()!) ?? []) {
+      if (!out.has(next)) {
+        out.add(next)
+        queue.push(next)
+      }
+    }
+  }
+  return out
+}
+
 /** Ids to remove when deleting `id`: the object plus everything (transitively) built on it. */
 export function cascade(scene: Scene, id: string): Set<string> {
   const out = new Set([id])

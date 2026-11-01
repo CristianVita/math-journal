@@ -190,6 +190,14 @@ textarea { resize: vertical; width: 100%; }
 .insp-row input:not([type=checkbox]) { flex: 1; min-width: 60px; padding: 4px 6px; }
 .insp-colors { display: flex; gap: 4px; flex-wrap: wrap; }
 .insp-note { color: var(--muted); font-size: 12px; }
+.insp-figure { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.insp-sub { font-weight: 700; color: var(--accent); }
+.sel-box { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; }
+.sel-scale { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
+.sel-rotate { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
+.sel-pivot circle { fill: none; stroke: #f59e0b; stroke-width: 1.5; }
+.sel-pivot line { stroke: #f59e0b; stroke-width: 1.5; }
+.sel-label { fill: var(--accent); }
 
 /* ---------- symbols ---------- */
 .palette { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
@@ -295,7 +303,11 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
   .notes-area.with-palette, .notes-editor.mode-split, .trig-unit, .trig-plot, .tri-solver, .symbols-layout, .calc-grid { grid-template-columns: 1fr; }
   .calc-input { position: static; }
   .palette.compact { position: static; max-height: 360px; }
-  .inspector { position: absolute; right: 0; top: 0; bottom: 0; box-shadow: -6px 0 18px rgba(0,0,0,.08); }
+  /* narrow screens: the panel goes under the board instead of covering the figure */
+  .board-body { flex-direction: column; }
+  .inspector { width: auto; border-left: 0; border-top: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+  .inspector > * { flex: 0 1 auto; }
+  .insp-figure { border-bottom: 0; border-right: 1px solid var(--line); padding: 0 14px 0 0; max-width: 260px; }
 }
 @media (max-width: 720px) {
   .main { flex-direction: column; }
