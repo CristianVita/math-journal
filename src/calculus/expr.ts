@@ -3,16 +3,21 @@ import { parse, rationalize, simplify, type MathNode } from 'mathjs'
 
 export type Node = MathNode
 
+// A name starts where no letter precedes it. Not \b: there is no word boundary in "2ln" or "2x".
+const START = '(?<![a-zA-Z_])'
+const END = '(?![a-zA-Z_])'
+const word = (w: string) => new RegExp(START + w + END, 'g')
+
 /** Romanian / school notation → mathjs names. Longest names first so "arcctg" is not eaten by "ctg". */
 const NAME_MAP: [RegExp, string][] = [
-  [/\barcctg\b/g, 'acot'],
-  [/\barctg\b/g, 'atan'],
-  [/\barcsin\b/g, 'asin'],
-  [/\barccos\b/g, 'acos'],
-  [/\bctg\b/g, 'cot'],
-  [/\btg\b/g, 'tan'],
-  [/\bln\b/g, 'log'],
-  [/\blg\b/g, 'log10'],
+  [word('arcctg'), 'acot'],
+  [word('arctg'), 'atan'],
+  [word('arcsin'), 'asin'],
+  [word('arccos'), 'acos'],
+  [word('ctg'), 'cot'],
+  [word('tg'), 'tan'],
+  [word('ln'), 'log'],
+  [word('lg'), 'log10'],
   [/π/g, 'pi'],
   [/√/g, 'sqrt'],
   [/·|×/g, '*'],
@@ -26,12 +31,31 @@ export function normalizeInput(src: string): string {
   let s = src.trim().replace(/,(?=\d)/g, '.')
   for (const [re, to] of NAME_MAP) s = s.replace(re, to)
   // sin^2(x) → sin(x)^2   (only for a simple, non-nested argument)
-  s = s.replace(new RegExp(`\\b(${FN_NAMES})\\^(\\d+|\\(\\d+\\))\\(([^()]*)\\)`, 'g'), '$1($3)^$2')
+  s = s.replace(new RegExp(`${START}(${FN_NAMES})\\^(\\d+|\\(\\d+\\))\\(([^()]*)\\)`, 'g'), '$1($3)^$2')
   // "sin x", "ln x", "tg 2x" → sin(x)   (argument = a single term without spaces)
-  s = s.replace(new RegExp(`\\b(${FN_NAMES})\\s+([0-9.]*[a-zA-Z]\\w*(?:\\^\\w+)?)`, 'g'), '$1($2)')
+  s = s.replace(new RegExp(`${START}(${FN_NAMES})\\s+([0-9.]*[a-zA-Z]\\w*(?:\\^\\w+)?)`, 'g'), '$1($2)')
   // "x(x+1)" is a product in class, but a function call for mathjs: insert the multiplication
-  s = s.replace(/\b([a-zA-Z_]\w*)\s*\(/g, (m, name: string) => (name in KNOWN_FNS ? m : `${name}*(`))
+  s = s.replace(new RegExp(`${START}([a-zA-Z_]\\w*)\\s*\\(`, 'g'), (m, name: string) => (name in KNOWN_FNS ? m : `${name}*(`))
   return s
+}
+
+// longest first, so "arcctg" is matched before "ctg"
+const FN_WORDS = ['arcctg', 'arctg', 'arcsin', 'arccos', 'sqrt', 'sin', 'cos', 'ctg', 'tg', 'tan', 'cot', 'ln', 'lg', 'log', 'exp']
+
+/** The visual editor's (MathLive) ASCIIMath output → the syntax normalizeInput reads. */
+export function asciiToInput(a: string): string {
+  let s = a
+  // a function name typed letter by letter comes out as a product "l n"; glue it back into "ln"
+  for (const w of FN_WORDS) s = s.replace(new RegExp(`${START}${w.split('').join('\\s*')}${END}`, 'g'), w)
+  s = s
+    .replace(new RegExp(`${START}xx${END}`, 'g'), '*')
+    .replace(/·|⋅/g, '*')
+    .replace(new RegExp(`${START}oo${END}`, 'g'), 'inf')
+    // root(n)(x) → nthRoot(x, n)
+    .replace(/root\(([^()]+)\)\(([^()]+)\)/g, 'nthRoot($2, $1)')
+  // |x| → (abs(x)); the outer parentheses keep "ln|x|" a call: ln((abs(x)))
+  for (let i = 0; i < 5 && /\|[^|]+\|/.test(s); i++) s = s.replace(/\|([^|]+)\|/g, '(abs($1))')
+  return s.trim()
 }
 
 const KNOWN_FNS: Record<string, true> = Object.fromEntries(

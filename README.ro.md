@@ -41,6 +41,7 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - Convertor grade ↔ radiani, tabel de valori, formule (reducere, sume, unghi dublu, transformări, ecuații, triunghi)
 
 **Calculator de derivate și integrale**
+- **Editor vizual de formule** ([MathLive](https://mathlive.io)): tastând `/` apare linie de fracție adevărată, `^` urcă în exponent, iar pe ecrane tactile apare o tastatură matematică; modul text e la un click distanță
 - **Derivate pas cu pas:** fiecare regulă aplicată (sumă, produs, cât, funcție compusă, puteri, exponențiale, logaritmi, funcții trigonometrice și inverse), cu formula generală, rezultatul „brut” și cel simplificat; derivate de ordin superior; merge offline
 - **Integrale pas cu pas**, cu [SymPy](https://www.sympy.org) rulat în browser prin [Pyodide](https://pyodide.org): substituție, integrare prin părți (inclusiv cazul ciclic), fracții simple, substituții trigonometrice, integrale tabelare — explicate în română, cu `ln|u|` ca la școală
 - Integrale definite și improprii, cu detectarea divergenței (ex. `∫₋₁² dx/x²` e divergentă din cauza lui x = 0) și verificare numerică independentă (metoda Simpson)

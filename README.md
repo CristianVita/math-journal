@@ -47,6 +47,7 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - Degrees ↔ radians converter, table of special values, identities (reduction, sum and difference, double angle, sum-to-product, equations, triangle formulas)
 
 **Calculus calculator**
+- **Visual formula editor** ([MathLive](https://mathlive.io)): typing `/` draws a real fraction bar, `^` moves into the exponent, and touch screens get a math keyboard; a plain-text mode is one click away
 - **Derivatives, step by step:** every rule applied (sum, product, quotient, chain rule, powers, exponentials, logs, trig and inverse trig), each shown with the general formula, the raw result and the simplified one; higher-order derivatives; works offline
 - **Integrals, step by step**, powered by [SymPy](https://www.sympy.org) running in the browser via [Pyodide](https://pyodide.org): substitution, integration by parts (including the cyclic case), partial fractions, trig substitution, table integrals — explained in Romanian, with `ln|u|` as taught in school
 - Definite and improper integrals, with divergence detection (e.g. `∫₋₁² dx/x²` diverges because of x = 0) and an independent numeric check (Simpson's rule)

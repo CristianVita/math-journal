@@ -1,12 +1,73 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Tex } from '../components/Tex'
 import SaveNotesDialog from '../components/SaveNotesDialog'
+import MathInput, { type MathInputHandle } from '../components/MathInput'
 import { type Node, nice, numericIntegral, parseExpr, roTex, sameFunction, tex, toSympy } from './expr'
 import { derivativeOf, type Step } from './derivative'
 import { type IntegralResult, integrate, onStatus, warmUp } from './sympyClient'
 import { type ExplainedStep, explain } from './integralSteps'
 
-const QUICK = ['^', 'sqrt()', 'ln()', 'e^()', 'sin()', 'cos()', 'tg()', 'ctg()', 'arcsin()', 'arctg()', 'pi', '()', '/']
+/** Quick-insert buttons: plain text for the text box, LaTeX (with placeholders) for the visual editor. */
+const QUICK: { label: string; text: string; latex: string }[] = [
+  { label: 'a/b', text: '/', latex: '\\frac{#@}{#?}' },
+  { label: 'xⁿ', text: '^', latex: '#@^{#?}' },
+  { label: '√', text: 'sqrt()', latex: '\\sqrt{#0}' },
+  { label: 'ⁿ√', text: 'nthRoot(, 3)', latex: '\\sqrt[#?]{#0}' },
+  { label: 'ln', text: 'ln()', latex: '\\ln\\left(#0\\right)' },
+  { label: 'eˣ', text: 'e^()', latex: 'e^{#0}' },
+  { label: 'sin', text: 'sin()', latex: '\\sin\\left(#0\\right)' },
+  { label: 'cos', text: 'cos()', latex: '\\cos\\left(#0\\right)' },
+  { label: 'tg', text: 'tg()', latex: '\\operatorname{tg}\\left(#0\\right)' },
+  { label: 'ctg', text: 'ctg()', latex: '\\operatorname{ctg}\\left(#0\\right)' },
+  { label: 'arcsin', text: 'arcsin()', latex: '\\arcsin\\left(#0\\right)' },
+  { label: 'arctg', text: 'arctg()', latex: '\\operatorname{arctg}\\left(#0\\right)' },
+  { label: '|x|', text: 'abs()', latex: '\\left|#0\\right|' },
+  { label: 'π', text: 'pi', latex: '\\pi' },
+  { label: '( )', text: '()', latex: '\\left(#0\\right)' },
+]
+
+/** Text → LaTeX for the visual editor (null when the text does not parse yet). */
+const textToLatex = (t: string) => {
+  try {
+    return tex(parseExpr(t).node)
+  } catch {
+    return null
+  }
+}
+
+// visual vs. text input: one setting for every field on the page, remembered between visits
+type InputMode = 'visual' | 'text'
+const MODE_KEY = 'math-journal:input-mode'
+let inputMode: InputMode = (() => {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'text' ? 'text' : 'visual'
+  } catch {
+    return 'visual'
+  }
+})()
+const modeListeners = new Set<() => void>()
+
+function useInputMode(): [InputMode, (m: InputMode) => void] {
+  const mode = useSyncExternalStore(
+    (l) => {
+      modeListeners.add(l)
+      return () => {
+        modeListeners.delete(l)
+      }
+    },
+    () => inputMode,
+  )
+  const set = (m: InputMode) => {
+    inputMode = m
+    try {
+      localStorage.setItem(MODE_KEY, m)
+    } catch {
+      /* storage unavailable: keep it for this visit only */
+    }
+    modeListeners.forEach((l) => l())
+  }
+  return [mode, set]
+}
 
 const DERIV_EXAMPLES = ['x^2*sin(x)', '(x^2+1)/(x-1)', 'e^(x^2)*cos(3x)', 'ln(ln(sin(x)))', 'x^x', 'arctg(1/x)', 'sqrt(1+x^2)/x']
 const INT_EXAMPLES = ['x^2*sin(x)', 'x*e^x', 'e^x*sin(x)', '(3x+1)/(x^2-1)', 'x^3/(x^2+1)', 'sqrt(1-x^2)', '1/(x*ln(x))', 'arcsin(x)', 'e^(-x^2)']
@@ -33,8 +94,10 @@ function ExprInput({ label, value, onChange, prefix, placeholder, examples }: {
   examples?: string[]
 }) {
   const ref = useRef<HTMLInputElement>(null)
+  const mathRef = useRef<MathInputHandle>(null)
+  const [mode, setMode] = useInputMode()
   const { node, error } = useParsed(value)
-  const insert = (snippet: string) => {
+  const insertText = (snippet: string) => {
     const el = ref.current!
     const start = el.selectionStart ?? value.length
     const end = el.selectionEnd ?? start
@@ -49,17 +112,36 @@ function ExprInput({ label, value, onChange, prefix, placeholder, examples }: {
   }
   return (
     <div className="expr-input">
-      <label className="field">
-        {label}
-        <input ref={ref} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} spellCheck={false} autoComplete="off" />
-      </label>
+      <div className="field">
+        <div className="field-label-row">
+          <span>{label}</span>
+          <div className="seg small">
+            <button type="button" className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')} title="Editor de formule: / face linie de fracție, ^ urcă în exponent">Formulă</button>
+            <button type="button" className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')} title="Scriere ca text: (x^2+1)/(x-1)">Text</button>
+          </div>
+        </div>
+        {mode === 'visual' ? (
+          <MathInput ref={mathRef} text={value} toLatex={textToLatex} onChange={onChange} placeholder={placeholder} />
+        ) : (
+          <input ref={ref} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} spellCheck={false} autoComplete="off" />
+        )}
+      </div>
       <div className="quick">
         {QUICK.map((q) => (
-          <button key={q} type="button" className="chip" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(q)}>{q}</button>
+          <button
+            key={q.label}
+            type="button"
+            className="chip"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => (mode === 'visual' ? mathRef.current?.insert(q.latex) : insertText(q.text))}
+          >
+            {q.label}
+          </button>
         ))}
       </div>
+      {mode === 'visual' && <div className="muted small">Tastează <b>/</b> pentru linie de fracție, <b>^</b> pentru exponent, săgețile pentru a ieși din fracție sau exponent.</div>}
       <div className="expr-preview">
-        {error ? <span className="error">{error}</span> : node ? <Tex tex={(prefix ?? '') + tex(node)} display /> : <span className="muted">Previzualizarea formulei apare aici.</span>}
+        {error ? <span className="error">{error}</span> : node ? <Tex tex={(prefix ?? '') + tex(node)} display /> : <span className="muted">Cum înțelege aplicația formula apare aici.</span>}
       </div>
       {examples && (
         <div className="examples muted">
@@ -75,12 +157,17 @@ function ExprInput({ label, value, onChange, prefix, placeholder, examples }: {
 
 function CheckAnswer({ label, onCheck }: { label: string; onCheck: (n: Node) => { ok: boolean; detail: string } }) {
   const [src, setSrc] = useState('')
+  const [mode] = useInputMode()
   const { node, error } = useParsed(src)
   const verdict = node ? onCheck(node) : null
   return (
     <div className="card check">
       <div className="card-title">{label}</div>
-      <input value={src} onChange={(e) => setSrc(e.target.value)} placeholder="Scrie răspunsul elevului…" spellCheck={false} />
+      {mode === 'visual' ? (
+        <MathInput text={src} toLatex={textToLatex} onChange={setSrc} placeholder="Răspunsul elevului…" />
+      ) : (
+        <input value={src} onChange={(e) => setSrc(e.target.value)} placeholder="Scrie răspunsul elevului…" spellCheck={false} />
+      )}
       {error && <div className="error">{error}</div>}
       {node && <Tex tex={tex(node)} display />}
       {verdict && <div className={'verdict ' + (verdict.ok ? 'ok' : 'bad')}>{verdict.ok ? '✓ ' : '✗ '}{verdict.detail}</div>}
