@@ -13,6 +13,8 @@ export type PointDep =
   | { kind: 'bisectorPoint'; a: string; v: string; b: string; dist: number }
   // where the bisector from v meets the opposite side [ab] (it divides it in the ratio va : vb)
   | { kind: 'bisectorFoot'; a: string; v: string; b: string }
+  // foot of the perpendicular from `point` to `line` (orthogonal projection)
+  | { kind: 'foot'; point: string; line: string }
 
 export interface PointObj {
   id: string

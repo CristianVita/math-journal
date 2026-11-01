@@ -99,6 +99,10 @@ export function resolve(scene: Scene): Resolved {
           r = add(v, mul(norm(dir), dep.dist))
         }
       }
+    } else if (dep.kind === 'foot') {
+      const q = point(dep.point)
+      const l = line(dep.line)
+      if (q && l) r = add(l.p, mul(l.d, dot(sub(q, l.p), l.d) / dot(l.d, l.d)))
     } else if (dep.kind === 'polar') {
       const c = point(dep.center)
       const t = point(dep.toward)
@@ -165,6 +169,7 @@ export function dependsOn(o: GObj): string[] {
       if (o.dep.kind === 'midpoint') return [o.dep.a, o.dep.b]
       if (o.dep.kind === 'rotate') return [o.dep.center, o.dep.from]
       if (o.dep.kind === 'polar') return [o.dep.center, o.dep.toward]
+      if (o.dep.kind === 'foot') return [o.dep.point, o.dep.line]
       if (o.dep.kind === 'bisectorPoint' || o.dep.kind === 'bisectorFoot') return [o.dep.a, o.dep.v, o.dep.b]
       if (o.dep.kind === 'intersection') return [o.dep.l1, o.dep.l2]
       return []

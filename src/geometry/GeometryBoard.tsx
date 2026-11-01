@@ -87,8 +87,8 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'lineAngle', icon: '∢', label: 'Unghi între două linii', hint: ['Click pe prima dreaptă / segment / semidreaptă (pe porțiunea care formează unghiul)', 'Click pe a doua linie'] },
   { id: 'construct', icon: '∡', label: 'Construiește unghi de x°', hint: ['Vârful unghiului', 'Direcția primei laturi (apoi introduci măsura și lungimile laturilor)'] },
   { id: 'midpoint', icon: '⋯', label: 'Mijloc', hint: ['Click pe un segment sau pe primul punct', 'Al doilea punct'] },
-  { id: 'perpendicular', icon: '⊥', label: 'Perpendiculară', hint: ['Alege dreapta și punctul prin care trece'] },
-  { id: 'parallel', icon: '∥', label: 'Paralelă', hint: ['Alege dreapta și punctul prin care trece'] },
+  { id: 'perpendicular', icon: '⊥', label: 'Perpendiculară', hint: ['Click pe dreaptă (sau segment) și pe punct, în orice ordine', 'Acum al doilea element (dreapta sau punctul)'] },
+  { id: 'parallel', icon: '∥', label: 'Paralelă', hint: ['Click pe dreaptă (sau segment) și pe punct, în orice ordine', 'Acum al doilea element (dreapta sau punctul)'] },
   { id: 'bisector', icon: '⦟', label: 'Bisectoare', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură (apoi alegi până unde merge bisectoarea)'] },
   { id: 'intersection', icon: '✕', label: 'Intersecție', hint: ['Prima dreaptă / segment', 'A doua dreaptă / segment'] },
   { id: 'text', icon: 'T', label: 'Text / formulă', hint: ['Click unde vrei textul (LaTeX între $...$)'] },
@@ -159,6 +159,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   >(null)
   const [xformLabel, setXformLabel] = useState<string | null>(null)
   const [hoverHandle, setHoverHandle] = useState<'scale' | 'rotate' | null>(null)
+  // a short message in the status bar (e.g. "click on a line") instead of silently doing nothing
+  const [flashMsg, setFlashMsg] = useState<string | null>(null)
+  const flashTimer = useRef<number>()
+  const flash = (msg: string) => {
+    setFlashMsg(msg)
+    clearTimeout(flashTimer.current)
+    flashTimer.current = window.setTimeout(() => setFlashMsg(null), 2500)
+  }
 
   useEffect(() => {
     const el = wrapRef.current
@@ -324,7 +332,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }
 
   // ---------- hit testing (screen pixels) ----------
-  const hitTest = (s: Vec, only?: (o: GObj) => boolean): GObj | null => {
+  /** Object under screen point s; `lineTol` (px) is how close a click must be to a line. */
+  const hitTest = (s: Vec, only?: (o: GObj) => boolean, lineTol = 6): GObj | null => {
     const w = toWorld(s)
     const objs = scene.objects.filter((o) => !only || only(o))
     let best: { o: GObj; d: number } | null = null
@@ -341,7 +350,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     for (const o of objs) {
       if (isLinear(o)) {
         const l = L(o.id)
-        if (l) consider(o, distToLine(w, l) * view.scale, 6)
+        if (l) consider(o, distToLine(w, l) * view.scale, lineTol)
       } else if (o.type === 'circle') {
         const c = P(o.center)
         const t = P(o.through)
@@ -613,20 +622,50 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         break
       case 'perpendicular':
       case 'parallel': {
-        const lineHit = hitTest(s, (o) => isLinear(o) && o.type !== undefined)
-        const next = [...pending]
-        if (hit?.type !== 'point' && lineHit && isLinear(lineHit)) next.push({ kind: 'line', id: lineHit.id })
-        else next.push({ kind: 'point', id: pointAt() })
-        const ln = next.find((p) => p.kind === 'line')
-        const pt = [...next].reverse().find((p) => p.kind === 'point')
-        if (ln && pt) {
-          newLine(objs, 'line', { kind: tool, through: pt.id, ref: ln.id }, { dashed: true })
-          setPending([])
-          commit(objs)
+        // either order: the line and the point. A miss never drops a stray point.
+        const haveLine = pending.find((p) => p.kind === 'line')
+        const havePoint = pending.find((p) => p.kind === 'point')
+        const lineHit = hitTest(s, isLinear, 10)
+        let pick: Pick | null = null
+        if (!haveLine && !havePoint) {
+          // first click: an existing point if one was hit, otherwise a line
+          if (hit?.type === 'point') pick = { kind: 'point', id: hit.id }
+          else if (lineHit) pick = { kind: 'line', id: lineHit.id }
+        } else if (!haveLine) {
+          // waiting for the line: look at lines only, even next to a vertex
+          if (lineHit) pick = { kind: 'line', id: lineHit.id }
         } else {
+          // waiting for the point: an existing one, or a new one where the user clicked
+          pick = { kind: 'point', id: pointAt() }
+        }
+        if (!pick) {
+          flash(haveLine ? 'Alege punctul.' : 'Click pe o dreaptă, un segment sau o semidreaptă.')
+          break
+        }
+        const next = [...pending, pick]
+        const ln = next.find((p) => p.kind === 'line')
+        const pt = next.find((p) => p.kind === 'point')
+        if (!ln || !pt) {
           setPending(next)
           if (objs.length !== sceneRef.current.objects.length) commit(objs)
+          break
         }
+        setPending([])
+        const ref = L(ln.id)
+        const at = resolve({ objects: objs, view }).points.get(pt.id)
+        const onLine = ref && at ? distToLine(at, { ...ref, kind: 'line' }) < 1e-9 : false
+        if (tool === 'parallel' || onLine) {
+          // a parallel has no foot; a perpendicular at a point of the line is the whole line
+          newLine(objs, 'line', { kind: tool, through: pt.id, ref: ln.id }, { dashed: true })
+          commit(objs)
+          break
+        }
+        // perpendicular from a point to a line: the segment to its foot, as drawn in class
+        const foot = newPoint(objs, { x: 0, y: 0 }, { kind: 'foot', point: pt.id, line: ln.id })
+        const seg = newLine(objs, 'segment', { kind: 'twoPoints', a: pt.id, b: foot.id }, { dashed: true, showLength: true })
+        // right-angle mark at the foot, between the new segment (towards the point) and the line
+        objs.push({ id: uid(), type: 'lineAngle', l1: seg.id, l2: ln.id, s1: -1, s2: 1, color, showValue: false, rightMark: true } satisfies LineAngleObj)
+        commit(objs)
         break
       }
       case 'intersection': {
@@ -1200,7 +1239,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             })()}
           </svg>
           {!readOnly && <div className="board-status">
-            <b>{toolInfo.label}:</b> {hint}
+            <b>{toolInfo.label}:</b> {flashMsg ? <span className="flash">{flashMsg}</span> : hint}
             {tool !== 'move' && tool !== 'pan' && <span className="muted">· Esc = cursor · click dreapta + trage = mută tabla</span>}
             {mouse && <span className="coords">({formatNum(mouse.x)}, {formatNum(mouse.y)})</span>}
           </div>}
