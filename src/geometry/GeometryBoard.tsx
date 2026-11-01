@@ -285,9 +285,15 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }
 
   // ---------- history ----------
-  const commit = (objects: GObj[], v = sceneRef.current.view) => {
-    setPast((p) => [...p.slice(-80), sceneRef.current])
+  // History updaters run later, during React's render, when sceneRef may already hold the new
+  // scene: always capture the scene to remember *before* changing it.
+  const remember = () => {
+    const before = sceneRef.current
+    setPast((p) => [...p.slice(-80), before])
     setFuture([])
+  }
+  const commit = (objects: GObj[], v = sceneRef.current.view) => {
+    remember()
     const next = { objects, view: v }
     sceneRef.current = next
     onChange(next)
@@ -299,17 +305,22 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }
   const undo = () => {
     if (!past.length) return
-    setFuture((f) => [sceneRef.current, ...f])
-    const prev = past[past.length - 1]
+    const current = sceneRef.current
+    setFuture((f) => [current, ...f])
+    const prev = { ...past[past.length - 1], view: current.view }
     setPast((p) => p.slice(0, -1))
-    onChange({ ...prev, view: sceneRef.current.view })
+    sceneRef.current = prev
+    onChange(prev)
   }
   const redo = () => {
     if (!future.length) return
-    setPast((p) => [...p, sceneRef.current])
+    const current = sceneRef.current
+    setPast((p) => [...p, current])
     const [n, ...rest] = future
     setFuture(rest)
-    onChange({ ...n, view: sceneRef.current.view })
+    const next = { ...n, view: current.view }
+    sceneRef.current = next
+    onChange(next)
   }
 
   // ---------- hit testing (screen pixels) ----------
@@ -742,8 +753,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       })
     } else if (d.mode === 'move') {
       if (!d.moved) {
-        setPast((p) => [...p.slice(-80), sceneRef.current])
-        setFuture([])
+        remember()
         d.moved = true
         pathOrig.current = new Map(
           sceneRef.current.objects.filter((o): o is PathObj => o.type === 'path').map((o) => [o.id, o.points]),
@@ -766,8 +776,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       onChange(next)
     } else if (d.mode === 'xform') {
       if (!d.moved) {
-        setPast((p) => [...p.slice(-80), sceneRef.current])
-        setFuture([])
+        remember()
         d.moved = true
       }
       let f: (p: Vec) => Vec

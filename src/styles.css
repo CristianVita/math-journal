@@ -305,6 +305,8 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
   .palette.compact { position: static; max-height: 360px; }
   /* narrow screens: the panel goes under the board instead of covering the figure */
   .board-body { flex-direction: column; }
+  /* in a column, flex:1 would override the board's explicit height and collapse it */
+  .board-canvas { flex: none; }
   .inspector { width: auto; border-left: 0; border-top: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
   .inspector > * { flex: 0 1 auto; }
   .insp-figure { border-bottom: 0; border-right: 1px solid var(--line); padding: 0 14px 0 0; max-width: 260px; }
