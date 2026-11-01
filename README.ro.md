@@ -26,18 +26,21 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 
 **Tablă (geometrie)**
 - Punct, segment (cu lungime), dreaptă, semidreaptă, cerc, poligon, poligon regulat cu n laturi
-- Unghi cu măsura afișată (grade sau radiani), marcaj automat de unghi drept
-- **Construiește un unghi de x°** pornind de la un vârf și o latură
-- Mijlocul unui segment, perpendiculară, paralelă, bisectoare, intersecția a două drepte
+- **Triunghiuri** după tip și dimensiuni: dreptunghic (catete), ascuțitunghic și obtuzunghic (trei laturi, verificate față de tip), echilateral, isoscel
+- Unghi cu măsura afișată (grade sau radiani), marcaj automat de unghi drept; **unghiul dintre două linii desenate**
+- **Construiește un unghi de x°** cu laturi de lungime aleasă (sau semidrepte infinite)
+- Mijloc, intersecție, **perpendiculara dintr-un punct până la picior** (cu distanța), **mediatoare**, paralele și perpendiculare de lungime aleasă, **bisectoare** până la latura opusă sau de lungime aleasă
+- Punctele noi **se lipesc de linii, cercuri și intersecții**, cu previzualizare înainte de click; punctele lipite rămân pe linie și se plimbă de-a lungul ei
+- **Selectezi o figură întreagă** și o muți, o scalezi sau o rotești (în jurul centrului sau al oricărui vârf), cu mânere sau cu valori exacte
 - Construcțiile sunt dependente: muți un punct și tot ce e construit pe el se actualizează
 - Text și formule LaTeX pe tablă, desen liber (mouse / stylus), graficul oricărei funcții f(x)
-- Grilă, axe, aliniere la grilă, zoom (rotița), mutarea tablei, anulare/refacere, export PNG/SVG
+- Grilă, axe, aliniere la grilă, zoom (rotița), mutarea tablei (unealta mână, click dreapta sau Space + trage), anulare/refacere, export PNG/SVG
 - Figurile pot fi salvate direct într-o ședință din jurnal
 
 **Trigonometrie**
 - Cercul trigonometric interactiv: sin, cos, tg, ctg cu valori exacte la unghiurile remarcabile
-- Grafice `A·f(Bx + C) + D` pentru sin, cos, tg, ctg, cu perioadă, defazaj și imagine
-- Rezolvarea oricărui triunghi (LLL, LUL, ULU, LUU, LLU cu cazul ambiguu): arie, perimetru, R, r, înălțimi; se poate deschide pe tablă
+- Grafice `A·f(Bx + C) + D` pentru sin, cos, tg, ctg, funcțiile **trigonometrice inverse** (arcsin, arccos, arctg, arcctg) și **hiperbolice** (sh, ch, th, cth), cu perioadă / domeniu și imagine și asimptotele lor
+- Rezolvarea oricărui triunghi (LLL, LUL, ULU, LUU, LLU cu cazul ambiguu): arie, perimetru, R, r, înălțimi, **bisectoare și mediane**; se poate deschide pe tablă
 - Convertor grade ↔ radiani, tabel de valori, formule (reducere, sume, unghi dublu, transformări, ecuații, triunghi)
 
 **Calculator de derivate și integrale**

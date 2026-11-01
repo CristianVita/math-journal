@@ -32,18 +32,21 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 
 **Geometry board**
 - Point, segment (with length), line, ray, circle, polygon, regular polygon with n sides
-- Angle with its measure shown (degrees or radians), automatic right-angle mark
-- **Construct an angle of x°** from a vertex and one side
-- Midpoint, perpendicular, parallel, angle bisector, intersection of two lines
+- **Triangles** by type and size: right (two legs), acute and obtuse (three sides, checked against the type), equilateral, isosceles
+- Angle with its measure shown (degrees or radians), automatic right-angle mark; **angle between two drawn lines**
+- **Construct an angle of x°** with sides of a chosen length (or infinite rays)
+- Midpoint, intersection, **perpendicular from a point to its foot** (with the distance), **perpendicular bisector**, parallel and perpendicular lines of a chosen length, **angle bisector** to the opposite side or of a chosen length
+- New points **snap onto lines, circles and intersections**, with a preview before the click; snapped points stay on their line and slide along it
+- **Select a whole figure** and move it, scale it or rotate it (around its centre or any vertex), by dragging handles or with exact values
 - Constructions are dependent: move a point and everything built on it follows
 - Text and LaTeX labels, freehand drawing (mouse or stylus), plot any function f(x)
-- Grid, axes, snap to grid, zoom (mouse wheel), pan, undo/redo, PNG/SVG export
+- Grid, axes, snap to grid, zoom (mouse wheel), pan (hand tool, right-drag or Space-drag), undo/redo, PNG/SVG export
 - Save a figure straight into a journal session
 
 **Trigonometry**
 - Interactive unit circle: sin, cos, tan, cot with exact values at the special angles
-- Plots of `A·f(Bx + C) + D` for sin, cos, tan, cot, with period, phase shift and range
-- Solve any triangle (SSS, SAS, ASA, AAS, and SSA including the ambiguous case): area, perimeter, circumradius, inradius, heights; open the result on the board
+- Plots of `A·f(Bx + C) + D` for sin, cos, tan, cot, **inverse trigonometric** (arcsin, arccos, arctan, arccot) and **hyperbolic** functions (sinh, cosh, tanh, coth), with period / domain and range and their asymptotes
+- Solve any triangle (SSS, SAS, ASA, AAS, and SSA including the ambiguous case): area, perimeter, circumradius, inradius, heights, **angle bisectors and medians**; open the result on the board
 - Degrees ↔ radians converter, table of special values, identities (reduction, sum and difference, double angle, sum-to-product, equations, triangle formulas)
 
 **Calculus calculator**
