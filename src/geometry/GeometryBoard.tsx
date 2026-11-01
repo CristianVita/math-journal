@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import katex from 'katex'
 import { compile, type EvalFunction } from 'mathjs'
-import type { AngleObj, CircleObj, FunctionObj, GObj, LineObj, PathObj, PointObj, PolygonObj, Scene, TextObj } from './types'
+import type { AngleObj, CircleObj, FunctionObj, GObj, LineAngleObj, LineObj, PathObj, PointObj, PolygonObj, Scene, TextObj } from './types'
 import { emptyScene, isLinear } from './types'
 import {
   type ResolvedLine,
@@ -14,6 +14,7 @@ import {
   dist,
   distToLine,
   formatNum,
+  intersectLines,
   mul,
   nextLabel,
   norm,
@@ -26,7 +27,7 @@ import { saveFile } from '../platform'
 
 type Tool =
   | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'polygon' | 'regular'
-  | 'angle' | 'construct' | 'midpoint' | 'perpendicular' | 'parallel' | 'bisector'
+  | 'angle' | 'lineAngle' | 'construct' | 'midpoint' | 'perpendicular' | 'parallel' | 'bisector'
   | 'intersection' | 'text' | 'pen' | 'delete'
 
 const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
@@ -40,11 +41,12 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'polygon', icon: '⬠', label: 'Poligon', hint: ['Vârfurile pe rând; click pe primul vârf pentru a închide'] },
   { id: 'regular', icon: '⬡', label: 'Poligon regulat', hint: ['Primul vârf', 'Al doilea vârf (apoi alegi nr. de laturi)'] },
   { id: 'angle', icon: '∠', label: 'Unghi (măsură)', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură'] },
+  { id: 'lineAngle', icon: '∢', label: 'Unghi între două linii', hint: ['Click pe prima dreaptă / segment / semidreaptă (pe porțiunea care formează unghiul)', 'Click pe a doua linie'] },
   { id: 'construct', icon: '∡', label: 'Construiește unghi de x°', hint: ['Vârful unghiului', 'Direcția primei laturi (apoi introduci măsura și lungimile laturilor)'] },
   { id: 'midpoint', icon: '⋯', label: 'Mijloc', hint: ['Click pe un segment sau pe primul punct', 'Al doilea punct'] },
   { id: 'perpendicular', icon: '⊥', label: 'Perpendiculară', hint: ['Alege dreapta și punctul prin care trece'] },
   { id: 'parallel', icon: '∥', label: 'Paralelă', hint: ['Alege dreapta și punctul prin care trece'] },
-  { id: 'bisector', icon: '⦟', label: 'Bisectoare', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură'] },
+  { id: 'bisector', icon: '⦟', label: 'Bisectoare', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură (apoi alegi până unde merge bisectoarea)'] },
   { id: 'intersection', icon: '✕', label: 'Intersecție', hint: ['Prima dreaptă / segment', 'A doua dreaptă / segment'] },
   { id: 'text', icon: 'T', label: 'Text / formulă', hint: ['Click unde vrei textul (LaTeX între $...$)'] },
   { id: 'pen', icon: '✎', label: 'Desen liber', hint: ['Desenează liber cu mouse-ul sau stylus-ul'] },
@@ -60,7 +62,8 @@ interface Props {
   readOnly?: boolean // thumbnail mode: no toolbar, no interaction, view fitted to the figure
 }
 
-type Pick = { kind: 'point' | 'line'; id: string }
+// `at`: where on the line the user clicked (the angle-between-lines tool uses it to pick a side)
+type Pick = { kind: 'point' | 'line'; id: string; at?: Vec }
 
 export default function GeometryBoard({ scene, onChange, height = 560, readOnly = false }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -120,6 +123,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const view = useMemo(() => (readOnly ? fitView(scene, resolved.points, size) : scene.view), [readOnly, scene, resolved, size])
   const P = (id: string) => resolved.points.get(id) ?? null
   const L = (id: string) => resolved.lines.get(id) ?? null
+  /** Vertex and one point on each side for the angle between two lines (null if they are parallel). */
+  const lineAngleGeo = (o: LineAngleObj) => {
+    const l1 = L(o.l1)
+    const l2 = L(o.l2)
+    const v = l1 && l2 ? intersectLines(l1, l2) : null
+    if (!l1 || !l2 || !v) return null
+    return { v, a: add(v, mul(norm(l1.d), o.s1)), b: add(v, mul(norm(l2.d), o.s2)) }
+  }
 
   const toScreen = useCallback(
     (p: Vec): Vec => ({ x: size.w / 2 + (p.x - view.cx) * view.scale, y: size.h / 2 - (p.y - view.cy) * view.scale }),
@@ -190,8 +201,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         const p = toScreen(o)
         if (s.x >= p.x - 4 && s.x <= p.x + Math.max(40, o.text.length * o.size * 0.55) && s.y >= p.y - o.size - 4 && s.y <= p.y + 6)
           consider(o, 0, 1)
-      } else if (o.type === 'angle') {
-        const v = P(o.v)
+      } else if (o.type === 'angle' || o.type === 'lineAngle') {
+        const v = o.type === 'angle' ? P(o.v) : lineAngleGeo(o)?.v
         if (v) consider(o, Math.abs(dist(toScreen(v), s) - 28), 8)
       } else if (o.type === 'path') {
         for (const pt of o.points) consider(o, dist(toScreen({ x: pt[0], y: pt[1] }), s), 6)
@@ -308,9 +319,65 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           commit(objs)
         })
         break
+      case 'lineAngle': {
+        const lineHit = hitTest(s, isLinear)
+        if (!lineHit) break
+        const next = [...pending, { kind: 'line' as const, id: lineHit.id, at: w }]
+        if (next.length < 2) {
+          setPending(next)
+          break
+        }
+        setPending([])
+        const [p1, p2] = next
+        if (p1.id === p2.id) break
+        const l1 = L(p1.id)
+        const l2 = L(p2.id)
+        const v = l1 && l2 ? intersectLines(l1, l2) : null
+        if (!l1 || !l2 || !v) {
+          await ask('Liniile sunt paralele: unghiul dintre ele este 0°.', '', true)
+          break
+        }
+        // measure the angle between the parts that were clicked (a click right at the vertex counts as +)
+        const side = (l: ResolvedLine, at: Vec) => ((at.x - v.x) * l.d.x + (at.y - v.y) * l.d.y >= -1e-9 ? 1 : -1)
+        objs.push({
+          id: uid(), type: 'lineAngle', l1: p1.id, l2: p2.id, s1: side(l1, p1.at!), s2: side(l2, p2.at!), color, showValue: true, rightMark: true,
+        } satisfies LineAngleObj)
+        commit(objs)
+        break
+      }
       case 'bisector':
-        await needPoints(3, ([a, v, b]) => {
-          newLine(objs, 'ray', { kind: 'bisector', a, v, b }, { dashed: true })
+        await needPoints(3, async ([a, v, b]) => {
+          if (a === v || b === v || a === b) return
+          const vals = await askForm('Bisectoarea unghiului', [
+            {
+              label: 'Până unde merge bisectoarea',
+              value: 'side',
+              options: [
+                { value: 'side', label: 'până la latura opusă (bisectoarea din triunghi)' },
+                { value: 'length', label: 'o lungime aleasă de mine' },
+                { value: 'ray', label: 'semidreaptă (infinită)' },
+              ],
+              hint: 'Latura opusă = segmentul dintre primul și al treilea punct ales.',
+            },
+            { label: 'Lungimea bisectoarei', placeholder: 'ex: 4', showIf: { field: 0, value: 'length' } },
+          ])
+          if (!vals) return
+          if (vals[0] === 'ray') {
+            newLine(objs, 'ray', { kind: 'bisector', a, v, b }, { dashed: true })
+            commit(objs)
+            return
+          }
+          let end: PointObj
+          if (vals[0] === 'side') end = newPoint(objs, { x: 0, y: 0 }, { kind: 'bisectorFoot', a, v, b })
+          else {
+            const length = Number(vals[1].replace(',', '.'))
+            if (!(length > 0)) {
+              await ask('Lungimea trebuie să fie un număr pozitiv.', '', true)
+              return
+            }
+            end = newPoint(objs, { x: 0, y: 0 }, { kind: 'bisectorPoint', a, v, b, dist: length })
+          }
+          newLine(objs, 'segment', { kind: 'twoPoints', a: v, b: end.id }, { dashed: true, showLength: true })
           commit(objs)
         })
         break
@@ -713,10 +780,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           </g>
         )
       }
-      case 'angle': {
-        const a = P(o.a)
-        const v = P(o.v)
-        const b = P(o.b)
+      case 'angle':
+      case 'lineAngle': {
+        const g = o.type === 'angle' ? { a: P(o.a), v: P(o.v), b: P(o.b) } : lineAngleGeo(o)
+        if (!g) return null
+        const { a, v, b } = g
         if (!a || !v || !b) return null
         let from = a
         let sweep = angleCCW(a, v, b)
@@ -1023,7 +1091,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen }: {
 }) {
   const names: Record<GObj['type'], string> = {
     point: 'Punct', segment: 'Segment', line: 'Dreaptă', ray: 'Semidreaptă', circle: 'Cerc',
-    polygon: 'Poligon', angle: 'Unghi', text: 'Text', path: 'Desen liber', function: 'Funcție',
+    polygon: 'Poligon', angle: 'Unghi', lineAngle: 'Unghi între linii', text: 'Text', path: 'Desen liber', function: 'Funcție',
   }
   const label = (id: string) => (scene.objects.find((x) => x.id === id) as PointObj | undefined)?.label ?? '?'
   let title = names[o.type]
@@ -1059,6 +1127,12 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen }: {
               <input type="number" value={o.dep.deg} onChange={(e) => onPatch({ dep: { ...o.dep, deg: Number(e.target.value) } as PointObj['dep'] })} />
             </label>
           )}
+          {o.dep.kind === 'bisectorPoint' && (
+            <label className="insp-row">Lungimea bisectoarei
+              <input type="number" min={0} step={0.5} value={o.dep.dist} onChange={(e) => Number(e.target.value) > 0 && onPatch({ dep: { ...o.dep, dist: Number(e.target.value) } as PointObj['dep'] })} />
+            </label>
+          )}
+          {o.dep.kind === 'bisectorFoot' && <div className="insp-note">Piciorul bisectoarei pe latura opusă.</div>}
           {o.dep.kind === 'polar' && (
             <>
               <label className="insp-row">Distanța de la vârf
@@ -1094,11 +1168,16 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen }: {
       {o.type === 'circle' && (
         <label className="insp-row chk"><input type="checkbox" checked={!!o.showRadius} onChange={(e) => onPatch({ showRadius: e.target.checked })} /> Arată raza</label>
       )}
-      {o.type === 'angle' && (
+      {(o.type === 'angle' || o.type === 'lineAngle') && (
         <>
           <label className="insp-row chk"><input type="checkbox" checked={o.showValue} onChange={(e) => onPatch({ showValue: e.target.checked })} /> Arată măsura</label>
           <label className="insp-row chk"><input type="checkbox" checked={o.rightMark} onChange={(e) => onPatch({ rightMark: e.target.checked })} /> Marcaj de unghi drept</label>
         </>
+      )}
+      {o.type === 'lineAngle' && (
+        <button className="btn small" onClick={() => onPatch({ s2: o.s2 === 1 ? -1 : 1 })} title="Comută între unghi și suplementul lui (180° − unghi)">
+          Unghiul suplementar
+        </button>
       )}
       {o.type === 'text' && (
         <>

@@ -5,6 +5,10 @@ export interface PromptField {
   value?: string
   placeholder?: string
   hint?: string
+  /** makes the field a choice instead of a text box */
+  options?: { value: string; label: string }[]
+  /** show this field only while another field (by index) has the given value */
+  showIf?: { field: number; value: string }
 }
 
 interface State {
@@ -49,18 +53,23 @@ export function usePrompt() {
         }}
       >
         <div className="modal-title">{state.title}</div>
-        {state.fields.map((f, i) => (
-          <label key={i} className="field">
-            {f.label}
-            <input
-              autoFocus={i === 0}
-              value={state.values[i]}
-              placeholder={f.placeholder}
-              onChange={(e) => setState({ ...state, values: state.values.map((v, j) => (j === i ? e.target.value : v)) })}
-            />
-            {f.hint && <span className="muted small">{f.hint}</span>}
-          </label>
-        ))}
+        {state.fields.map((f, i) => {
+          if (f.showIf && state.values[f.showIf.field] !== f.showIf.value) return null
+          const set = (val: string) => setState({ ...state, values: state.values.map((v, j) => (j === i ? val : v)) })
+          return (
+            <label key={i} className="field">
+              {f.label}
+              {f.options ? (
+                <select autoFocus={i === 0} value={state.values[i]} onChange={(e) => set(e.target.value)}>
+                  {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : (
+                <input autoFocus={i === 0} value={state.values[i]} placeholder={f.placeholder} onChange={(e) => set(e.target.value)} />
+              )}
+              {f.hint && <span className="muted small">{f.hint}</span>}
+            </label>
+          )
+        })}
         <div className="modal-actions">
           {!state.info && <button type="button" className="btn" onClick={() => close(null)}>Renunță</button>}
           <button type="submit" className="btn primary" autoFocus={state.info}>OK</button>

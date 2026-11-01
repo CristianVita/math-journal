@@ -84,6 +84,21 @@ export function resolve(scene: Scene): Resolved {
       const l1 = line(dep.l1)
       const l2 = line(dep.l2)
       r = l1 && l2 ? intersectLines(l1, l2) : null
+    } else if (dep.kind === 'bisectorPoint' || dep.kind === 'bisectorFoot') {
+      const a = point(dep.a)
+      const v = point(dep.v)
+      const b = point(dep.b)
+      if (a && v && b && dist(a, v) > 1e-9 && dist(b, v) > 1e-9) {
+        if (dep.kind === 'bisectorFoot') {
+          // bisector theorem: the foot D on [ab] satisfies aD / Db = va / vb
+          r = add(a, mul(sub(b, a), dist(v, a) / (dist(v, a) + dist(v, b))))
+        } else {
+          const u = add(norm(sub(a, v)), norm(sub(b, v)))
+          // a straight angle (180°) has no sum direction: take the perpendicular to va
+          const dir = len(u) < 1e-9 ? { x: -(a.y - v.y), y: a.x - v.x } : u
+          r = add(v, mul(norm(dir), dep.dist))
+        }
+      }
     } else if (dep.kind === 'polar') {
       const c = point(dep.center)
       const t = point(dep.toward)
@@ -150,6 +165,7 @@ export function dependsOn(o: GObj): string[] {
       if (o.dep.kind === 'midpoint') return [o.dep.a, o.dep.b]
       if (o.dep.kind === 'rotate') return [o.dep.center, o.dep.from]
       if (o.dep.kind === 'polar') return [o.dep.center, o.dep.toward]
+      if (o.dep.kind === 'bisectorPoint' || o.dep.kind === 'bisectorFoot') return [o.dep.a, o.dep.v, o.dep.b]
       if (o.dep.kind === 'intersection') return [o.dep.l1, o.dep.l2]
       return []
     case 'segment':
@@ -164,6 +180,8 @@ export function dependsOn(o: GObj): string[] {
       return o.points
     case 'angle':
       return [o.a, o.v, o.b]
+    case 'lineAngle':
+      return [o.l1, o.l2]
     default:
       return []
   }

@@ -9,6 +9,10 @@ export type PointDep =
   | { kind: 'rotate'; center: string; from: string; deg: number }
   // point at distance `dist` from `center`, in the direction center→toward turned by `deg` degrees
   | { kind: 'polar'; center: string; toward: string; deg: number; dist: number }
+  // on the bisector of angle a-v-b, at distance `dist` from the vertex v
+  | { kind: 'bisectorPoint'; a: string; v: string; b: string; dist: number }
+  // where the bisector from v meets the opposite side [ab] (it divides it in the ratio va : vb)
+  | { kind: 'bisectorFoot'; a: string; v: string; b: string }
 
 export interface PointObj {
   id: string
@@ -71,6 +75,22 @@ export interface AngleObj {
   rightMark: boolean
 }
 
+/**
+ * Angle between two lines already on the board. The vertex is their intersection; s1 / s2 (±1)
+ * pick which of the four angles is shown: the one between the parts the user clicked.
+ */
+export interface LineAngleObj {
+  id: string
+  type: 'lineAngle'
+  l1: string
+  l2: string
+  s1: 1 | -1
+  s2: 1 | -1
+  color: string
+  showValue: boolean
+  rightMark: boolean
+}
+
 export interface TextObj {
   id: string
   type: 'text'
@@ -97,7 +117,7 @@ export interface FunctionObj {
   width: number
 }
 
-export type GObj = PointObj | LineObj | CircleObj | PolygonObj | AngleObj | TextObj | PathObj | FunctionObj
+export type GObj = PointObj | LineObj | CircleObj | PolygonObj | AngleObj | LineAngleObj | TextObj | PathObj | FunctionObj
 
 export interface View {
   cx: number // world coordinates at the canvas centre
