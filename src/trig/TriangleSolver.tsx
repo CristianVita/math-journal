@@ -69,6 +69,9 @@ export default function TriangleSolver({ onOpenInBoard }: { onOpenInBoard?: (s: 
                 <Tex tex={`\\mathcal{P} = ${fmt(x.perimeter)},\\quad \\mathcal{A} = ${fmt(x.area)}`} />
                 <Tex tex={`R = ${fmt(x.R)},\\quad r = ${fmt(x.r)}`} />
                 <Tex tex={`h_a = ${fmt(x.ha)},\\ h_b = ${fmt(x.hb)},\\ h_c = ${fmt(x.hc)}`} />
+                <Tex tex={`l_a = ${fmt(x.la)},\\ l_b = ${fmt(x.lb)},\\ l_c = ${fmt(x.lc)}`} />
+                <Tex tex={`m_a = ${fmt(x.ma)},\\ m_b = ${fmt(x.mb)},\\ m_c = ${fmt(x.mc)}`} />
+                <div className="muted small">h — înălțimi, l — bisectoare, m — mediane (din vârful opus laturii).</div>
                 <div className="muted">Triunghi {x.type}, {x.sidesType}.</div>
               </div>
               {onOpenInBoard && <button className="btn small" onClick={() => onOpenInBoard(triangleScene(t))}>Deschide pe tablă</button>}

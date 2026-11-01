@@ -173,6 +173,14 @@ export function triangleExtras(t: Triangle) {
     ha: (2 * area) / t.a,
     hb: (2 * area) / t.b,
     hc: (2 * area) / t.c,
+    // interior angle bisectors: l_a = 2/(b+c) · √(bc·p(p−a))
+    la: (2 / (t.b + t.c)) * Math.sqrt(Math.max(0, t.b * t.c * p * (p - t.a))),
+    lb: (2 / (t.a + t.c)) * Math.sqrt(Math.max(0, t.a * t.c * p * (p - t.b))),
+    lc: (2 / (t.a + t.b)) * Math.sqrt(Math.max(0, t.a * t.b * p * (p - t.c))),
+    // medians: m_a = ½√(2b² + 2c² − a²)
+    ma: 0.5 * Math.sqrt(Math.max(0, 2 * t.b ** 2 + 2 * t.c ** 2 - t.a ** 2)),
+    mb: 0.5 * Math.sqrt(Math.max(0, 2 * t.a ** 2 + 2 * t.c ** 2 - t.b ** 2)),
+    mc: 0.5 * Math.sqrt(Math.max(0, 2 * t.a ** 2 + 2 * t.b ** 2 - t.c ** 2)),
     type:
       Math.abs(Math.max(t.A, t.B, t.C) - 90) < 1e-6 ? 'dreptunghic' : Math.max(t.A, t.B, t.C) > 90 ? 'obtuzunghic' : 'ascuțitunghic',
     sidesType:
