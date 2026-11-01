@@ -24,6 +24,7 @@ export interface IntegralResult {
   numeric?: string | null
   divergent?: boolean
   singular?: string[]
+  improperUnknown?: boolean
 }
 
 type Listener = (status: string, ready: boolean) => void

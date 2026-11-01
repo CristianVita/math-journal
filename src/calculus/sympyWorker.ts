@@ -124,26 +124,36 @@ def integrate(req):
         val = sp.integrate(f, (v, a, b))
         out['a'] = tex(a)
         out['b'] = tex(b)
+        sing = singular_points(f, v, a, b)
+        if sing:
+            out['singular'] = [tex(s) for s in sing]
         if val.has(sp.Integral):
-            num = sp.Integral(f, (v, a, b)).evalf(15)
             out['definite'] = None
-            out['numeric'] = str(num)
+            if sing:
+                # quadrature next to a point where f blows up returns nonsense (e.g. 0 for a divergent
+                # integral); better say we could not decide than show a wrong number
+                out['numeric'] = None
+                out['improperUnknown'] = True
+            else:
+                out['numeric'] = str(sp.Integral(f, (v, a, b)).evalf(15))
         else:
             val = sp.simplify(val)
             divergent = bool(val in (sp.oo, -sp.oo, sp.zoo) or val.has(sp.nan, sp.zoo))
             out['divergent'] = divergent
             out['definite'] = None if val.has(sp.nan, sp.zoo) else tex(val)
             out['numeric'] = None if divergent else str(sp.N(val, 15))
-            if divergent:
-                # most common reason in class: the function blows up inside the interval
-                try:
-                    lo, hi = (a, b) if (b - a).is_nonnegative else (b, a)
-                    sing = sp.singularities(f, v, sp.Interval(lo, hi))
-                    if sing and sing.is_FiniteSet:
-                        out['singular'] = [tex(s) for s in sing]
-                except Exception:
-                    pass
     return out
+
+def singular_points(f, v, a, b):
+    """Points of [a, b] (endpoints included) where f is not defined / blows up."""
+    try:
+        lo, hi = (a, b) if (b - a).is_nonnegative else (b, a)
+        sing = sp.singularities(f, v, sp.Interval(lo, hi))
+        if sing.is_FiniteSet:
+            return sorted(sing, key=lambda s: float(s))
+    except Exception:
+        pass
+    return []
 
 def run(req_json):
     req = json.loads(req_json)

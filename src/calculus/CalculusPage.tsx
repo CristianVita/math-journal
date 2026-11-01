@@ -19,6 +19,9 @@ const QUICK: { label: string; text: string; latex: string }[] = [
   { label: 'cos', text: 'cos()', latex: '\\cos\\left(#0\\right)' },
   { label: 'tg', text: 'tg()', latex: '\\operatorname{tg}\\left(#0\\right)' },
   { label: 'ctg', text: 'ctg()', latex: '\\operatorname{ctg}\\left(#0\\right)' },
+  { label: 'sin²', text: 'sin^2()', latex: '\\sin^{2}\\left(#0\\right)' },
+  { label: 'cos²', text: 'cos^2()', latex: '\\cos^{2}\\left(#0\\right)' },
+  { label: 'tg²', text: 'tg^2()', latex: '\\operatorname{tg}^{2}\\left(#0\\right)' },
   { label: 'arcsin', text: 'arcsin()', latex: '\\arcsin\\left(#0\\right)' },
   { label: 'arctg', text: 'arctg()', latex: '\\operatorname{arctg}\\left(#0\\right)' },
   { label: '|x|', text: 'abs()', latex: '\\left|#0\\right|' },
@@ -422,6 +425,12 @@ function IntegralTab() {
                     <Tex tex={`\\int_{${roTex(res.a!)}}^{${roTex(res.b!)}} ${roTex(res.integrand)}\\,d${v} = ${roTex(res.definite)}${approx(res.numeric, res.definite)}`} display />
                   ) : (
                     res.numeric && <Tex tex={`\\int_{${roTex(res.a!)}}^{${roTex(res.b!)}} ${roTex(res.integrand)}\\,d${v} \\approx ${fmtNum(res.numeric)}`} display />
+                  )}
+                  {res.improperUnknown && (
+                    <div className="note warn">
+                      Integrală improprie: funcția nu e definită în <Tex tex={`${v} = ${(res.singular ?? []).map(roTex).join(',\\ ')}`} />.
+                      Nu am putut stabili dacă e convergentă, deci nu afișez o valoare (o aproximare numerică ar putea fi greșită).
+                    </div>
                   )}
                   {res.divergent && (
                     <div className="note warn">

@@ -1,5 +1,5 @@
 // Parsing, LaTeX, SymPy serialisation and numeric helpers shared by the derivative and integral calculators.
-import { parse, rationalize, simplify, type MathNode } from 'mathjs'
+import { ConstantNode, parse, rationalize, simplify, type MathNode } from 'mathjs'
 
 export type Node = MathNode
 
@@ -36,8 +36,13 @@ export function normalizeInput(src: string): string {
   // sin^-1(x) typed by hand means arcsin in calculus notation, same as from the keyboard
   s = s.replace(new RegExp(`${INV_TRIG.source}(?=\\s*\\()`, 'g'), (_, f: string) => INV_NAME[f])
   for (const [re, to] of NAME_MAP) s = s.replace(re, to)
-  // sin^2(x) → sin(x)^2   (only for a simple, non-nested argument)
-  s = s.replace(new RegExp(`${START}(${FN_NAMES})\\^(\\d+|\\(\\d+\\))\\(([^()]*)\\)`, 'g'), '$1($3)^$2')
+  // sin^2(x) → sin(x)^2, any argument (nested parentheses are matched properly)
+  s = rewriteCall(s, new RegExp(`${START}((?:${FN_NAMES})\\s*\\^\\s*\\(?\\d+\\)?)\\s*`, 'g'), (head, arg) => {
+    const [, fn, n] = /^(\w+)\s*\^\s*\(?(\d+)\)?$/.exec(head)!
+    return `${fn}(${arg})^${n}`
+  })
+  // sin^2 x, sin^2x → sin(x)^2   (bare argument: a single term)
+  s = s.replace(new RegExp(`${START}(${FN_NAMES})\\s*\\^\\s*\\(?(\\d+)\\)?\\s*([0-9.]*[a-zA-Z]\\w*)`, 'g'), '$1($3)^$2')
   // "sin x", "ln x", "tg 2x" → sin(x)   (argument = a single term without spaces)
   s = s.replace(new RegExp(`${START}(${FN_NAMES})\\s+([0-9.]*[a-zA-Z]\\w*(?:\\^\\w+)?)`, 'g'), '$1($2)')
   // "x(x+1)" is a product in class, but a function call for mathjs: insert the multiplication
@@ -87,6 +92,8 @@ export function asciiToInput(a: string): string {
     .replace(/root\(([^()]+)\)\(([^()]+)\)/g, 'nthRoot($2, $1)')
   // |x| → (abs(x)); the outer parentheses keep "ln|x|" a call: ln((abs(x)))
   for (let i = 0; i < 5 && /\|[^|]+\|/.test(s); i++) s = s.replace(/\|([^|]+)\|/g, '(abs($1))')
+  // empty boxes the editor leaves behind (an exponent or index nobody filled in) come out as "^()" / "_()"
+  for (let i = 0; i < 3; i++) s = s.replace(/\s*[_^]\s*\(\s*\)/g, '')
   return s.trim()
 }
 
@@ -111,7 +118,9 @@ export function parseExpr(src: string): Parsed {
   try {
     node = parse(normalized)
   } catch (e) {
-    throw new Error('Expresie invalidă: ' + (e as Error).message)
+    // show what was actually parsed: with the visual editor the typed text is not visible otherwise
+    const msg = (e as Error).message.replace(/^Value expected/, 'Lipsește o valoare').replace(/^Parenthesis \) expected/, 'Lipsește o paranteză închisă')
+    throw new Error(`Expresie invalidă (${msg}). Am citit: ${normalized}`)
   }
   return { node: stripParens(node), normalized }
 }
@@ -123,6 +132,9 @@ const TEX_FN: Record<string, string> = {
   asin: '\\arcsin', acos: '\\arccos', log10: '\\lg',
 }
 
+/** Functions whose integer powers are written f²(x) rather than (f(x))². */
+const POWER_FNS = new Set(['sin', 'cos', 'tan', 'cot', 'sinh', 'cosh', 'tanh', 'log'])
+
 export function tex(n: Node): string {
   // mathjs prints some single-letter parameters as \mathrm{b}; in math they are italic like any variable
   return toTexRaw(n).replace(/\\mathrm\{([a-zA-Z])\}/g, '$1')
@@ -133,6 +145,29 @@ function toTexRaw(n: Node): string {
     implicit: 'hide',
     parenthesis: 'auto',
     handler: (node: Node, options: object) => {
+      // sin(x)^2 is written sin²(x) in class: put the exponent right after the function name
+      if (node.type === 'OperatorNode' && (node as unknown as { op: string }).op === '^') {
+        let [base, exp] = (node as unknown as { args: Node[] }).args
+        // (sin²x)² → sin⁴x: multiply integer exponents of a power of a power
+        const inner = base as unknown as { type: string; op?: string; args?: Node[] }
+        const outer = exp as unknown as { type: string; value?: number }
+        if (inner.type === 'OperatorNode' && inner.op === '^' && outer.type === 'ConstantNode') {
+          const innerExp = inner.args![1] as unknown as { type: string; value?: number }
+          if (innerExp.type === 'ConstantNode' && Number.isInteger(innerExp.value) && Number.isInteger(outer.value)) {
+            base = inner.args![0]
+            exp = new ConstantNode(innerExp.value! * outer.value!)
+          }
+        }
+        const b = base as unknown as { type: string; fn?: { name: string }; args?: Node[] }
+        const e = exp as unknown as { type: string; value?: number }
+        if (b.type === 'FunctionNode' && b.args!.length === 1 && POWER_FNS.has(b.fn!.name) && e.type === 'ConstantNode' && Number.isInteger(e.value) && e.value! > 1) {
+          const name = b.fn!.name === 'log' ? '\\ln' : TEX_FN[b.fn!.name] ?? `\\${b.fn!.name}`
+          return `${name}^{${e.value}}\\left(${b.args![0].toTex(options)}\\right)`
+        }
+        // power of a power that is not a function: still print the combined exponent
+        if (base !== (node as unknown as { args: Node[] }).args[0]) return `{${base.toTex(options)}}^{${(exp as unknown as { value: number }).value}}`
+        return undefined
+      }
       if (node.type !== 'FunctionNode') return undefined
       const f = node as unknown as { fn: { name: string }; args: Node[] }
       const arg = () => f.args[0].toTex(options)
@@ -241,23 +276,28 @@ const trim = (p: Poly) => {
 const deg = (p: Poly) => trim(p).length - 1
 
 function polyDivmod(a: Poly, b: Poly): [Poly, Poly] {
-  let r = trim(a)
+  const r = [...trim(a)]
   const d = trim(b)
   const q: Poly = new Array(Math.max(1, r.length - d.length + 1)).fill(0)
   while (r.length >= d.length && !(r.length === 1 && Math.abs(r[0]) < 1e-12)) {
     const k = r[r.length - 1] / d[d.length - 1]
     const shift = r.length - d.length
     q[shift] = k
-    r = trim(r.map((c, i) => (i >= shift && i - shift < d.length ? c - k * d[i - shift] : c)))
+    for (let i = 0; i < d.length; i++) r[shift + i] -= k * d[i]
+    // the leading term cancels by construction; drop it explicitly so rounding noise can never
+    // keep the degree from going down (that used to loop forever)
+    r.pop()
+    if (!r.length) r.push(0)
     if (shift === 0) break
   }
-  return [trim(q), r]
+  return [trim(q), trim(r)]
 }
 
 function polyGcd(a: Poly, b: Poly): Poly {
   let x = trim(a)
   let y = trim(b)
-  while (!(y.length === 1 && Math.abs(y[0]) < 1e-9)) {
+  // Euclid ends after at most deg steps; the cap is a guard against float noise
+  for (let guard = 0; guard < 64 && !(y.length === 1 && Math.abs(y[0]) < 1e-9); guard++) {
     const [, r] = polyDivmod(x, y)
     // relative tolerance: tiny remainders are rounding noise
     const scale = Math.max(...x.map(Math.abs), 1)
