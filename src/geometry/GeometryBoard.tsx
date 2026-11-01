@@ -40,7 +40,7 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'polygon', icon: '⬠', label: 'Poligon', hint: ['Vârfurile pe rând; click pe primul vârf pentru a închide'] },
   { id: 'regular', icon: '⬡', label: 'Poligon regulat', hint: ['Primul vârf', 'Al doilea vârf (apoi alegi nr. de laturi)'] },
   { id: 'angle', icon: '∠', label: 'Unghi (măsură)', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură'] },
-  { id: 'construct', icon: '∡', label: 'Construiește unghi de x°', hint: ['Vârful unghiului', 'Punct pe prima latură (apoi introduci măsura)'] },
+  { id: 'construct', icon: '∡', label: 'Construiește unghi de x°', hint: ['Vârful unghiului', 'Direcția primei laturi (apoi introduci măsura și lungimile laturilor)'] },
   { id: 'midpoint', icon: '⋯', label: 'Mijloc', hint: ['Click pe un segment sau pe primul punct', 'Al doilea punct'] },
   { id: 'perpendicular', icon: '⊥', label: 'Perpendiculară', hint: ['Alege dreapta și punctul prin care trece'] },
   { id: 'parallel', icon: '∥', label: 'Paralelă', hint: ['Alege dreapta și punctul prin care trece'] },
@@ -97,7 +97,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }, [readOnly])
   const [past, setPast] = useState<Scene[]>([])
   const [future, setFuture] = useState<Scene[]>([])
-  const { ask, dialog } = usePrompt()
+  const { ask, askForm, dialog } = usePrompt()
 
   const sceneRef = useRef(scene)
   sceneRef.current = scene
@@ -317,13 +317,49 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       case 'construct':
         await needPoints(2, async ([v, a]) => {
           if (v === a) return
-          const raw = await ask('Măsura unghiului (grade, pozitiv = trigonometric / invers acelor de ceas)', '60')
-          const deg = Number(raw?.replace(',', '.'))
-          if (raw == null || !isFinite(deg)) return
-          const b = newPoint(objs, { x: 0, y: 0 }, { kind: 'rotate', center: v, from: a, deg })
-          newLine(objs, 'ray', { kind: 'twoPoints', a: v, b: a })
-          newLine(objs, 'ray', { kind: 'twoPoints', a: v, b: b.id })
-          const [x, y] = deg >= 0 ? [a, b.id] : [b.id, a]
+          const vals = await askForm('Construiește un unghi', [
+            { label: 'Măsura unghiului (grade)', value: '60', hint: 'Pozitiv = sens trigonometric (invers acelor de ceasornic).' },
+            { label: 'Lungimea primei laturi', placeholder: 'gol = semidreaptă (infinită)', hint: 'Prima latură merge spre punctul pe care ai dat click.' },
+            { label: 'Lungimea celei de-a doua laturi', placeholder: 'gol = la fel ca prima' },
+          ])
+          if (!vals) return
+          const deg = Number(vals[0].replace(',', '.'))
+          // null = not given (infinite side), NaN = invalid
+          const len = (t: string) => {
+            const s = t.trim().replace(',', '.')
+            if (!s) return null
+            const n = Number(s)
+            return isFinite(n) && n > 0 ? n : NaN
+          }
+          const l1 = len(vals[1])
+          const l2 = vals[2].trim() ? len(vals[2]) : l1
+          if (!isFinite(deg) || Number.isNaN(l1) || Number.isNaN(l2)) {
+            await ask('Măsura și lungimile trebuie să fie numere (lungimile pozitive).', '', true)
+            return
+          }
+          let sideA = a
+          if (l1 !== null) {
+            const at = resolve({ objects: objs, view }).points
+            const pv = at.get(v)
+            const pa = at.get(a)
+            const clicked = objs.find((o) => o.id === a)
+            const isNew = !sceneRef.current.objects.some((o) => o.id === a)
+            if (pv && pa && clicked?.type === 'point' && clicked.dep.kind === 'free' && isNew) {
+              // the point just placed becomes the end of the first side, at the exact length (still draggable)
+              const end = add(pv, mul(norm(sub(pa, pv)), l1))
+              objs[objs.indexOf(clicked)] = { ...clicked, x: end.x, y: end.y }
+            } else {
+              // an existing point only gives the direction: put the end of the side on it at that length
+              sideA = newPoint(objs, { x: 0, y: 0 }, { kind: 'polar', center: v, toward: a, deg: 0, dist: l1 }).id
+            }
+          }
+          const b =
+            l2 !== null
+              ? newPoint(objs, { x: 0, y: 0 }, { kind: 'polar', center: v, toward: a, deg, dist: l2 })
+              : newPoint(objs, { x: 0, y: 0 }, { kind: 'rotate', center: v, from: a, deg })
+          newLine(objs, l1 !== null ? 'segment' : 'ray', { kind: 'twoPoints', a: v, b: sideA }, { showLength: l1 !== null })
+          newLine(objs, l2 !== null ? 'segment' : 'ray', { kind: 'twoPoints', a: v, b: b.id }, { showLength: l2 !== null })
+          const [x, y] = deg >= 0 ? [sideA, b.id] : [b.id, sideA]
           objs.push({ id: uid(), type: 'angle', a: x, v, b: y, color, showValue: true, rightMark: true } satisfies AngleObj)
           commit(objs)
         })
@@ -1023,11 +1059,30 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen }: {
               <input type="number" value={o.dep.deg} onChange={(e) => onPatch({ dep: { ...o.dep, deg: Number(e.target.value) } as PointObj['dep'] })} />
             </label>
           )}
+          {o.dep.kind === 'polar' && (
+            <>
+              <label className="insp-row">Distanța de la vârf
+                <input type="number" min={0} step={0.5} value={o.dep.dist} onChange={(e) => Number(e.target.value) > 0 && onPatch({ dep: { ...o.dep, dist: Number(e.target.value) } as PointObj['dep'] })} />
+              </label>
+              <label className="insp-row">Unghi (°)
+                <input type="number" value={o.dep.deg} onChange={(e) => onPatch({ dep: { ...o.dep, deg: Number(e.target.value) } as PointObj['dep'] })} />
+              </label>
+            </>
+          )}
           {o.dep.kind !== 'free' && <div className="insp-note">Punct construit — se mișcă odată cu punctele de care depinde.</div>}
         </>
       )}
       {isLinear(o) && (
         <>
+          {o.dep.kind === 'twoPoints' && (
+            <label className="insp-row">Tip
+              <select value={o.type} onChange={(e) => onPatch({ type: e.target.value as LineObj['type'], showLength: e.target.value === 'segment' ? o.showLength ?? true : o.showLength })}>
+                <option value="segment">segment (lungime finită)</option>
+                <option value="ray">semidreaptă</option>
+                <option value="line">dreaptă</option>
+              </select>
+            </label>
+          )}
           {o.type === 'segment' && (
             <label className="insp-row chk"><input type="checkbox" checked={!!o.showLength} onChange={(e) => onPatch({ showLength: e.target.checked })} /> Arată lungimea
               {resolvedLen(o.id) != null && <b> ({formatNum(resolvedLen(o.id)!, 3)})</b>}</label>

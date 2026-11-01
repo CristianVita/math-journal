@@ -7,6 +7,8 @@ export type PointDep =
   | { kind: 'intersection'; l1: string; l2: string }
   // point obtained by rotating `from` around `center` by `deg` degrees (counter-clockwise)
   | { kind: 'rotate'; center: string; from: string; deg: number }
+  // point at distance `dist` from `center`, in the direction center→toward turned by `deg` degrees
+  | { kind: 'polar'; center: string; toward: string; deg: number; dist: number }
 
 export interface PointObj {
   id: string

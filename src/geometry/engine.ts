@@ -84,6 +84,10 @@ export function resolve(scene: Scene): Resolved {
       const l1 = line(dep.l1)
       const l2 = line(dep.l2)
       r = l1 && l2 ? intersectLines(l1, l2) : null
+    } else if (dep.kind === 'polar') {
+      const c = point(dep.center)
+      const t = point(dep.toward)
+      if (c && t && dist(c, t) > 1e-9) r = add(c, mul(rotate(norm(sub(t, c)), { x: 0, y: 0 }, (dep.deg * Math.PI) / 180), dep.dist))
     }
     visiting.delete(id)
     points.set(id, r)
@@ -145,6 +149,7 @@ export function dependsOn(o: GObj): string[] {
     case 'point':
       if (o.dep.kind === 'midpoint') return [o.dep.a, o.dep.b]
       if (o.dep.kind === 'rotate') return [o.dep.center, o.dep.from]
+      if (o.dep.kind === 'polar') return [o.dep.center, o.dep.toward]
       if (o.dep.kind === 'intersection') return [o.dep.l1, o.dep.l2]
       return []
     case 'segment':
