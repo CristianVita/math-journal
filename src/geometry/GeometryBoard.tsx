@@ -13,6 +13,7 @@ import {
   dependsOn,
   dist,
   distToLine,
+  projectParam,
   figureOf,
   formatNum,
   intersectLines,
@@ -97,6 +98,9 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'delete', icon: '⌫', label: 'Șterge', hint: ['Click pe obiectul de șters (se șterge și ce depinde de el)'] },
 ]
 
+/** Tools whose clicks place points (they get the snapping preview). */
+const POINT_TOOLS = new Set<string>(['point', 'segment', 'line', 'ray', 'circle', 'polygon', 'regular', 'angle', 'construct', 'midpoint', 'bisector'])
+
 const COLORS = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#db2777']
 
 interface Props {
@@ -155,11 +159,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     | { mode: 'pan'; start: Vec; view: Scene['view'] }
     | { mode: 'move'; ids: string[]; start: Vec; orig: Map<string, Vec>; moved: boolean }
     | { mode: 'pen'; id: string }
+    | { mode: 'slide'; id: string; moved: boolean }
     | { mode: 'xform'; kind: 'scale' | 'rotate'; pivot: Vec; start: Vec; base: XformBase; moved: boolean }
     | null
   >(null)
   const [xformLabel, setXformLabel] = useState<string | null>(null)
   const [hoverHandle, setHoverHandle] = useState<'scale' | 'rotate' | null>(null)
+  // where the next point would land (shown before the click)
+  const [ghost, setGhost] = useState<{ pos: Vec; existing?: string; on?: string[] } | null>(null)
   // a short message in the status bar (e.g. "click on a line") instead of silently doing nothing
   const [flashMsg, setFlashMsg] = useState<string | null>(null)
   const flashTimer = useRef<number>()
@@ -393,6 +400,51 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     return l
   }
 
+  // ---------- where a new point goes: glued to what is under the cursor ----------
+  type Target = { pos: Vec; dep: PointObj['dep']; existing?: string; on?: string[] }
+  const SNAP_PX = 10
+
+  /** Existing point > intersection of two lines > on a line / circle > grid. */
+  const snapTarget = (s: Vec): Target => {
+    const w = toWorld(s)
+    const pt = hitTest(s, (o) => o.type === 'point')
+    if (pt?.type === 'point') return { pos: P(pt.id) ?? w, dep: pt.dep, existing: pt.id }
+    const near: { id: string; l: ResolvedLine; d: number }[] = []
+    for (const o of scene.objects) {
+      if (!isLinear(o)) continue
+      const l = L(o.id)
+      if (!l) continue
+      const d = distToLine(w, l) * view.scale
+      if (d <= SNAP_PX) near.push({ id: o.id, l, d })
+    }
+    near.sort((a, b) => a.d - b.d)
+    // two lines next to the cursor: their intersection, if it is on both drawn parts and under the cursor
+    for (let i = 0; i < near.length; i++) {
+      for (let j = i + 1; j < near.length; j++) {
+        const x = intersectLines(near[i].l, near[j].l)
+        if (x && dist(toScreen(x), s) <= SNAP_PX + 4 && distToLine(x, near[i].l) < 1e-6 && distToLine(x, near[j].l) < 1e-6)
+          return { pos: x, dep: { kind: 'intersection', l1: near[i].id, l2: near[j].id }, on: [near[i].id, near[j].id] }
+      }
+    }
+    if (near.length) {
+      const { id, l } = near[0]
+      const t = projectParam(w, l)
+      return { pos: add(l.p, mul(l.d, t)), dep: { kind: 'onLine', line: id, t }, on: [id] }
+    }
+    for (const o of scene.objects) {
+      if (o.type !== 'circle') continue
+      const c = P(o.center)
+      const th = P(o.through)
+      if (!c || !th) continue
+      const r = dist(c, th)
+      if (Math.abs(dist(c, w) - r) * view.scale <= SNAP_PX && dist(c, w) > 1e-9) {
+        const angle = Math.atan2(w.y - c.y, w.x - c.x)
+        return { pos: add(c, mul({ x: Math.cos(angle), y: Math.sin(angle) }, r)), dep: { kind: 'onCircle', circle: o.id, angle }, on: [o.id] }
+      }
+    }
+    return { pos: snap(w), dep: { kind: 'free' } }
+  }
+
   // ---------- lines through a point: infinite, or a segment of a chosen length ----------
   type Extent = { mode: 'line' } | { mode: 'centered' | 'from'; length: number }
 
@@ -443,8 +495,9 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const objs = [...sceneRef.current.objects]
     const hit = hitTest(s)
     const pointAt = (): string => {
-      if (hit?.type === 'point') return hit.id
-      return newPoint(objs, snap(w)).id
+      const target = snapTarget(s)
+      if (target.existing) return target.existing
+      return newPoint(objs, target.pos, target.dep).id
     }
     const pts = pending.filter((p) => p.kind === 'point').map((p) => p.id)
     const needPoints = (n: number, done: (ids: string[]) => void | Promise<void>) => {
@@ -813,6 +866,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     }
     // a vertex moves alone (reshaping the figure); grabbing any other part moves the whole figure
     let ids: string[]
+    if (hit.type === 'point' && (hit.dep.kind === 'onLine' || hit.dep.kind === 'onCircle')) {
+      // a point glued to a line or circle slides along it
+      drag.current = { mode: 'slide', id: hit.id, moved: false }
+      return
+    }
     if (hit.type === 'point') ids = freePointsOf(hit)
     else if (hit.type === 'text' || hit.type === 'path') ids = [hit.id]
     else {
@@ -842,10 +900,33 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       const h = hitTest(s)
       setHover(h?.id ?? null)
       setHoverHandle(tool === 'move' && figure ? handleAt(s) : null)
+      // perpendicular / parallel place a point only once the line is chosen
+      const placesPoint = POINT_TOOLS.has(tool) || ((tool === 'perpendicular' || tool === 'parallel') && pending.some((p) => p.kind === 'line'))
+      setGhost(placesPoint ? snapTarget(s) : null)
       return
     }
     if (d.mode === 'pan') {
       setView({ cx: d.view.cx - (s.x - d.start.x) / view.scale, cy: d.view.cy + (s.y - d.start.y) / view.scale })
+    } else if (d.mode === 'slide') {
+      const o = sceneRef.current.objects.find((x) => x.id === d.id)
+      if (o?.type !== 'point') return
+      let dep: PointObj['dep'] | null = null
+      if (o.dep.kind === 'onLine') {
+        const l = L(o.dep.line)
+        if (l) dep = { ...o.dep, t: projectParam(w, l) }
+      } else if (o.dep.kind === 'onCircle') {
+        const c = sceneRef.current.objects.find((x) => x.id === (o.dep as { circle: string }).circle)
+        const center = c?.type === 'circle' ? P(c.center) : null
+        if (center && dist(center, w) > 1e-9) dep = { ...o.dep, angle: Math.atan2(w.y - center.y, w.x - center.x) }
+      }
+      if (!dep) return
+      if (!d.moved) {
+        remember()
+        d.moved = true
+      }
+      const next = { ...sceneRef.current, objects: sceneRef.current.objects.map((x) => (x.id === d.id ? { ...o, dep } : x)) }
+      sceneRef.current = next
+      onChange(next)
     } else if (d.mode === 'pen') {
       onChange({
         ...sceneRef.current,
@@ -949,6 +1030,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const changeTool = (t: Tool) => {
     setTool(t)
     setPending([])
+    setGhost(null)
   }
 
   const addFunction = async () => {
@@ -1184,7 +1266,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const p = P(o.id)
     if (!p) return null
     const s = toScreen(p)
-    const free = o.dep.kind === 'free'
+    // filled = can be dragged (free, or sliding on a line / circle); hollow = fully determined by the construction
+    const free = o.dep.kind === 'free' || o.dep.kind === 'onLine' || o.dep.kind === 'onCircle'
     return (
       <g key={o.id}>
         {isSel(o.id) && <circle cx={s.x} cy={s.y} r={9} className="halo-pt" />}
@@ -1201,10 +1284,35 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const a = P(last.id)
     if (!a) return null
     const sa = toScreen(a)
-    const sm = toScreen(snap(mouse))
+    const sm = toScreen(ghost?.pos ?? snap(mouse))
     if (tool === 'circle')
       return <circle data-ui cx={sa.x} cy={sa.y} r={dist(sa, sm)} className="preview" fill="none" />
     return <line data-ui x1={sa.x} y1={sa.y} x2={sm.x} y2={sm.y} className="preview" />
+  }
+
+  /** The point-to-be: a soft dot where it will land, and the line / circle it will stick to. */
+  const ghostEls = () => {
+    if (!ghost || !mouse) return null
+    const g = toScreen(ghost.pos)
+    return (
+      <g data-ui className="ghost">
+        {(ghost.on ?? []).map((id) => {
+          const l = L(id)
+          if (l) {
+            const [a, b] = lineEnds(l).map(toScreen)
+            return <line key={id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="snap-halo" />
+          }
+          const c = scene.objects.find((o) => o.id === id)
+          if (c?.type === 'circle') {
+            const cc = P(c.center)
+            const t = P(c.through)
+            if (cc && t) return <circle key={id} cx={toScreen(cc).x} cy={toScreen(cc).y} r={dist(cc, t) * view.scale} className="snap-halo" fill="none" />
+          }
+          return null
+        })}
+        <circle cx={g.x} cy={g.y} r={ghost.existing ? 9 : 5} className={ghost.existing ? 'ghost-existing' : 'ghost-pt'} />
+      </g>
+    )
   }
 
   const sel = scene.objects.find((o) => o.id === selected)
@@ -1279,6 +1387,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             {scene.objects.filter((o) => o.type === 'polygon').map(renderObj)}
             {scene.objects.filter((o) => o.type !== 'polygon' && o.type !== 'point').map(renderObj)}
             {preview()}
+            {ghostEls()}
             {scene.objects.filter((o): o is PointObj => o.type === 'point').map(renderPoint)}
             {!readOnly && tool === 'move' && figure && pivot && (() => {
               const box = selectionBox()!
@@ -1531,7 +1640,12 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
               </label>
             </>
           )}
-          {o.dep.kind !== 'free' && <div className="insp-note">Punct construit — se mișcă odată cu punctele de care depinde.</div>}
+          {(o.dep.kind === 'onLine' || o.dep.kind === 'onCircle') && (
+            <div className="insp-note">Punct lipit de {o.dep.kind === 'onLine' ? 'dreaptă' : 'cerc'}: îl poți trage doar de-a lungul ei; se mută odată cu ea.</div>
+          )}
+          {o.dep.kind !== 'free' && o.dep.kind !== 'onLine' && o.dep.kind !== 'onCircle' && (
+            <div className="insp-note">Punct construit — se mișcă odată cu punctele de care depinde.</div>
+          )}
         </>
       )}
       {isLinear(o) && (

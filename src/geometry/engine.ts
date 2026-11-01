@@ -99,6 +99,16 @@ export function resolve(scene: Scene): Resolved {
           r = add(v, mul(norm(dir), dep.dist))
         }
       }
+    } else if (dep.kind === 'onLine') {
+      const l = line(dep.line)
+      if (l) r = add(l.p, mul(l.d, dep.t))
+    } else if (dep.kind === 'onCircle') {
+      const c = byId.get(dep.circle)
+      if (c?.type === 'circle') {
+        const center = point(c.center)
+        const through = point(c.through)
+        if (center && through) r = add(center, mul({ x: Math.cos(dep.angle), y: Math.sin(dep.angle) }, dist(center, through)))
+      }
     } else if (dep.kind === 'along') {
       const q = point(dep.through)
       const l = line(dep.ref)
@@ -157,6 +167,14 @@ export function resolve(scene: Scene): Resolved {
   return { points, lines }
 }
 
+/** Parameter t of the point of l closest to q (p + t·d), kept on the drawn part of segments and rays. */
+export function projectParam(q: Vec, l: ResolvedLine): number {
+  let t = dot(sub(q, l.p), l.d) / dot(l.d, l.d)
+  if (l.kind === 'segment') t = Math.max(0, Math.min(1, t))
+  if (l.kind === 'ray') t = Math.max(0, t)
+  return t
+}
+
 /** Distance from point q to the drawn part of a line/segment/ray. */
 export function distToLine(q: Vec, l: ResolvedLine) {
   const d2 = dot(l.d, l.d)
@@ -175,6 +193,8 @@ export function dependsOn(o: GObj): string[] {
       if (o.dep.kind === 'polar') return [o.dep.center, o.dep.toward]
       if (o.dep.kind === 'foot') return [o.dep.point, o.dep.line]
       if (o.dep.kind === 'along') return [o.dep.through, o.dep.ref]
+      if (o.dep.kind === 'onLine') return [o.dep.line]
+      if (o.dep.kind === 'onCircle') return [o.dep.circle]
       if (o.dep.kind === 'bisectorPoint' || o.dep.kind === 'bisectorFoot') return [o.dep.a, o.dep.v, o.dep.b]
       if (o.dep.kind === 'intersection') return [o.dep.l1, o.dep.l2]
       return []

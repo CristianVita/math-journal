@@ -17,6 +17,10 @@ export type PointDep =
   | { kind: 'foot'; point: string; line: string }
   // at signed distance `dist` from `through`, along `ref` (or perpendicular to it): ends of finite parallels
   | { kind: 'along'; through: string; ref: string; perp: boolean; dist: number }
+  // glued to a line / segment / ray: p + t·d of the resolved line (t = 0 at its first point, 1 at the second)
+  | { kind: 'onLine'; line: string; t: number }
+  // glued to a circle, at `angle` radians from the centre
+  | { kind: 'onCircle'; circle: string; angle: number }
 
 export interface PointObj {
   id: string
