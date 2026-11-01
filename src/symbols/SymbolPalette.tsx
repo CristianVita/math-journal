@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import katex from 'katex'
 import { CATEGORIES, type Sym } from './symbols'
 import { insertLatex } from './insert'
@@ -14,12 +14,29 @@ export default function SymbolPalette({ compact = false }: { compact?: boolean }
   const [query, setQuery] = useState('')
   const [wrap, setWrap] = useState(true)
   const [toast, setToast] = useState('')
+  // symbols that turned out wider than a single tile once rendered (e.g. intervals with ∞)
+  // and those still too wide for a 3-tile button (long formulas), which get a whole row
+  const [overflowing, setOverflowing] = useState<Map<string, 'wide' | 'full'>>(() => new Map())
+  const gridRef = useRef<HTMLDivElement>(null)
 
   const items: Sym[] = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return CATEGORIES.find((c) => c.id === cat)!.items
     return CATEGORIES.flatMap((c) => c.items).filter((i) => i.name.toLowerCase().includes(q) || i.tex.toLowerCase().includes(q))
   }, [cat, query])
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const tooWide = [...(gridRef.current?.querySelectorAll<HTMLButtonElement>('.sym:not(.full)') ?? [])]
+        .filter((b) => b.scrollWidth > b.clientWidth + 1)
+        .map((b) => [b.dataset.key!, b.classList.contains('wide') ? 'full' : 'wide'] as const)
+      if (tooWide.length) setOverflowing((prev) => new Map([...prev, ...tooWide]))
+    }
+    measure()
+    // the KaTeX fonts may still be loading on first render, which changes the widths
+    document.fonts?.ready.then(measure)
+    // re-runs after a widening, so a 3-tile button that still overflows moves up to a whole row
+  }, [items, overflowing])
 
   const pick = async (sym: Sym) => {
     const tex = sym.insert ?? sym.tex
@@ -44,11 +61,12 @@ export default function SymbolPalette({ compact = false }: { compact?: boolean }
           ))}
         </div>
       )}
-      <div className="palette-grid">
+      <div className="palette-grid" ref={gridRef}>
         {items.map((i) => (
           <button
             key={i.tex + i.name}
-            className={'sym' + ((i.insert ?? i.tex).length > 14 ? ' wide' : '')}
+            data-key={i.tex + i.name}
+            className={'sym' + ((i.insert ?? i.tex).length > 14 || overflowing.has(i.tex + i.name) ? ' wide' : '') + (overflowing.get(i.tex + i.name) === 'full' ? ' full' : '')}
             title={`${i.name}\n${i.insert ?? i.tex}`}
             // keep focus in the text field so the caret position survives the click
             onMouseDown={(e) => e.preventDefault()}

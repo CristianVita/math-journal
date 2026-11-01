@@ -213,13 +213,18 @@ textarea { resize: vertical; width: 100%; }
 .palette-tabs .chip { font-size: 12px; padding: 2px 9px; }
 .palette-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; overflow: auto; align-content: start; }
 .sym { min-height: 42px; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px; display: grid; place-items: center; font-size: 15px; overflow: hidden; }
+.sym .katex { white-space: nowrap; }
 .sym:hover { border-color: var(--accent); background: var(--accent-soft); }
 .sym.wide { grid-column: span 3; font-size: 13px; }
 .palette.compact .sym.wide { grid-column: span 6; }
+.sym.full, .palette.compact .sym.full { grid-column: 1 / -1; }
 .palette-foot { font-size: 11px; }
 .symbols-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .symbols-layout .palette { max-height: calc(100vh - 200px); }
 .symbols-layout textarea { font-family: Consolas, monospace; margin-bottom: 10px; }
+.formula-to-latex-title { margin-top: 18px; }
+.latex-out { display: block; margin-top: 8px; padding: 8px 10px; background: #fafafa; border: 1px dashed var(--line); border-radius: 8px; font-family: Consolas, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all; user-select: all; min-height: 36px; }
+.latex-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 
 /* ---------- trig ---------- */
 .trig-unit { display: grid; grid-template-columns: minmax(280px, 520px) minmax(260px, 1fr); gap: 20px; align-items: start; }
@@ -323,3 +328,24 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
   .brand span:not(.logo) { display: none; }
   .topbar { gap: 10px; padding: 0 10px; }
 }
+
+/* ---------- notebook (freehand) ---------- */
+.notebook { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; overflow: hidden; }
+.notebook-toolbar { gap: 8px; }
+.notebook-toolbar .swatches { display: flex; gap: 6px; align-items: center; }
+.notebook-toolbar .toolbar-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+.notebook-pages { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; }
+.notebook-sheet { display: block; width: 100%; height: calc(100vh - 270px); min-height: 360px; touch-action: none; user-select: none; cursor: crosshair; }
+.notebook-sheet.tool-eraser { cursor: none; }
+.instruments-bar { border-top: 0; font-size: 13px; }
+.instruments-bar .instruments-help { font-size: 12px; flex-basis: 100%; }
+.angle-input { display: inline-flex; align-items: center; gap: 2px; }
+.angle-input input { width: 54px; padding: 3px 4px; font-size: 13px; }
+.angle-input .btn { margin-left: 6px; }
+.notebook-sheet.over-body { cursor: move; }
+.notebook-sheet.over-knob { cursor: grab; }
+.nb-hint { font-size: 13px; font-weight: 600; fill: #4f46e5; stroke: #fff; stroke-width: 4px; paint-order: stroke; pointer-events: none; }
+.notebook-sheet.over-radius { cursor: grab; }
+.notebook-sheet.over-pencil { cursor: grab; }
+.btn.primary.danger-fill { background: var(--danger); border-color: var(--danger); }
+.btn.primary.danger-fill:hover { filter: brightness(.92); }

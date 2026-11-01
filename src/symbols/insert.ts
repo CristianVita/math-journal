@@ -1,9 +1,13 @@
 // Tracks the last focused text field marked with data-math, so palette clicks know where to insert.
-let lastField: HTMLTextAreaElement | HTMLInputElement | null = null
+import type { MathfieldElement } from 'mathlive'
+
+let lastField: HTMLTextAreaElement | HTMLInputElement | MathfieldElement | null = null
 
 document.addEventListener('focusin', (e) => {
   const t = e.target as HTMLElement
-  if ((t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) && t.dataset.math !== undefined) lastField = t
+  if (t.dataset?.math === undefined) return
+  if (t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) lastField = t
+  else if (t.tagName === 'MATH-FIELD') lastField = t as MathfieldElement
 })
 
 export function hasTarget() {
@@ -20,6 +24,11 @@ function caretInMath(value: string, pos: number) {
 export function insertLatex(tex: string, wrap: boolean): boolean {
   const el = lastField
   if (!el || !document.contains(el)) return false
+  if (!(el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement)) {
+    // visual formula editor: it is already math, so never add $...$
+    el.insert(tex, { focus: true, selectionMode: 'placeholder', insertionMode: 'replaceSelection' })
+    return true
+  }
   el.focus()
   const start = el.selectionStart ?? el.value.length
   const text = wrap && !caretInMath(el.value, start) ? `$${tex}$` : tex

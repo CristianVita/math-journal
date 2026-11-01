@@ -1,13 +1,39 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import GeometryBoard from '../geometry/GeometryBoard'
 import type { Scene } from '../geometry/types'
 import { uid } from '../geometry/engine'
 import { db, newSession } from '../db'
+import { usePrompt } from '../components/PromptDialog'
+import { saveDocx, savePdf, svgElementPicture, today } from '../export/exportDoc'
+
+// parts of the board that are only there while editing: selection halos, previews, snap hints
+const EDIT_ONLY = '[data-ui], .halo, .halo-pt, .halo-box, .snap-halo, .ghost, .preview'
 
 /** Free whiteboard; its scene lives in App so other pages (triangle solver) can open figures here. */
 export default function BoardPage({ scene, onChange }: { scene: Scene; onChange: (s: Scene) => void }) {
   const [saving, setSaving] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const boardRef = useRef<HTMLDivElement>(null)
+  const { ask, dialog } = usePrompt()
+
+  /** What is visible on the board now (with its zoom and position), as PDF or Word. */
+  const exportAs = async (kind: 'pdf' | 'docx') => {
+    const svg = boardRef.current?.querySelector<SVGSVGElement>('.board-canvas svg')
+    if (!svg) return
+    setBusy(true)
+    try {
+      const picture = await svgElementPicture(svg, EDIT_ONLY, 'Tablă')
+      const name = `tabla-${today()}`
+      if (kind === 'pdf') await savePdf([picture], name + '.pdf')
+      else await saveDocx([picture], name + '.docx', `Tablă – ${new Date().toLocaleDateString('ro-RO')}`)
+    } catch (err) {
+      await ask('Exportul nu a reușit: ' + (err as Error).message, '', true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="page board-page">
       <div className="page-head">
@@ -16,11 +42,17 @@ export default function BoardPage({ scene, onChange }: { scene: Scene; onChange:
           <div className="muted">Construcții geometrice, unghiuri, drepte, figuri și grafice de funcții.</div>
         </div>
         <div className="actions">
+          <span className="muted">{busy ? 'Se exportă…' : 'Exportă:'}</span>
+          <button className="btn" onClick={() => exportAs('pdf')} disabled={!scene.objects.length || busy} title="Ce se vede acum pe tablă, pe o foaie A4">📄 PDF</button>
+          <button className="btn" onClick={() => exportAs('docx')} disabled={!scene.objects.length || busy} title="Ce se vede acum pe tablă, într-un document Word">📝 Word</button>
           <button className="btn primary" onClick={() => setSaving(true)} disabled={!scene.objects.length}>Salvează în jurnal</button>
         </div>
       </div>
-      <GeometryBoard scene={scene} onChange={onChange} height="calc(100vh - 210px)" />
+      <div ref={boardRef}>
+        <GeometryBoard scene={scene} onChange={onChange} height="calc(100vh - 210px)" />
+      </div>
       {saving && <SaveToSession scene={scene} onClose={() => setSaving(false)} />}
+      {dialog}
     </div>
   )
 }

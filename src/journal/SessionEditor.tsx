@@ -5,6 +5,7 @@ import SymbolPalette from '../symbols/SymbolPalette'
 import GeometryBoard from '../geometry/GeometryBoard'
 import { emptyScene, type Scene } from '../geometry/types'
 import { uid } from '../geometry/engine'
+import { usePrompt } from '../components/PromptDialog'
 
 const TOPIC_SUGGESTIONS = [
   'Trigonometrie', 'Cercul trigonometric', 'Ecuații trigonometrice', 'Geometrie plană', 'Vectori', 'Geometrie analitică',
@@ -26,6 +27,8 @@ export default function SessionEditor({ sessionId, onBack, onDeleted }: {
   const [palette, setPalette] = useState(true)
   const [openDrawing, setOpenDrawing] = useState<Drawing | null>(null)
   const [saved, setSaved] = useState(true)
+  // in-app dialog: window.confirm may return at once without showing anything inside the app's webview
+  const { confirm, dialog } = usePrompt()
   const timer = useRef<number>()
 
   useEffect(() => {
@@ -63,7 +66,7 @@ export default function SessionEditor({ sessionId, onBack, onDeleted }: {
   }
 
   const remove = async () => {
-    if (!confirm('Ștergi această ședință din jurnal?')) return
+    if (!(await confirm('Ștergi această ședință din jurnal?', 'Șterge ședința'))) return
     clearTimeout(timer.current)
     await db.sessions.delete(sessionId)
     onDeleted()
@@ -155,7 +158,7 @@ export default function SessionEditor({ sessionId, onBack, onDeleted }: {
             </button>
             <div className="drawing-foot">
               <input value={d.title} onChange={(e) => saveDrawing({ ...d, title: e.target.value })} />
-              <button className="link danger" onClick={() => confirm('Ștergi desenul?') && update({ drawings: s.drawings.filter((x) => x.id !== d.id) })}>Șterge</button>
+              <button className="link danger" onClick={async () => (await confirm('Ștergi desenul?', 'Șterge desenul')) && update({ drawings: s.drawings.filter((x) => x.id !== d.id) })}>Șterge</button>
             </div>
           </div>
         ))}
@@ -178,6 +181,7 @@ export default function SessionEditor({ sessionId, onBack, onDeleted }: {
           }}
         />
       )}
+      {dialog}
     </div>
   )
 }

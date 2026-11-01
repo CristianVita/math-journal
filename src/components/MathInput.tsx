@@ -1,5 +1,6 @@
 // Visual formula editor (MathLive): typing "/" makes a real fraction bar, "^" goes to the exponent,
-// and touch devices get a math keyboard. It reports its content as plain text that our parser understands.
+// and touch devices get a math keyboard. It reports its content as plain text that our parser understands,
+// or as LaTeX with format="latex" (the LaTeX scratchpad).
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { MathfieldElement } from 'mathlive'
 import { asciiToInput } from '../calculus/expr'
@@ -29,13 +30,17 @@ interface Props {
   toLatex: (text: string) => string | null
   onChange: (text: string) => void
   placeholder?: string
+  /** "input" (default): the calculator's plain-text syntax; "latex": LaTeX, and symbol palette clicks insert here. */
+  format?: 'input' | 'latex'
 }
 
-const MathInput = forwardRef<MathInputHandle, Props>(function MathInput({ text, toLatex, onChange, placeholder }, ref) {
+const MathInput = forwardRef<MathInputHandle, Props>(function MathInput({ text, toLatex, onChange, placeholder, format = 'input' }, ref) {
   const mfRef = useRef<MathfieldElement | null>(null)
   const lastEmitted = useRef<string | null>(null)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const formatRef = useRef(format)
+  formatRef.current = format
 
   useImperativeHandle(ref, () => ({
     insert: (latex) => {
@@ -50,7 +55,7 @@ const MathInput = forwardRef<MathInputHandle, Props>(function MathInput({ text, 
   const emit = () => {
     const mf = mfRef.current
     if (!mf) return
-    const t = asciiToInput(mf.getValue('ascii-math'))
+    const t = formatRef.current === 'latex' ? mf.getValue('latex') : asciiToInput(mf.getValue('ascii-math'))
     lastEmitted.current = t
     onChangeRef.current(t)
   }
@@ -97,6 +102,7 @@ const MathInput = forwardRef<MathInputHandle, Props>(function MathInput({ text, 
       }}
       class="math-input"
       placeholder={placeholder}
+      data-math={format === 'latex' ? '' : undefined}
     />
   )
 })

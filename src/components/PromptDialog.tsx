@@ -16,9 +16,13 @@ interface State {
   fields: PromptField[]
   values: string[]
   info: boolean
+  /** text of the OK button, red when `danger` */
+  okLabel?: string
+  danger?: boolean
 }
 
-// In-app replacement for window.prompt (which is unreliable inside desktop webviews).
+// In-app replacement for window.prompt and window.confirm (which are unreliable inside desktop webviews:
+// they may return at once without showing anything).
 export function usePrompt() {
   const [state, setState] = useState<State | null>(null)
   const resolver = useRef<((v: string[] | null) => void) | null>(null)
@@ -35,6 +39,13 @@ export function usePrompt() {
     new Promise<string | null>((resolve) => {
       resolver.current = (v) => resolve(v ? v[0] : null)
       setState({ title, fields: info ? [] : [{ label: '', value }], values: [value], info })
+    })
+
+  /** A yes / no question; resolves true when confirmed. */
+  const confirm = (title: string, okLabel = 'Da', danger = true) =>
+    new Promise<boolean>((resolve) => {
+      resolver.current = (v) => resolve(v !== null)
+      setState({ title, fields: [], values: [], info: false, okLabel, danger })
     })
 
   const close = (v: string[] | null) => {
@@ -76,11 +87,13 @@ export function usePrompt() {
         })}
         <div className="modal-actions">
           {!state.info && <button type="button" className="btn" onClick={() => close(null)}>Renunță</button>}
-          <button type="submit" className="btn primary" autoFocus={state.info}>OK</button>
+          <button type="submit" className={'btn primary' + (state.danger ? ' danger-fill' : '')} autoFocus={state.info || !state.fields.length}>
+            {state.okLabel ?? 'OK'}
+          </button>
         </div>
       </form>
     </div>
   )
 
-  return { ask, askForm, dialog }
+  return { ask, askForm, confirm, dialog }
 }

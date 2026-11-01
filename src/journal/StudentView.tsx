@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, newSession } from '../db'
 import StudentForm from './StudentForm'
+import { usePrompt } from '../components/PromptDialog'
 
 const fmtDate = (d: string) =>
   new Date(d + 'T12:00:00').toLocaleDateString('ro-RO', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
@@ -18,6 +19,7 @@ export default function StudentView({ studentId, onOpenSession, onDeleted }: {
   ) ?? []
   const [editing, setEditing] = useState(false)
   const [topicFilter, setTopicFilter] = useState('')
+  const { confirm, dialog } = usePrompt()
 
   if (!student) return null
 
@@ -31,7 +33,7 @@ export default function StudentView({ studentId, onOpenSession, onDeleted }: {
   const create = async () => onOpenSession(await db.sessions.add(newSession(studentId)))
 
   const remove = async () => {
-    if (!confirm(`Ștergi elevul ${student.name} și toate cele ${sessions.length} ședințe ale lui?`)) return
+    if (!(await confirm(`Ștergi elevul ${student.name} și toate cele ${sessions.length} ședințe ale lui?`, 'Șterge elevul'))) return
     await db.transaction('rw', db.students, db.sessions, async () => {
       await db.sessions.where('studentId').equals(studentId).delete()
       await db.students.delete(studentId)
@@ -89,6 +91,7 @@ export default function StudentView({ studentId, onOpenSession, onDeleted }: {
         {!sessions.length && <div className="empty muted">Nicio ședință încă. Apasă „Ședință nouă” pentru prima intrare în jurnal.</div>}
       </div>
       {editing && <StudentForm student={student} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
+      {dialog}
     </div>
   )
 }

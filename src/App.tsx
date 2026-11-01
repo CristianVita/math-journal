@@ -6,11 +6,12 @@ import BoardPage from './pages/BoardPage'
 import SymbolsPage from './pages/SymbolsPage'
 import TrigPage from './trig/TrigPage'
 import CalculusPage from './calculus/CalculusPage'
+import NotebookPage from './notebook/NotebookPage'
 import { emptyScene, type Scene } from './geometry/types'
 import { db } from './db'
 import './symbols/insert'
 
-type Page = 'journal' | 'board' | 'trig' | 'calculus' | 'symbols'
+type Page = 'journal' | 'board' | 'notebook' | 'trig' | 'calculus' | 'symbols'
 
 const BOARD_KEY = 'math-journal:board'
 
@@ -53,6 +54,7 @@ export default function App() {
   const NAV: { id: Page; label: string; icon: string }[] = [
     { id: 'journal', label: 'Jurnal', icon: '📓' },
     { id: 'board', label: 'Tablă', icon: '📐' },
+    { id: 'notebook', label: 'Caiet', icon: '✍️' },
     { id: 'trig', label: 'Trigonometrie', icon: '◔' },
     { id: 'calculus', label: 'Calculator', icon: '∂' },
     { id: 'symbols', label: 'Simboluri', icon: '∑' },
@@ -85,6 +87,7 @@ export default function App() {
                   <p>Adaugă un elev din bara din stânga, apoi notează fiecare ședință: subiecte, notițe cu formule, construcții geometrice și tema.</p>
                   <ul>
                     <li><b>Tablă</b> — puncte, drepte, segmente, cercuri, poligoane, unghiuri de orice măsură, perpendiculare, paralele, bisectoare, grafice.</li>
+                    <li><b>Caiet</b> — scrii liber cu mouse-ul sau cu creionul, ca pe o foaie de matematică sau dictando.</li>
                     <li><b>Trigonometrie</b> — cercul trigonometric interactiv, grafice sin/cos/tg/ctg, rezolvarea oricărui triunghi, formule.</li>
                     <li><b>Calculator</b> — derivate și integrale pas cu pas, integrale definite și improprii, verificarea răspunsului elevului.</li>
                     <li><b>Simboluri</b> — alfabetul grecesc, toate tipurile de integrale și sute de simboluri LaTeX.</li>
@@ -101,6 +104,7 @@ export default function App() {
           </main>
         )}
         {page === 'calculus' && <main className="content full"><CalculusPage /></main>}
+        {page === 'notebook' && <main className="content full"><NotebookPage /></main>}
         {page === 'symbols' && <main className="content full"><SymbolsPage /></main>}
       </div>
     </div>

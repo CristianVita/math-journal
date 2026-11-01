@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, exportBackup, importBackup } from '../db'
 import StudentForm from './StudentForm'
 import { saveFile } from '../platform'
+import { usePrompt } from '../components/PromptDialog'
 
 export default function StudentsSidebar({ selected, onSelect }: { selected?: number; onSelect: (id: number) => void }) {
   const students = useLiveQuery(() => db.students.orderBy('name').toArray(), []) ?? []
@@ -13,6 +14,7 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
   }, []) ?? new Map()
   const [query, setQuery] = useState('')
   const [adding, setAdding] = useState(false)
+  const { ask, confirm, dialog } = usePrompt()
   const fileRef = useRef<HTMLInputElement>(null)
 
   const filtered = students.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
@@ -22,11 +24,11 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
   }
 
   const doImport = async (f: File) => {
-    if (!confirm('Importul înlocuiește toate datele actuale cu cele din backup. Continui?')) return
+    if (!(await confirm('Importul înlocuiește toate datele actuale cu cele din backup. Continui?', 'Importă'))) return
     try {
       await importBackup(await f.text())
     } catch (e) {
-      alert((e as Error).message)
+      await ask((e as Error).message, '', true)
     }
   }
 
@@ -64,6 +66,7 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
           }}
         />
       )}
+      {dialog}
     </aside>
   )
 }
