@@ -45,6 +45,20 @@ const IDENTITIES: [string, string[]][] = [
     '\\mathcal{A} = \\frac{bc \\sin A}{2} = \\sqrt{p(p-a)(p-b)(p-c)}',
     'r = \\frac{\\mathcal{A}}{p},\\quad R = \\frac{abc}{4\\mathcal{A}}',
   ]],
+  ['Bisectoarele triunghiului', [
+    'l_a = \\frac{2bc\\cos\\frac{A}{2}}{b + c} = \\frac{2}{b + c}\\sqrt{bc\\,p(p-a)}',
+    'l_b = \\frac{2ac\\cos\\frac{B}{2}}{a + c} = \\frac{2}{a + c}\\sqrt{ac\\,p(p-b)}',
+    'l_c = \\frac{2ab\\cos\\frac{C}{2}}{a + b} = \\frac{2}{a + b}\\sqrt{ab\\,p(p-c)}',
+    '\\text{Teorema bisectoarei: } \\frac{BD}{DC} = \\frac{AB}{AC}',
+    'p = \\frac{a + b + c}{2}',
+  ]],
+  ['Medianele triunghiului', [
+    'm_a = \\frac{1}{2}\\sqrt{2b^2 + 2c^2 - a^2}',
+    'm_b = \\frac{1}{2}\\sqrt{2a^2 + 2c^2 - b^2}',
+    'm_c = \\frac{1}{2}\\sqrt{2a^2 + 2b^2 - c^2}',
+    'm_a^2 + m_b^2 + m_c^2 = \\frac{3}{4}\\left(a^2 + b^2 + c^2\\right)',
+    '\\text{Centrul de greutate: } AG = \\frac{2}{3}\\,m_a, \\quad GA\'= \\frac{1}{3}\\,m_a',
+  ]],
 ]
 
 export default function TrigReference() {
