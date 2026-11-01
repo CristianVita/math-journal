@@ -24,9 +24,49 @@ import {
 } from './engine'
 import { usePrompt } from '../components/PromptDialog'
 import { saveFile } from '../platform'
+import { type Triangle, solveTriangle, triangleExtras, triangleVertices } from '../trig/trigMath'
+
+/**
+ * "3, 4" / "3 4" / "3; 4" → [3, 4]. A comma with no space is a decimal comma ("2,5") unless that
+ * leaves too few numbers ("3,4" when two are expected).
+ */
+export function parseNumbers(src: string, count: number): number[] {
+  let parts = src.replace(/,\s+/g, ' ').split(/[;\s]+/).filter(Boolean)
+  if (parts.length < count) parts = parts.flatMap((p) => p.split(','))
+  return parts.map((p) => Number(p.replace(',', '.')))
+}
+
+const TRIANGLE_KINDS: Record<string, string> = {
+  right: 'dreptunghic', acute: 'ascuțitunghic', obtuse: 'obtuzunghic', equi: 'echilateral', iso: 'isoscel',
+}
+
+/** Side lengths from the dialog → a solved triangle, or a message explaining what is wrong. */
+export function triangleFromInput(kind: string, values: string[]): Triangle | string {
+  const need: Record<string, [number, number]> = { right: [1, 2], acute: [2, 3], obtuse: [3, 3], equi: [4, 1], iso: [5, 2] }
+  const [field, count] = need[kind]
+  const n = parseNumbers(values[field], count)
+  if (n.length !== count || n.some((x) => !(x > 0))) return `Scrie ${count === 1 ? 'un număr pozitiv' : `${count} numere pozitive, separate prin virgulă`}.`
+  const input =
+    kind === 'right' ? { b: n[0], c: n[1], A: 90 }
+    : kind === 'equi' ? { a: n[0], b: n[0], c: n[0] }
+    : kind === 'iso' ? { a: n[1], b: n[1], c: n[0] } // base AB horizontal, equal sides from C
+    : { a: n[0], b: n[1], c: n[2] }
+  const res = solveTriangle(input)
+  if (!res.solutions.length) return res.error ?? 'Cu aceste lungimi nu se poate forma un triunghi.'
+  const t = res.solutions[0]
+  if (kind === 'acute' || kind === 'obtuse') {
+    const actual = triangleExtras(t).type
+    if (actual !== TRIANGLE_KINDS[kind]) {
+      const [x, y, z] = [...n].sort((p, q) => p - q)
+      const rule = kind === 'acute' ? `${z}² < ${x}² + ${y}²` : `${z}² > ${x}² + ${y}²`
+      return `Laturile ${n.join(', ')} formează un triunghi ${actual}, nu ${TRIANGLE_KINDS[kind]}. Pentru ${TRIANGLE_KINDS[kind]} trebuie ca latura cea mai mare să respecte ${rule}.`
+    }
+  }
+  return t
+}
 
 type Tool =
-  | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'polygon' | 'regular'
+  | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'triangle' | 'polygon' | 'regular'
   | 'angle' | 'lineAngle' | 'construct' | 'midpoint' | 'perpendicular' | 'parallel' | 'bisector'
   | 'intersection' | 'text' | 'pen' | 'delete'
 
@@ -40,6 +80,7 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'circle', icon: '◯', label: 'Cerc', hint: ['Centrul', 'Un punct de pe cerc'] },
   { id: 'polygon', icon: '⬠', label: 'Poligon', hint: ['Vârfurile pe rând; click pe primul vârf pentru a închide'] },
   { id: 'regular', icon: '⬡', label: 'Poligon regulat', hint: ['Primul vârf', 'Al doilea vârf (apoi alegi nr. de laturi)'] },
+  { id: 'triangle', icon: '△', label: 'Triunghi (dreptunghic, ascuțitunghic, obtuzunghic…)', hint: ['Click unde vrei primul vârf, apoi alegi tipul și dimensiunile'] },
   { id: 'angle', icon: '∠', label: 'Unghi (măsură)', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură'] },
   { id: 'lineAngle', icon: '∢', label: 'Unghi între două linii', hint: ['Click pe prima dreaptă / segment / semidreaptă (pe porțiunea care formează unghiul)', 'Click pe a doua linie'] },
   { id: 'construct', icon: '∡', label: 'Construiește unghi de x°', hint: ['Vârful unghiului', 'Direcția primei laturi (apoi introduci măsura și lungimile laturilor)'] },
@@ -299,6 +340,37 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           setPending([...pending, { kind: 'point', id }])
           if (objs.length !== sceneRef.current.objects.length) commit(objs)
         }
+        break
+      }
+      case 'triangle': {
+        const at = snap(w)
+        const vals = await askForm('Triunghi', [
+          {
+            label: 'Tipul triunghiului',
+            value: 'right',
+            options: Object.entries(TRIANGLE_KINDS).map(([value, label]) => ({ value, label })),
+          },
+          { label: 'Catetele', value: '3, 4', showIf: { field: 0, value: 'right' }, hint: 'Unghiul drept este în vârful pe care ai dat click.' },
+          { label: 'Laturile', value: '5, 6, 7', showIf: { field: 0, value: 'acute' }, hint: 'Trei lungimi; cea mai mare la pătrat < suma pătratelor celorlalte.' },
+          { label: 'Laturile', value: '3, 4, 6', showIf: { field: 0, value: 'obtuse' }, hint: 'Trei lungimi; cea mai mare la pătrat > suma pătratelor celorlalte.' },
+          { label: 'Latura', value: '4', showIf: { field: 0, value: 'equi' } },
+          { label: 'Baza, apoi laturile egale', value: '4, 5', showIf: { field: 0, value: 'iso' } },
+        ])
+        if (!vals) break
+        const t = triangleFromInput(vals[0], vals)
+        if (typeof t === 'string') {
+          await ask(t, '', true)
+          break
+        }
+        // first vertex where the user clicked, first side along the x axis, third vertex above it
+        const v = triangleVertices(t)
+        const ids = [v.A, v.B, v.C].map((p) => newPoint(objs, { x: at.x + p.x, y: at.y + p.y }).id)
+        const [A, B, C] = ids
+        objs.push({ id: uid(), type: 'polygon', points: ids, color, fill: color + '18', width: 2 } satisfies PolygonObj)
+        for (const [p, q] of [[A, B], [B, C], [C, A]]) newLine(objs, 'segment', { kind: 'twoPoints', a: p, b: q }, { showLength: true })
+        for (const [p, vx, q] of [[B, A, C], [C, B, A], [A, C, B]])
+          objs.push({ id: uid(), type: 'angle', a: p, v: vx, b: q, color, showValue: true, rightMark: true } satisfies AngleObj)
+        commit(objs)
         break
       }
       case 'regular':
