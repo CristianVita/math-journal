@@ -8,6 +8,10 @@ const START = '(?<![a-zA-Z_])'
 const END = '(?![a-zA-Z_])'
 const word = (w: string) => new RegExp(START + w + END, 'g')
 
+/** sin^(-1), cos^-1 … : the calculus notation for the inverse functions, not a reciprocal. */
+const INV_TRIG = new RegExp(`${START}(sin|cos|tan|cot|tg|ctg)\\s*\\^\\s*\\(?\\s*-\\s*1\\s*\\)?`)
+const INV_NAME: Record<string, string> = { sin: 'arcsin', cos: 'arccos', tan: 'arctg', tg: 'arctg', cot: 'arcctg', ctg: 'arcctg' }
+
 /** Romanian / school notation → mathjs names. Longest names first so "arcctg" is not eaten by "ctg". */
 const NAME_MAP: [RegExp, string][] = [
   [word('arcctg'), 'acot'],
@@ -29,6 +33,8 @@ const FN_NAMES = 'sin|cos|tan|cot|asin|acos|atan|acot|sinh|cosh|tanh|log|log10|e
 /** Turn what a student types ("tg^2(x)", "ln x", "2·x") into something mathjs parses. */
 export function normalizeInput(src: string): string {
   let s = src.trim().replace(/,(?=\d)/g, '.')
+  // sin^-1(x) typed by hand means arcsin in calculus notation, same as from the keyboard
+  s = s.replace(new RegExp(`${INV_TRIG.source}(?=\\s*\\()`, 'g'), (_, f: string) => INV_NAME[f])
   for (const [re, to] of NAME_MAP) s = s.replace(re, to)
   // sin^2(x) → sin(x)^2   (only for a simple, non-nested argument)
   s = s.replace(new RegExp(`${START}(${FN_NAMES})\\^(\\d+|\\(\\d+\\))\\(([^()]*)\\)`, 'g'), '$1($3)^$2')
@@ -39,6 +45,29 @@ export function normalizeInput(src: string): string {
   return s
 }
 
+/**
+ * Replace `prefix(arg)` with build(captured, arg), matching parentheses properly. `prefix` must have
+ * one capture group and stop right before the opening parenthesis of the call.
+ */
+function rewriteCall(s: string, prefix: RegExp, build: (cap: string, arg: string) => string): string {
+  let out = ''
+  let last = 0
+  for (const m of s.matchAll(prefix)) {
+    const open = m.index! + m[0].length
+    if (open < last || s[open] !== '(') continue
+    let depth = 0
+    let close = open
+    for (; close < s.length; close++) {
+      if (s[close] === '(') depth++
+      else if (s[close] === ')' && --depth === 0) break
+    }
+    if (depth !== 0) continue
+    out += s.slice(last, m.index) + build(m[1], s.slice(open + 1, close))
+    last = close + 1
+  }
+  return out + s.slice(last)
+}
+
 // longest first, so "arcctg" is matched before "ctg"
 const FN_WORDS = ['arcctg', 'arctg', 'arcsin', 'arccos', 'sqrt', 'sin', 'cos', 'ctg', 'tg', 'tan', 'cot', 'ln', 'lg', 'log', 'exp']
 
@@ -47,6 +76,9 @@ export function asciiToInput(a: string): string {
   let s = a
   // a function name typed letter by letter comes out as a product "l n"; glue it back into "ln"
   for (const w of FN_WORDS) s = s.replace(new RegExp(`${START}${w.split('').join('\\s*')}${END}`, 'g'), w)
+  // the keyboard's shifted keys: sin⁻¹ means arcsin (not 1/sin), log₁₀ / log_b is a logarithm in base b
+  s = s.replace(new RegExp(INV_TRIG.source, 'g'), (_, f: string) => INV_NAME[f])
+  s = rewriteCall(s, new RegExp(`${START}log\\s*_\\s*\\(?\\s*([0-9a-zA-Z.]+)\\s*\\)?\\s*`, 'g'), (base, arg) => `log(${arg}, ${base})`)
   s = s
     .replace(new RegExp(`${START}xx${END}`, 'g'), '*')
     .replace(/·|⋅/g, '*')

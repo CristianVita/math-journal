@@ -22,6 +22,14 @@ def parse(src, v):
     # 0.5 typed by the student should behave like 1/2, not like a float
     return e.xreplace({f: sp.Rational(str(f)) for f in e.atoms(sp.Float)})
 
+def school_form(F, f):
+    """Inverse hyperbolic functions are not taught in high school: write them as logarithms,
+    then apply the ln|u| convention."""
+    F = F.replace(sp.asinh, lambda a: sp.log(a + sp.sqrt(a**2 + 1)))
+    F = F.replace(sp.acosh, lambda a: sp.log(a + sp.sqrt(a**2 - 1)))
+    F = F.replace(sp.atanh, lambda a: sp.log((1 + a) / (1 - a)) / 2)
+    return abs_logs(F, f)
+
 def abs_logs(F, f):
     """School convention: the ln coming from ∫ du/u is ln|u|. Only touch logs that were not already in
     the integrand and whose argument is not known to be positive (ln(x²+1) stays as is)."""
@@ -39,7 +47,7 @@ def ser(r, f, depth=0):
     if depth > 40:
         return d
     try:
-        d['result'] = tex(abs_logs(r.eval(), f))
+        d['result'] = tex(school_form(r.eval(), f))
     except Exception:
         d['result'] = None
     if d['rule'] == 'RewriteRule':
@@ -106,7 +114,7 @@ def integrate(req):
             F = G
         # check before adding |…|: SymPy differentiates ln|u| into sign(u)/|u|, which is harder to compare
         out['verified'] = bool(sp.simplify(sp.diff(F, v) - f) == 0)
-        F = abs_logs(F, f)
+        F = school_form(F, f)
         out['antiderivative'] = tex(F)
         out['antiderivativeSrc'] = sp.sstr(F)
         out['special'] = bool(F.has(*SPECIAL))
