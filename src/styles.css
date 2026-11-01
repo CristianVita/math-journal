@@ -222,6 +222,7 @@ textarea { resize: vertical; width: 100%; }
 .plot-svg { width: 100%; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); }
 .slider { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .formula { overflow-x: auto; }
+.fn-group .chips { margin: 4px 0 2px; }
 .tri-solver { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
 .tri-inputs { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .tri-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
