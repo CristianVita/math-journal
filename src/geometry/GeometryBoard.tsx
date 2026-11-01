@@ -25,12 +25,13 @@ import { usePrompt } from '../components/PromptDialog'
 import { saveFile } from '../platform'
 
 type Tool =
-  | 'move' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'polygon' | 'regular'
+  | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'polygon' | 'regular'
   | 'angle' | 'construct' | 'midpoint' | 'perpendicular' | 'parallel' | 'bisector'
   | 'intersection' | 'text' | 'pen' | 'delete'
 
 const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
-  { id: 'move', icon: '↖', label: 'Mută / selectează', hint: ['Trage punctele sau figurile; trage fundalul pentru a muta tabla; rotița = zoom'] },
+  { id: 'move', icon: '↖', label: 'Cursor', hint: ['Selectează și trage puncte sau figuri; trage fundalul pentru a muta tabla; rotița = zoom'] },
+  { id: 'pan', icon: '✋', label: 'Mută tabla', hint: ['Trage oriunde pentru a te deplasa în sistemul xOy; rotița = zoom'] },
   { id: 'point', icon: '•', label: 'Punct', hint: ['Click pentru a plasa un punct'] },
   { id: 'segment', icon: '⟋', label: 'Segment', hint: ['Primul capăt', 'Al doilea capăt'] },
   { id: 'line', icon: '⟷', label: 'Dreaptă', hint: ['Primul punct al dreptei', 'Al doilea punct'] },
@@ -71,6 +72,29 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const [selected, setSelected] = useState<string | null>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [mouse, setMouse] = useState<Vec | null>(null)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [panning, setPanning] = useState(false)
+
+  // hold Space to drag the plane, whatever tool is active (like in drawing programs)
+  useEffect(() => {
+    if (readOnly) return
+    const typing = (e: KeyboardEvent) => ['INPUT', 'TEXTAREA', 'SELECT', 'MATH-FIELD'].includes((e.target as HTMLElement).tagName)
+    const down = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !typing(e)) {
+        e.preventDefault() // no page scroll
+        setSpaceHeld(true)
+      }
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpaceHeld(false)
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [readOnly])
   const [past, setPast] = useState<Scene[]>([])
   const [future, setFuture] = useState<Scene[]>([])
   const { ask, dialog } = usePrompt()
@@ -367,9 +391,17 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return
     const s = screenPos(e)
+    // the plane can be dragged from any tool: right or middle button, Space held, or the hand tool
+    const panGesture = tool === 'pan' || spaceHeld || (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2))
+    if (!panGesture && e.button !== 0 && e.pointerType === 'mouse') return
     ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    if (panGesture) {
+      e.preventDefault()
+      drag.current = { mode: 'pan', start: s, view: { ...view } }
+      setPanning(true)
+      return
+    }
     if (tool === 'pen') {
       const w = toWorld(s)
       const p: PathObj = { id: uid(), type: 'path', points: [[w.x, w.y]], color, width: 2.5 }
@@ -385,6 +417,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     setSelected(hit?.id ?? null)
     if (!hit) {
       drag.current = { mode: 'pan', start: s, view: { ...view } }
+      setPanning(true)
       return
     }
     const ids = hit.type === 'text' ? [hit.id] : hit.type === 'path' ? [hit.id] : freePointsOf(hit)
@@ -448,6 +481,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
 
   const onPointerUp = () => {
     drag.current = null
+    setPanning(false)
   }
 
   const onWheel = (e: React.WheelEvent) => {
@@ -464,7 +498,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
       if (!wrapRef.current?.closest('.board')?.contains(document.activeElement) && document.activeElement !== document.body) return
-      if (e.key === 'Escape') setPending([])
+      // Esc: drop the half-finished construction and go back to the cursor
+      if (e.key === 'Escape') {
+        setPending([])
+        setTool('move')
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
         const gone = cascade(sceneRef.current, selected)
         commit(sceneRef.current.objects.filter((o) => !gone.has(o.id)))
@@ -751,8 +789,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     <div className={'board' + (readOnly ? ' readonly' : '')} tabIndex={-1}>
       {!readOnly && <div className="board-toolbar">
         {TOOLS.map((t) => (
-          <button key={t.id} className={'tool' + (tool === t.id ? ' active' : '')} title={t.label} onClick={() => changeTool(t.id)}>
+          <button
+            key={t.id}
+            className={'tool' + (tool === t.id ? ' active' : '') + (t.id === 'move' || t.id === 'pan' ? ' wide labeled' : '')}
+            title={t.id === 'move' ? 'Cursor (Esc)' : t.id === 'pan' ? 'Mută tabla (sau: click dreapta / Space + trage)' : t.label}
+            onClick={() => changeTool(t.id)}
+          >
             {t.icon}
+            {(t.id === 'move' || t.id === 'pan') && <span>{t.label}</span>}
           </button>
         ))}
         <button className="tool" title="Graficul unei funcții f(x)" onClick={addFunction}>ƒ</button>
@@ -790,7 +834,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             onPointerUp={readOnly ? undefined : onPointerUp}
             onPointerLeave={() => setMouse(null)}
             onWheel={readOnly ? undefined : onWheel}
-            style={{ cursor: tool === 'move' ? (hover ? 'pointer' : 'grab') : 'crosshair', touchAction: 'none' }}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{
+              cursor: panning ? 'grabbing' : spaceHeld || tool === 'pan' ? 'grab' : tool === 'move' ? (hover ? 'pointer' : 'grab') : 'crosshair',
+              touchAction: 'none',
+            }}
           >
             <defs>
               <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -806,6 +854,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           </svg>
           {!readOnly && <div className="board-status">
             <b>{toolInfo.label}:</b> {hint}
+            {tool !== 'move' && tool !== 'pan' && <span className="muted">· Esc = cursor · click dreapta + trage = mută tabla</span>}
             {mouse && <span className="coords">({formatNum(mouse.x)}, {formatNum(mouse.y)})</span>}
           </div>}
         </div>
