@@ -28,6 +28,20 @@ import {
 import { usePrompt } from '../components/PromptDialog'
 import { saveFile } from '../platform'
 import { type Triangle, solveTriangle, triangleExtras, triangleVertices } from '../trig/trigMath'
+import { defaultInstruments, InstrumentsLayer, PX_PER_CM, type Instruments } from '../notebook/instruments'
+import { InstrumentsBar, useInstruments } from '../notebook/useInstruments'
+
+const TOOLS_KEY = 'math-journal:board-instruments'
+
+function loadInstruments(): Instruments {
+  try {
+    const raw = localStorage.getItem(TOOLS_KEY)
+    if (raw) return { ...defaultInstruments(), ...JSON.parse(raw) }
+  } catch {
+    /* storage unavailable: start with them put away */
+  }
+  return defaultInstruments()
+}
 
 /**
  * "3, 4" / "3 4" / "3; 4" → [3, 4]. A comma with no space is a decimal comma ("2,5") unless that
@@ -108,6 +122,7 @@ interface Props {
   onChange: (s: Scene) => void
   height?: number | string
   readOnly?: boolean // thumbnail mode: no toolbar, no interaction, view fitted to the figure
+  instruments?: boolean // offer the ruler, set square, protractor and compass
 }
 
 /** Positions (and fixed lengths) of a figure when a scale / rotate gesture starts. */
@@ -116,7 +131,7 @@ type XformBase = { pts: Map<string, Vec>; paths: Map<string, [number, number][]>
 // `at`: where on the line the user clicked (the angle-between-lines tool uses it to pick a side)
 type Pick = { kind: 'point' | 'line'; id: string; at?: Vec }
 
-export default function GeometryBoard({ scene, onChange, height = 560, readOnly = false }: Props) {
+export default function GeometryBoard({ scene, onChange, height = 560, readOnly = false, instruments = false }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const [size, setSize] = useState({ w: 800, h: 500 })
@@ -161,6 +176,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     | { mode: 'pen'; id: string }
     | { mode: 'slide'; id: string; moved: boolean }
     | { mode: 'xform'; kind: 'scale' | 'rotate'; pivot: Vec; start: Vec; base: XformBase; moved: boolean }
+    | { mode: 'inst' }
     | null
   >(null)
   const [xformLabel, setXformLabel] = useState<string | null>(null)
@@ -299,6 +315,49 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const step = view.scale >= 30 ? 0.5 : 1
     return { x: Math.round(w.x / step) * step, y: Math.round(w.y / step) * step }
   }
+
+  // ---------- instruments ----------
+  // They lie on the plane, so they pan and zoom with it and measure in its units: 1 cm on the ruler is 1 unit.
+  // Their own coordinates are the plane's, at PX_PER_CM to the unit, with y pointing down like on a sheet.
+  const instScale = view.scale / PX_PER_CM
+  const toPlane = (s: Vec): [number, number] => [view.cx * PX_PER_CM + (s.x - size.w / 2) / instScale, -view.cy * PX_PER_CM + (s.y - size.h / 2) / instScale]
+  const planeToWorld = ([x, y]: number[]): [number, number] => [x / PX_PER_CM, -y / PX_PER_CM]
+  const [instTools, setInstTools] = useState<Instruments>(() => (instruments ? loadInstruments() : defaultInstruments()))
+  useEffect(() => {
+    if (!instruments) return
+    try {
+      localStorage.setItem(TOOLS_KEY, JSON.stringify(instTools))
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [instruments, instTools])
+  const [planeX, planeY] = toPlane({ x: 0, y: 0 })
+  const instPath = useRef<string>()
+  const inst = useInstruments({
+    tools: instTools,
+    setTools: setInstTools,
+    bounds: { x0: planeX, y0: planeY, w: size.w / instScale, h: size.h / instScale },
+    onStrokeStart: (first) => {
+      const p: PathObj = { id: uid(), type: 'path', points: [planeToWorld(first)], color, width: 2.5 }
+      instPath.current = p.id
+      commit([...sceneRef.current.objects, p])
+    },
+    onStrokeChange: (points) => {
+      const world = points.map(planeToWorld)
+      onChange({
+        ...sceneRef.current,
+        objects: sceneRef.current.objects.map((o) => (o.id === instPath.current && o.type === 'path' ? { ...o, points: world } : o)),
+      })
+    },
+    onStrokes: (list) =>
+      commit([...sceneRef.current.objects, ...list.map(({ points, thin }): PathObj =>
+        ({ id: uid(), type: 'path', points: points.map(planeToWorld), color, width: thin ? 1.5 : 2.5 }))]),
+    // drawing along an instrument is what the pen does
+    onShown: () => changeTool('pen'),
+    roams: true,
+  })
+  // with the other tools the clicks go through to the board, to place points under a ruler
+  const instOn = instruments && !readOnly && !spaceHeld && (tool === 'pen' || tool === 'move')
 
   // ---------- history ----------
   // History updaters run later, during React's render, when sceneRef may already hold the new
@@ -903,11 +962,20 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     // the plane can be dragged from any tool: right or middle button, Space held, or the hand tool
     const panGesture = tool === 'pan' || spaceHeld || (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2))
     if (!panGesture && e.button !== 0 && e.pointerType === 'mouse') return
-    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    try {
+      ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    } catch {
+      /* pointer already gone: carry on without capture */
+    }
     if (panGesture) {
       e.preventDefault()
       drag.current = { mode: 'pan', start: s, view: { ...view } }
       setPanning(true)
+      return
+    }
+    // a line along an edge runs half its width (2.5 px on screen) plus a pixel away from it
+    if (instOn && inst.down(e.pointerId, [...toPlane(s), 0.5], tool === 'pen', 2.25 / instScale)) {
+      drag.current = { mode: 'inst' }
       return
     }
     if (tool === 'pen') {
@@ -967,6 +1035,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     setMouse(w)
     const d = drag.current
     if (!d) {
+      if (instOn) inst.hoverAt(...toPlane(s), tool === 'pen')
+      else inst.setHover(null)
       const h = hitTest(s)
       setHover(h?.id ?? null)
       setHoverHandle(tool === 'move' && figure ? handleAt(s) : null)
@@ -977,7 +1047,9 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       setGhost(placesPoint || target?.existing ? target : null)
       return
     }
-    if (d.mode === 'pan') {
+    if (d.mode === 'inst') {
+      inst.move(e.pointerId, ...toPlane(s), e.shiftKey)
+    } else if (d.mode === 'pan') {
       setView({ cx: d.view.cx - (s.x - d.start.x) / view.scale, cy: d.view.cy + (s.y - d.start.y) / view.scale })
     } else if (d.mode === 'slide') {
       const o = sceneRef.current.objects.find((x) => x.id === d.id)
@@ -1056,7 +1128,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     }
   }
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (drag.current?.mode === 'inst') {
+      inst.up(e.pointerId)
+      inst.hoverAt(...toPlane(screenPos(e)), tool === 'pen')
+    }
     drag.current = null
     setPanning(false)
     setXformLabel(null)
@@ -1427,6 +1503,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         <button className="tool wide" onClick={exportSvg} title="Exportă SVG">SVG</button>
         <button className="tool wide danger" title="Golește tabla" onClick={() => scene.objects.length && commit(emptyScene().objects)}>Golește</button>
       </div>}
+      {instruments && !readOnly && <InstrumentsBar inst={inst} />}
 
       <div className="board-body">
         <div className="board-canvas" ref={wrapRef} style={{ height }}>
@@ -1438,12 +1515,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             onPointerDown={readOnly ? undefined : onPointerDown}
             onPointerMove={readOnly ? undefined : onPointerMove}
             onPointerUp={readOnly ? undefined : onPointerUp}
-            onPointerLeave={() => setMouse(null)}
+            onPointerLeave={() => { setMouse(null); inst.setHover(null) }}
             onWheel={readOnly ? undefined : onWheel}
             onContextMenu={(e) => e.preventDefault()}
             style={{
               cursor: panning ? 'grabbing'
                 : spaceHeld || tool === 'pan' ? 'grab'
+                : inst.hover === 'body' ? 'move'
+                : inst.hover === 'knob' || inst.hover === 'radius' || inst.hover === 'pencil' ? 'grab'
                 : tool === 'move' ? (hoverHandle === 'scale' ? 'nwse-resize' : hoverHandle === 'rotate' ? 'alias' : hover ? 'move' : 'grab')
                 : 'crosshair',
               touchAction: 'none',
@@ -1461,6 +1540,12 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             {preview()}
             {ghostEls()}
             {scene.objects.filter((o): o is PointObj => o.type === 'point').map(renderPoint)}
+            {instruments && !readOnly && (
+              <g data-ui transform={`translate(${size.w / 2 - view.cx * PX_PER_CM * instScale} ${size.h / 2 + view.cy * PX_PER_CM * instScale}) scale(${instScale})`}>
+                <InstrumentsLayer tools={instTools} bounds={{ x0: planeX, y0: planeY, w: size.w / instScale, h: size.h / instScale }} />
+                {inst.hint && <text className="nb-hint" x={inst.hint.x} y={inst.hint.y}>{inst.hint.text}</text>}
+              </g>
+            )}
             {!readOnly && tool === 'move' && figure && pivot && (() => {
               const box = selectionBox()!
               const pv = toScreen(pivot)

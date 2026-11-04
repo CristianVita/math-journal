@@ -5,10 +5,8 @@ import { getStroke } from 'perfect-freehand'
 import { saveFile } from '../platform'
 import { rasterize, saveDocx, savePdf, today } from '../export/exportDoc'
 import { usePrompt } from '../components/PromptDialog'
-import {
-  COMPASS_MAX_R, defaultInstruments, dockedPose, findDock, formatDms, hitTest, InstrumentsLayer, projectOnEdge, protractorAngle,
-  protractorPoint, PROT_R, PX_PER_CM, slideDock, type Bounds, type Edge, type Hit, type InstId, type Instruments, type Pt,
-} from './instruments'
+import { defaultInstruments, InstrumentsLayer, type Bounds, type Instruments } from './instruments'
+import { InstrumentsBar, linePoints, round, useInstruments } from './useInstruments'
 
 type Tool = 'pen' | 'marker' | 'eraser'
 type Paper = 'grid' | 'lines' | 'blank'
@@ -31,18 +29,8 @@ interface Notebook {
   tools: Instruments
 }
 
-/** What the pointer is doing between pointerdown and pointerup. */
-type Active = { pointerId: number; start: number[]; before: Stroke[] } & (
-  | { mode: 'draw' | 'erase' }
-  | { mode: 'move'; id: InstId; dx: number; dy: number }
-  /** turning around `pivot` (sheet point); x0, y0, rot0 = where the instrument was when grabbed */
-  | { mode: 'rotate'; id: InstId; pivot: Pt; a0: number; rot0: number; x0: number; y0: number }
-  | { mode: 'edge'; id: InstId; edge: Edge; from: Pt }
-  | { mode: 'ray' }
-  | { mode: 'radius' }
-  /** compass arc: from angle `from`, `sweep` degrees so far (signed, at most a full turn), `last` = pointer angle */
-  | { mode: 'arc'; from: number; sweep: number; last: number }
-)
+/** What the pointer is doing between pointerdown and pointerup; 'inst' = an instrument has it. */
+interface Active { pointerId: number; start: number[]; before: Stroke[]; mode: 'draw' | 'erase' | 'inst' }
 
 const KEY = 'math-journal:notebook'
 const COLORS: Record<'pen' | 'marker', { name: string; value: string }[]> = {
@@ -80,9 +68,7 @@ function load(): Notebook {
   return { paper: 'grid', pages: [[]], current: 0, tools: defaultInstruments() }
 }
 
-const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d
 const uid = () => Math.random().toString(36).slice(2, 10)
-const clampTo = (v: number, max?: number) => (max ? Math.min(max - 10, Math.max(10, v)) : v)
 
 /** perfect-freehand outline → SVG path (quadratic curves through the midpoints). */
 function outlinePath(s: Stroke) {
@@ -123,24 +109,6 @@ function touches(s: Stroke, x: number, y: number, r: number) {
   if (p.length === 1) return Math.hypot(p[0][0] - x, p[0][1] - y) <= reach
   for (let i = 1; i < p.length; i++) if (segDist(x, y, p[i - 1][0], p[i - 1][1], p[i][0], p[i][1]) <= reach) return true
   return false
-}
-
-/** The compass pencil's position when the compass points at `deg` (clockwise on screen). */
-const compassPoint = (c: Instruments['compass'], deg: number) => {
-  const a = (deg * Math.PI) / 180
-  return [round(c.x + c.r * Math.cos(a)), round(c.y + c.r * Math.sin(a)), 0.5]
-}
-
-/** An arc around the compass needle, from angle `from`, `sweep` degrees long; even width like a line. */
-function arcPoints(c: Instruments['compass'], from: number, sweep: number) {
-  const n = Math.max(2, Math.ceil((Math.abs(sweep) * Math.PI * c.r) / 180 / 4))
-  return Array.from({ length: n + 1 }, (_, k) => compassPoint(c, from + (sweep * k) / n))
-}
-
-/** Points of a straight line, with constant pressure so it has an even width. */
-function linePoints(a: number[], x: number, y: number) {
-  const n = Math.max(2, Math.ceil(Math.hypot(x - a[0], y - a[1]) / 4))
-  return Array.from({ length: n + 1 }, (_, i) => [round(a[0] + ((x - a[0]) * i) / n), round(a[1] + ((y - a[1]) * i) / n), 0.5])
 }
 
 function PaperBackground({ paper }: { paper: Paper }) {
@@ -190,10 +158,6 @@ export default function NotebookPage() {
   // undo / redo: snapshots of one page's strokes (strokes are never mutated, so this is cheap)
   const [past, setPast] = useState<{ page: number; strokes: Stroke[] }[]>([])
   const [future, setFuture] = useState<{ page: number; strokes: Stroke[] }[]>([])
-  // live readout next to the pointer: a length along the ruler, an angle on the protractor
-  const [hint, setHint] = useState<{ x: number; y: number; text: string } | null>(null)
-  const [hover, setHover] = useState<Hit['kind'] | null>(null)
-  const [angle, setAngle] = useState({ d: '60', m: '', s: '' })
   const [busy, setBusy] = useState(false)
   // in-app dialog: window.confirm may return at once without showing anything inside the app's webview
   const { ask, confirm: confirmDialog, dialog } = usePrompt()
@@ -211,6 +175,21 @@ export default function NotebookPage() {
 
   const strokes = nb.pages[nb.current]
   const size = SIZES[tool][sizeIdx[tool]]
+  const newStroke = (points: number[][], pressure: boolean): Stroke =>
+    ({ id: uid(), tool: tool as Stroke['tool'], color: colors[tool as Stroke['tool']], size, points, pressure })
+
+  const inst = useInstruments({
+    tools: nb.tools,
+    setTools: (update) => setNb((n) => ({ ...n, tools: update(n.tools) })),
+    bounds,
+    onStrokeStart: (first) => setDrawing(newStroke([first], true)),
+    onStrokeChange: (points) => setDrawing((d) => d && { ...d, points }),
+    onStrokes: (list) => {
+      remember(nb.current, strokes)
+      setPage(nb.current, [...strokes, ...list.map(({ points, thin }): Stroke =>
+        ({ id: uid(), tool: 'pen', color: colors.pen, size: thin ? 1.5 : SIZES.pen[sizeIdx.pen], points, pressure: true }))])
+    },
+  })
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -309,34 +288,8 @@ export default function NotebookPage() {
     }
     const p = pointAt(e)
     const base = { pointerId: e.pointerId, start: p, before: strokes }
-    const hit = hitTest(nb.tools, p[0], p[1], tool !== 'eraser', bounds)
-    const newStroke = (points: number[][], pressure: boolean): Stroke =>
-      ({ id: uid(), tool: tool as Stroke['tool'], color: colors[tool as Stroke['tool']], size, points, pressure })
-    if (hit?.kind === 'radius') {
-      active.current = { ...base, mode: 'radius' }
-    } else if (hit?.kind === 'pencil') {
-      const c = nb.tools.compass
-      // the turn is measured from where it was grabbed (grip or pencil), around the needle
-      const grabbed = (Math.atan2(p[1] - c.y, p[0] - c.x) * 180) / Math.PI
-      active.current = { ...base, mode: 'arc', from: c.rot, sweep: 0, last: grabbed }
-      setDrawing(newStroke([compassPoint(c, c.rot)], true))
-    } else if (hit?.kind === 'knob') {
-      const i = nb.tools[hit.id]
-      const [qx, qy] = hit.pivot
-      active.current = { ...base, mode: 'rotate', id: hit.id, pivot: hit.pivot, a0: Math.atan2(p[1] - qy, p[0] - qx), rot0: i.rot, x0: i.x, y0: i.y }
-      // turning the ruler lifts it off the set square; on release it rests there again if it is still close
-      if (hit.id === 'ruler') setInst('ruler', { dock: undefined })
-    } else if (hit?.kind === 'body') {
-      const i = nb.tools[hit.id]
-      active.current = { ...base, mode: 'move', id: hit.id, dx: p[0] - i.x, dy: p[1] - i.y }
-    } else if (hit?.kind === 'edge') {
-      const from = projectOnEdge(nb.tools[hit.id], hit.edge, p[0], p[1], size / 2 + 1)
-      active.current = { ...base, mode: 'edge', id: hit.id, edge: hit.edge, from }
-      setDrawing(newStroke([[...from, 0.5]], true))
-    } else if (hit?.kind === 'center') {
-      const c = nb.tools.protractor
-      active.current = { ...base, mode: 'ray' }
-      setDrawing(newStroke([[c.x, c.y, 0.5]], true))
+    if (inst.down(e.pointerId, p, tool !== 'eraser', size / 2 + 1)) {
+      active.current = { ...base, mode: 'inst' }
     } else if (tool === 'eraser') {
       active.current = { ...base, mode: 'erase' }
       eraseAt(p[0], p[1])
@@ -346,137 +299,14 @@ export default function NotebookPage() {
     }
   }
 
-  const setInst = (id: InstId, patch: Partial<Instruments[InstId]>) =>
-    setNb((n) => {
-      const tools: Instruments = { ...n.tools, [id]: { ...n.tools[id], ...patch } }
-      const dock = tools.ruler.dock
-      if (dock && (id === 'ruler' || id === 'square') && ('visible' in patch || 'shape' in patch)) {
-        // hidden, or the square's sides changed: the ruler stays where it is, no longer resting on the square
-        tools.ruler = { ...tools.ruler, dock: undefined }
-      } else if (dock && id === 'square') {
-        // the ruler resting on the set square goes with it
-        tools.ruler = { ...tools.ruler, ...dockedPose(tools, dock) }
-      }
-      return { ...n, tools }
-    })
-
-  /** Drag the ruler: it rests on the set square when it comes close, slides along the side, and comes off when pulled away. */
-  const moveRuler = (a: { dx: number; dy: number }, px: number, py: number) => {
-    const x = px - a.dx, y = py - a.dy
-    const was = nb.tools.ruler.dock
-    const dock = was ? slideDock(nb.tools, was, x, y) : findDock(nb.tools, x, y)
-    if (!dock) {
-      setInst('ruler', { x: round(clampTo(x, bounds?.w)), y: round(clampTo(y, bounds?.h)), dock: undefined })
-      return setHint(null)
-    }
-    const pose = dockedPose(nb.tools, dock)
-    if (!was) {
-      // it jumped into place: from here on the drag is measured from where it landed
-      a.dx = px - pose.x
-      a.dy = py - pose.y
-    }
-    setInst('ruler', { ...pose, dock })
-    setHint({ x: px + 16, y: py - 12, text: '⟂ pe echer' })
-  }
-
-  /** Show or hide an instrument; it appears in the middle of the visible sheet. */
-  const toggleInst = (id: InstId) => {
-    const i = nb.tools[id]
-    if (i.visible) return setInst(id, { visible: false })
-    const r = svgRef.current!.getBoundingClientRect()
-    // ruler at the top, set square bottom left, protractor bottom right, so all three can be out at once
-    const at = {
-      ruler: [r.width / 2, r.height * 0.25],
-      square: [Math.max(40, r.width * 0.06), r.height * 0.88],
-      protractor: [r.width * 0.7, r.height * 0.8],
-      compass: [r.width * 0.4, r.height * 0.55],
-    }[id]
-    setInst(id, { visible: true, x: round(at[0]), y: round(at[1]) })
-  }
-
-  /** A whole circle with the compass as it is set now. */
-  const drawCircle = () => {
-    const c = nb.tools.compass
-    const circle: Stroke = { id: uid(), tool: 'pen', color: colors.pen, size: SIZES.pen[sizeIdx.pen], points: arcPoints(c, c.rot, 360), pressure: true }
-    remember(nb.current, strokes)
-    setPage(nb.current, [...strokes, circle])
-  }
-
-  /** Draw the angle typed in degrees, minutes and seconds from the protractor's center: two rays and an arc. */
-  const drawAngle = () => {
-    const deg = (Number(angle.d) || 0) + (Number(angle.m) || 0) / 60 + (Number(angle.s) || 0) / 3600
-    if (!(deg > 0 && deg <= 360)) return
-    const c = nb.tools.protractor
-    const len = PROT_R + 40
-    const ray = (a: number) => {
-      const [x, y] = protractorPoint(c, a, len)
-      return { id: uid(), tool: 'pen' as const, color: colors.pen, size: SIZES.pen[sizeIdx.pen], points: linePoints([c.x, c.y], x, y), pressure: true }
-    }
-    const steps = Math.max(8, Math.ceil(deg / 3))
-    const arc = Array.from({ length: steps + 1 }, (_, k) => [...protractorPoint(c, (deg * k) / steps, 36).map((v) => round(v)), 0.5])
-    remember(nb.current, strokes)
-    setPage(nb.current, [...strokes, ray(0), ray(deg), { ...ray(0), id: uid(), size: 1.5, points: arc }])
-    setHint({ x: c.x + 44, y: c.y - 40, text: formatDms(deg) })
-    setTimeout(() => setHint(null), 2500)
-  }
-
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const [px, py] = pointAt(e)
     const a = active.current
-    if (!a) setHover(hitTest(nb.tools, px, py, tool !== 'eraser', bounds)?.kind ?? null)
+    if (!a) inst.hoverAt(px, py, tool !== 'eraser')
     // over an instrument the eraser moves it, so it does not show the eraser circle
-    if (tool === 'eraser') setCursor(!a && hover ? null : { x: px, y: py })
+    if (tool === 'eraser') setCursor(!a && inst.hover ? null : { x: px, y: py })
     if (!a || a.pointerId !== e.pointerId) return
-
-    if (a.mode === 'move' && a.id === 'ruler') return moveRuler(a, px, py)
-    // the pivot stays on the sheet, so an instrument can't be dragged away out of reach
-    if (a.mode === 'move') return setInst(a.id, { x: round(clampTo(px - a.dx, bounds?.w)), y: round(clampTo(py - a.dy, bounds?.h)) })
-    if (a.mode === 'radius') {
-      const c = nb.tools.compass
-      // opening to the millimetre (4 px), pointing where the handle is dragged
-      const r = Math.min(COMPASS_MAX_R, Math.max(8, Math.round((Math.hypot(px - c.x, py - c.y) - 24) / 4) * 4))
-      setInst('compass', { r, rot: round((Math.atan2(py - c.y, px - c.x) * 180) / Math.PI) })
-      return setHint({ x: px + 16, y: py - 12, text: 'r = ' + (r / PX_PER_CM).toFixed(1).replace('.', ',') + ' cm' })
-    }
-    if (a.mode === 'arc') {
-      const c = nb.tools.compass
-      const angle = (Math.atan2(py - c.y, px - c.x) * 180) / Math.PI
-      // follow the pointer around the needle; the turn is unwrapped so a whole circle can be drawn
-      const step = ((angle - a.last + 540) % 360) - 180
-      a.sweep = Math.max(-360, Math.min(360, a.sweep + step))
-      a.last = angle
-      setInst('compass', { rot: round((((a.from + a.sweep) % 360) + 360) % 360) })
-      setDrawing((d) => d && { ...d, points: arcPoints(c, a.from, a.sweep) })
-      return setHint({ x: px + 16, y: py - 12, text: formatDms(Math.round(Math.abs(a.sweep))) })
-    }
-    if (a.mode === 'rotate') {
-      const [qx, qy] = a.pivot
-      let rot = a.rot0 + ((Math.atan2(py - qy, px - qx) - a.a0) * 180) / Math.PI
-      rot = ((rot % 360) + 360) % 360
-      // stick to multiples of 15° (0°, 45°, 90°…) when close, unless Shift is held
-      const snap = Math.round(rot / 15) * 15
-      if (!e.shiftKey && Math.abs(rot - snap) < 2) rot = snap % 360
-      // turn the instrument's position around the pivot by the same angle, so the pivot stays put
-      const t = ((rot - a.rot0) * Math.PI) / 180
-      const dx = a.x0 - qx, dy = a.y0 - qy
-      setInst(a.id, { rot: round(rot), x: round(qx + dx * Math.cos(t) - dy * Math.sin(t), 2), y: round(qy + dx * Math.sin(t) + dy * Math.cos(t), 2) })
-      return setHint({ x: px + 16, y: py - 12, text: formatDms(round(rot)) })
-    }
-    if (a.mode === 'edge') {
-      const to = projectOnEdge(nb.tools[a.id], a.edge, px, py, size / 2 + 1)
-      setDrawing((d) => d && { ...d, points: linePoints(a.from, to[0], to[1]) })
-      const cm = Math.hypot(to[0] - a.from[0], to[1] - a.from[1]) / PX_PER_CM
-      return setHint({ x: px + 16, y: py - 12, text: cm.toFixed(1).replace('.', ',') + ' cm' })
-    }
-    if (a.mode === 'ray') {
-      const c = nb.tools.protractor
-      const { deg, r } = protractorAngle(c, px, py)
-      // whole degrees; Shift = free angle (to the minute)
-      const shown = e.shiftKey ? Math.round(deg * 60) / 60 : Math.round(deg)
-      const [x, y] = protractorPoint(c, shown, r)
-      setDrawing((d) => d && { ...d, points: linePoints([c.x, c.y], x, y) })
-      return setHint({ x: px + 16, y: py - 12, text: formatDms(shown) })
-    }
+    if (a.mode === 'inst') return inst.move(e.pointerId, px, py, e.shiftKey)
 
     // coalesced events: all the positions the mouse passed through since the last frame, for smooth curves
     const events = e.nativeEvent.getCoalescedEvents?.() ?? []
@@ -495,12 +325,10 @@ export default function NotebookPage() {
     const a = active.current
     if (!a || a.pointerId !== e.pointerId) return
     active.current = null
-    setHint(null)
-    if (a.mode === 'rotate' && a.id === 'ruler') {
-      const dock = findDock(nb.tools, nb.tools.ruler.x, nb.tools.ruler.y)
-      if (dock) setInst('ruler', { ...dockedPose(nb.tools, dock), dock })
-    }
-    if (a.mode === 'move' || a.mode === 'rotate' || a.mode === 'radius') return
+    inst.up(e.pointerId)
+    // the pointer may have left the instrument during the drag: don't keep its cursor until the next move
+    const [ux, uy] = pointAt(e)
+    inst.hoverAt(ux, uy, tool !== 'eraser')
     if (a.mode === 'erase') {
       if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before)
       return
@@ -591,65 +419,22 @@ export default function NotebookPage() {
           </span>
         </div>
 
-        <div className="board-toolbar notebook-toolbar instruments-bar">
-          <span className="muted">Instrumente:</span>
-          <button className={'btn small' + (nb.tools.ruler.visible ? ' active' : '')} onClick={() => toggleInst('ruler')}>📏 Riglă</button>
-          <button className={'btn small' + (nb.tools.square.visible ? ' active' : '')} onClick={() => toggleInst('square')}>📐 Echer</button>
-          {nb.tools.square.visible && (
-            <select value={nb.tools.square.shape} onChange={(e) => setInst('square', { shape: e.target.value as '45' | '60' })} title="Tipul echerului">
-              <option value="45">45° – 45°</option>
-              <option value="60">30° – 60°</option>
-            </select>
-          )}
-          <button className={'btn small' + (nb.tools.protractor.visible ? ' active' : '')} onClick={() => toggleInst('protractor')}>◠ Raportor</button>
-          {nb.tools.protractor.visible && (
-            <span className="angle-input" title="Desenează din centrul raportorului un unghi de exact atâtea grade, minute și secunde">
-              <input type="number" min={0} max={360} value={angle.d} onChange={(e) => setAngle({ ...angle, d: e.target.value })} aria-label="grade" />°
-              <input type="number" min={0} max={59} value={angle.m} onChange={(e) => setAngle({ ...angle, m: e.target.value })} aria-label="minute" placeholder="0" />′
-              <input type="number" min={0} max={59} value={angle.s} onChange={(e) => setAngle({ ...angle, s: e.target.value })} aria-label="secunde" placeholder="0" />″
-              <button className="btn small" onClick={drawAngle}>Desenează unghiul</button>
-            </span>
-          )}
-          <button className={'btn small' + (nb.tools.compass.visible ? ' active' : '')} onClick={() => toggleInst('compass')}>🧭 Compas</button>
-          {nb.tools.compass.visible && (
-            <span className="angle-input" title="Deschiderea compasului">
-              r =
-              <input
-                type="number" min={0.2} max={COMPASS_MAX_R / PX_PER_CM} step={0.1} aria-label="raza în cm"
-                value={round(nb.tools.compass.r / PX_PER_CM)}
-                onChange={(e) => {
-                  const cm = Number(e.target.value)
-                  if (cm > 0) setInst('compass', { r: Math.min(COMPASS_MAX_R, cm * PX_PER_CM) })
-                }}
-              />
-              cm
-              <button className="btn small" onClick={drawCircle}>◯ Cerc complet</button>
-            </span>
-          )}
-          {(nb.tools.ruler.visible || nb.tools.square.visible || nb.tools.protractor.visible || nb.tools.compass.visible) && (
-            <span className="muted instruments-help">
-              Trage de instrument ca să-l muți, de ↻ ca să-l rotești. Scrie lângă o margine = linie dreaptă
-              {nb.tools.ruler.visible && nb.tools.square.visible && '; apropie un capăt mic al riglei de o latură a echerului și se lipește perpendicular: glisează rigla pe latură și liniile trase pe ea sunt paralele, trage-o mai departe ca s-o desprinzi'}
-              {nb.tools.protractor.visible && '; din centrul raportorului = rază la unghiul afișat'}
-              {nb.tools.compass.visible && '; compasul: trage de ⟷ ca să-l deschizi, apoi ține de mânerul de sus (mov) și rotește-l ca să desenezi arcul'}.
-            </span>
-          )}
-        </div>
+        <InstrumentsBar inst={inst} />
 
         <svg
           ref={svgRef}
-          className={'notebook-sheet tool-' + tool + (hover ? ' over-' + hover : '')}
+          className={'notebook-sheet tool-' + tool + (inst.hover ? ' over-' + inst.hover : '')}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onPointerLeave={() => setCursor(null)}
+          onPointerLeave={() => { setCursor(null); inst.setHover(null) }}
         >
           <PaperBackground paper={nb.paper} />
           {strokes.map((s) => <StrokePath key={s.id} s={s} />)}
           <InstrumentsLayer tools={nb.tools} bounds={bounds} />
           {drawing && <StrokePath s={drawing} />}
-          {hint && <text className="nb-hint" x={hint.x} y={hint.y}>{hint.text}</text>}
+          {inst.hint && <text className="nb-hint" x={inst.hint.x} y={inst.hint.y}>{inst.hint.text}</text>}
           {tool === 'eraser' && cursor && (
             <circle className="eraser-cursor" cx={cursor.x} cy={cursor.y} r={size} fill="rgba(255,255,255,.6)" stroke="#6b7280" strokeDasharray="3 3" />
           )}

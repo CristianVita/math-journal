@@ -21,10 +21,18 @@ export interface RulerDock {
   t: number
 }
 
+/** The set square resting on the ruler: which long edge of the ruler, which side of the square, the side's middle along the ruler. */
+export interface SquareDock {
+  edge: number
+  side: number
+  t: number
+}
+
 export interface Instruments {
+  /** only one of the two rests on the other at a time */
   ruler: Inst & { dock?: RulerDock }
   protractor: Inst
-  square: Inst & { shape: '45' | '60' }
+  square: Inst & { shape: '45' | '60'; dock?: SquareDock }
   /** rot points from the needle to the pencil; r is the opening */
   compass: Inst & { r: number }
 }
@@ -39,6 +47,7 @@ const SQUARE_LEGS = { '45': [320, 320], '60': [360, 208] } as const
 const KNOB_R = 13
 /** how close to an edge (inside or outside the instrument) a stroke must start to follow it */
 const EDGE_BAND = 18
+const RULER_RIM = 3
 
 export const defaultInstruments = (): Instruments => ({
   ruler: { visible: false, x: 420, y: 300, rot: 0 },
@@ -56,8 +65,8 @@ const GRIP_LEN = 34
 /** the handle that opens and turns the compass, just past the pencil */
 const radiusHandleOf = (r: number): Pt => [r + 24, 0]
 
-/** Size of the visible sheet; handles are kept inside it so they can always be grabbed. */
-export interface Bounds { w: number; h: number }
+/** The visible part of the sheet, starting at (x0, y0) if not at its corner; handles are kept inside it so they can always be grabbed. */
+export interface Bounds { w: number; h: number; x0?: number; y0?: number }
 const HANDLE_MARGIN = KNOB_R + 4
 
 /**
@@ -66,7 +75,8 @@ const HANDLE_MARGIN = KNOB_R + 4
  */
 function handleAt(i: Inst, at: Pt, b?: Bounds): Pt {
   if (!b) return at
-  const on = ([x, y]: Pt) => x >= HANDLE_MARGIN && y >= HANDLE_MARGIN && x <= b.w - HANDLE_MARGIN && y <= b.h - HANDLE_MARGIN
+  const { x0 = 0, y0 = 0 } = b
+  const on = ([x, y]: Pt) => x >= x0 + HANDLE_MARGIN && y >= y0 + HANDLE_MARGIN && x <= x0 + b.w - HANDLE_MARGIN && y <= y0 + b.h - HANDLE_MARGIN
   for (let s = 1; s >= 0; s -= 0.01) {
     const p: Pt = [at[0] * s, at[1] * s]
     if (on(toSheet(i, ...p))) return p
@@ -162,6 +172,16 @@ export function dockedPose(tools: Instruments, dock: RulerDock) {
   return { x, y, rot: (((dock.end === 1 ? out + 180 : out) % 360) + 360) % 360 }
 }
 
+/** The same contact seen from the other side: the ruler holds still and the square comes to rest on its short end. */
+export function squareOnRulerEnd(tools: Instruments, dock: RulerDock) {
+  const e = shapeOf('square', tools).edges[dock.edge]
+  const { at } = along(e, dock.t)
+  const rot = (((tools.ruler.rot - (dock.end === 1 ? 180 : 0) - (Math.atan2(e.n[1], e.n[0]) * 180) / Math.PI) % 360) + 360) % 360
+  const [px, py] = toSheet(tools.ruler, dock.end * (RULER_L / 2), 0)
+  const [ax, ay] = toSheet({ visible: true, x: 0, y: 0, rot }, at[0], at[1])
+  return { x: px - ax, y: py - ay, rot }
+}
+
 /** Where a short end would be, and where along and how far from an edge of the square, for the ruler centered at (x, y). */
 function endOnEdge(tools: Instruments, e: Edge, end: 1 | -1, x: number, y: number) {
   const a = rad(tools.ruler.rot)
@@ -174,7 +194,7 @@ function endOnEdge(tools: Instruments, e: Edge, end: 1 | -1, x: number, y: numbe
 
 /** The side of the square the ruler centered at (x, y) would rest on, if it is close and nearly perpendicular to one. */
 export function findDock(tools: Instruments, x: number, y: number): RulerDock | null {
-  if (!tools.ruler.visible || !tools.square.visible) return null
+  if (!tools.ruler.visible || !tools.square.visible || tools.square.dock) return null
   const edges = shapeOf('square', tools).edges
   const rel = rad(tools.ruler.rot - tools.square.rot)
   let best: (RulerDock & { d: number }) | null = null
@@ -184,7 +204,8 @@ export function findDock(tools: Instruments, x: number, y: number): RulerDock | 
       const facing = -end * (Math.cos(rel) * e.n[0] + Math.sin(rel) * e.n[1])
       if (facing < Math.cos(rad(DOCK_MAX_TILT))) continue
       const { t, d, min, max } = endOnEdge(tools, e, end, x, y)
-      if (Math.abs(d) > DOCK_SNAP || t < min - DOCK_SNAP || t > max + DOCK_SNAP) continue
+      // d < 0 is the end lying over the square: it is natural to drag one onto the other
+      if (d > DOCK_SNAP || d < -RULER_H || t < min - DOCK_SNAP || t > max + DOCK_SNAP) continue
       if (!best || Math.abs(d) < Math.abs(best.d)) best = { edge, end, t: Math.max(min, Math.min(max, t)), d }
     }
   })
@@ -199,6 +220,65 @@ export function slideDock(tools: Instruments, dock: RulerDock, x: number, y: num
   const { t, d, min, max } = endOnEdge(tools, e, dock.end, x, y)
   if (Math.abs(d) > DOCK_RELEASE || t < min - DOCK_RELEASE || t > max + DOCK_RELEASE) return null
   return { ...dock, t: Math.max(min, Math.min(max, t)) }
+}
+
+/** Where the set square lies when resting on the ruler: one side flat on a long edge, the square on the outside of it. */
+export function squareDockedPose(tools: Instruments, dock: SquareDock) {
+  const e = shapeOf('ruler', tools).edges[dock.edge]
+  const s = shapeOf('square', tools).edges[dock.side]
+  const deg = ([x, y]: Pt) => (Math.atan2(y, x) * 180) / Math.PI
+  // the side's outward normal points straight at the ruler
+  const rot = (((deg(e.n) + tools.ruler.rot + 180 - deg(s.n)) % 360) + 360) % 360
+  const [px, py] = toSheet(tools.ruler, dock.t, e.a[1])
+  const [mx, my] = toSheet({ visible: true, x: 0, y: 0, rot }, (s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2)
+  return { x: px - mx, y: py - my, rot }
+}
+
+/** The same contact seen from the other side: the square holds still and the ruler's long edge comes to rest on its side. */
+export function rulerOnSquareSide(tools: Instruments, dock: SquareDock) {
+  const e = shapeOf('ruler', tools).edges[dock.edge]
+  const s = shapeOf('square', tools).edges[dock.side]
+  const deg = ([x, y]: Pt) => (Math.atan2(y, x) * 180) / Math.PI
+  const rot = (((deg(s.n) + tools.square.rot + 180 - deg(e.n)) % 360) + 360) % 360
+  const [px, py] = toSheet(tools.square, (s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2)
+  const [ax, ay] = toSheet({ visible: true, x: 0, y: 0, rot }, dock.t, e.a[1])
+  return { x: px - ax, y: py - ay, rot }
+}
+
+/** Where a side of the square centered at (x, y) is, seen from an edge of the ruler. */
+function sideOnEdge(tools: Instruments, e: Edge, s: Edge, x: number, y: number) {
+  const [lx, ly] = toLocal(tools.ruler, ...toSheet({ ...tools.square, x, y }, (s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2))
+  // the side can slide until only a little of it is still on the ruler
+  const limit = RULER_L / 2 + along(s, 0).len / 2 - 40
+  return { t: lx, d: (ly - e.a[1]) * e.n[1], limit }
+}
+
+/** The ruler's edge the square at (x, y) would rest on, if one of its sides is close, nearly parallel and over or next to it. */
+export function findSquareDock(tools: Instruments, x: number, y: number): SquareDock | null {
+  if (!tools.ruler.visible || !tools.square.visible || tools.ruler.dock) return null
+  const sides = shapeOf('square', tools).edges
+  const rel = rad(tools.square.rot - tools.ruler.rot)
+  let best: (SquareDock & { d: number }) | null = null
+  shapeOf('ruler', tools).edges.forEach((e, edge) => {
+    sides.forEach((s, side) => {
+      const facing = -((s.n[0] * Math.cos(rel) - s.n[1] * Math.sin(rel)) * e.n[0] + (s.n[0] * Math.sin(rel) + s.n[1] * Math.cos(rel)) * e.n[1])
+      if (facing < Math.cos(rad(DOCK_MAX_TILT))) return
+      const { t, d, limit } = sideOnEdge(tools, e, s, x, y)
+      // d < 0 is the side lying over the ruler: it is natural to drag the square onto it
+      if (d > DOCK_SNAP || d < -RULER_H || Math.abs(t) > limit + DOCK_SNAP) return
+      if (!best || Math.abs(d) < Math.abs(best.d)) best = { edge, side, t: Math.max(-limit, Math.min(limit, t)), d }
+    })
+  })
+  if (!best) return null
+  const { edge, side, t } = best as SquareDock & { d: number }
+  return { edge, side, t }
+}
+
+/** The square is dragged to (x, y) while resting on the ruler: it slides along the edge, or null once it is pulled off. */
+export function slideSquareDock(tools: Instruments, dock: SquareDock, x: number, y: number): SquareDock | null {
+  const { t, d, limit } = sideOnEdge(tools, shapeOf('ruler', tools).edges[dock.edge], shapeOf('square', tools).edges[dock.side], x, y)
+  if (Math.abs(d) > DOCK_RELEASE || Math.abs(t) > limit + DOCK_RELEASE) return null
+  return { ...dock, t: Math.max(-limit, Math.min(limit, t)) }
 }
 
 function segDist(px: number, py: number, [ax, ay]: Pt, [bx, by]: Pt) {
@@ -243,7 +323,9 @@ export function hitTest(tools: Instruments, x: number, y: number, draw: boolean,
       return Math.hypot(lx - kx, ly - ky) <= KNOB_R + 3
     })
     if (k >= 0) return { id, kind: 'knob', pivot: toSheet(inst, ...s.pivots[k]) }
-    if (draw) {
+    // the ruler's surface moves it, up to a thin rim on its edge; a line along it starts on that rim or just outside
+    const onRuler = id === 'ruler' && Math.abs(lx) <= RULER_L / 2 && Math.abs(ly) <= RULER_H / 2 - RULER_RIM
+    if (draw && !onRuler) {
       if (id === 'protractor' && Math.hypot(lx, ly) <= 14) return { id, kind: 'center' }
       let best: { edge: Edge; d: number } | null = null
       for (const edge of s.edges) {
@@ -340,7 +422,7 @@ function Protractor() {
   )
 }
 
-function SetSquare({ shape }: { shape: '45' | '60' }) {
+function SetSquare({ shape, dockSide }: { shape: '45' | '60'; dockSide?: Edge }) {
   const [w, h] = SQUARE_LEGS[shape]
   const ticks = []
   for (let mm = 0; mm * 4 <= w - 30; mm++) {
@@ -361,6 +443,7 @@ function SetSquare({ shape }: { shape: '45' | '60' }) {
       {ticks}
       <path d="M 22 0 V -22 H 0" fill="none" stroke="#dc2626" strokeWidth={1.5} />
       <text x={w * 0.3} y={-h * 0.3} {...LABEL} fontSize={10} fill="#64748b">{shape === '45' ? '45°–45°' : '30°–60°'}</text>
+      {dockSide && <line x1={dockSide.a[0]} y1={dockSide.a[1]} x2={dockSide.b[0]} y2={dockSide.b[1]} stroke="#16a34a" strokeWidth={3} />}
     </>
   )
 }
@@ -404,7 +487,7 @@ export function InstrumentsLayer({ tools, bounds }: { tools: Instruments; bounds
     <g className="instruments">
       {tools.ruler.visible && <g transform={place(tools.ruler)}><Ruler dockEnd={tools.ruler.dock?.end} />{knob('ruler')}</g>}
       {tools.protractor.visible && <g transform={place(tools.protractor)}><Protractor />{knob('protractor')}</g>}
-      {tools.square.visible && <g transform={place(tools.square)}><SetSquare shape={tools.square.shape} />{knob('square')}</g>}
+      {tools.square.visible && <g transform={place(tools.square)}><SetSquare shape={tools.square.shape} dockSide={tools.square.dock && shapeOf('square', tools).edges[tools.square.dock.side]} />{knob('square')}</g>}
       {tools.compass.visible && <g transform={place(tools.compass)}><Compass c={tools.compass} b={bounds} /></g>}
     </g>
   )

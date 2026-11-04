@@ -49,7 +49,7 @@ export default function BoardPage({ scene, onChange }: { scene: Scene; onChange:
         </div>
       </div>
       <div ref={boardRef}>
-        <GeometryBoard scene={scene} onChange={onChange} height="calc(100vh - 210px)" />
+        <GeometryBoard scene={scene} onChange={onChange} height="calc(100vh - 250px)" instruments />
       </div>
       {saving && <SaveToSession scene={scene} onClose={() => setSaving(false)} />}
       {dialog}
