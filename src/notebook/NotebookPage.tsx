@@ -6,8 +6,8 @@ import { saveFile } from '../platform'
 import { rasterize, saveDocx, savePdf, today } from '../export/exportDoc'
 import { usePrompt } from '../components/PromptDialog'
 import {
-  COMPASS_MAX_R, defaultInstruments, formatDms, hitTest, InstrumentsLayer, projectOnEdge, protractorAngle, protractorPoint,
-  PROT_R, PX_PER_CM, type Bounds, type Edge, type Hit, type InstId, type Instruments, type Pt,
+  COMPASS_MAX_R, defaultInstruments, dockedPose, findDock, formatDms, hitTest, InstrumentsLayer, projectOnEdge, protractorAngle,
+  protractorPoint, PROT_R, PX_PER_CM, slideDock, type Bounds, type Edge, type Hit, type InstId, type Instruments, type Pt,
 } from './instruments'
 
 type Tool = 'pen' | 'marker' | 'eraser'
@@ -324,6 +324,8 @@ export default function NotebookPage() {
       const i = nb.tools[hit.id]
       const [qx, qy] = hit.pivot
       active.current = { ...base, mode: 'rotate', id: hit.id, pivot: hit.pivot, a0: Math.atan2(p[1] - qy, p[0] - qx), rot0: i.rot, x0: i.x, y0: i.y }
+      // turning the ruler lifts it off the set square; on release it rests there again if it is still close
+      if (hit.id === 'ruler') setInst('ruler', { dock: undefined })
     } else if (hit?.kind === 'body') {
       const i = nb.tools[hit.id]
       active.current = { ...base, mode: 'move', id: hit.id, dx: p[0] - i.x, dy: p[1] - i.y }
@@ -345,7 +347,37 @@ export default function NotebookPage() {
   }
 
   const setInst = (id: InstId, patch: Partial<Instruments[InstId]>) =>
-    setNb((n) => ({ ...n, tools: { ...n.tools, [id]: { ...n.tools[id], ...patch } } }))
+    setNb((n) => {
+      const tools: Instruments = { ...n.tools, [id]: { ...n.tools[id], ...patch } }
+      const dock = tools.ruler.dock
+      if (dock && (id === 'ruler' || id === 'square') && ('visible' in patch || 'shape' in patch)) {
+        // hidden, or the square's sides changed: the ruler stays where it is, no longer resting on the square
+        tools.ruler = { ...tools.ruler, dock: undefined }
+      } else if (dock && id === 'square') {
+        // the ruler resting on the set square goes with it
+        tools.ruler = { ...tools.ruler, ...dockedPose(tools, dock) }
+      }
+      return { ...n, tools }
+    })
+
+  /** Drag the ruler: it rests on the set square when it comes close, slides along the side, and comes off when pulled away. */
+  const moveRuler = (a: { dx: number; dy: number }, px: number, py: number) => {
+    const x = px - a.dx, y = py - a.dy
+    const was = nb.tools.ruler.dock
+    const dock = was ? slideDock(nb.tools, was, x, y) : findDock(nb.tools, x, y)
+    if (!dock) {
+      setInst('ruler', { x: round(clampTo(x, bounds?.w)), y: round(clampTo(y, bounds?.h)), dock: undefined })
+      return setHint(null)
+    }
+    const pose = dockedPose(nb.tools, dock)
+    if (!was) {
+      // it jumped into place: from here on the drag is measured from where it landed
+      a.dx = px - pose.x
+      a.dy = py - pose.y
+    }
+    setInst('ruler', { ...pose, dock })
+    setHint({ x: px + 16, y: py - 12, text: '⟂ pe echer' })
+  }
 
   /** Show or hide an instrument; it appears in the middle of the visible sheet. */
   const toggleInst = (id: InstId) => {
@@ -396,6 +428,7 @@ export default function NotebookPage() {
     if (tool === 'eraser') setCursor(!a && hover ? null : { x: px, y: py })
     if (!a || a.pointerId !== e.pointerId) return
 
+    if (a.mode === 'move' && a.id === 'ruler') return moveRuler(a, px, py)
     // the pivot stays on the sheet, so an instrument can't be dragged away out of reach
     if (a.mode === 'move') return setInst(a.id, { x: round(clampTo(px - a.dx, bounds?.w)), y: round(clampTo(py - a.dy, bounds?.h)) })
     if (a.mode === 'radius') {
@@ -463,6 +496,10 @@ export default function NotebookPage() {
     if (!a || a.pointerId !== e.pointerId) return
     active.current = null
     setHint(null)
+    if (a.mode === 'rotate' && a.id === 'ruler') {
+      const dock = findDock(nb.tools, nb.tools.ruler.x, nb.tools.ruler.y)
+      if (dock) setInst('ruler', { ...dockedPose(nb.tools, dock), dock })
+    }
     if (a.mode === 'move' || a.mode === 'rotate' || a.mode === 'radius') return
     if (a.mode === 'erase') {
       if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before)
@@ -592,6 +629,7 @@ export default function NotebookPage() {
           {(nb.tools.ruler.visible || nb.tools.square.visible || nb.tools.protractor.visible || nb.tools.compass.visible) && (
             <span className="muted instruments-help">
               Trage de instrument ca să-l muți, de ↻ ca să-l rotești. Scrie lângă o margine = linie dreaptă
+              {nb.tools.ruler.visible && nb.tools.square.visible && '; apropie un capăt mic al riglei de o latură a echerului și se lipește perpendicular: glisează rigla pe latură și liniile trase pe ea sunt paralele, trage-o mai departe ca s-o desprinzi'}
               {nb.tools.protractor.visible && '; din centrul raportorului = rază la unghiul afișat'}
               {nb.tools.compass.visible && '; compasul: trage de ⟷ ca să-l deschizi, apoi ține de mânerul de sus (mov) și rotește-l ca să desenezi arcul'}.
             </span>
