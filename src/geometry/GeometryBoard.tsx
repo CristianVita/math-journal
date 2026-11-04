@@ -91,7 +91,7 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'perpendicular', icon: '⊥', label: 'Perpendiculară', hint: ['Click pe dreaptă (sau segment) și pe punct, în orice ordine', 'Acum al doilea element (dreapta sau punctul)'] },
   { id: 'mediatrix', icon: '⊥M', label: 'Mediatoare', hint: ['Click pe segmentul căruia vrei să-i construiești mediatoarea'] },
   { id: 'parallel', icon: '∥', label: 'Paralelă', hint: ['Click pe dreaptă (sau segment) și pe punct, în orice ordine', 'Acum al doilea element (dreapta sau punctul)'] },
-  { id: 'bisector', icon: '⦟', label: 'Bisectoare', hint: ['Punct pe prima latură', 'Vârful', 'Punct pe a doua latură (apoi alegi până unde merge bisectoarea)'] },
+  { id: 'bisector', icon: '⦟', label: 'Bisectoare', hint: ['Click pe arcul unghiului, sau pe prima latură (ori pe 3 puncte: latură, vârf, latură)', 'Acum a doua latură (sau vârful, dacă ai început cu un punct)', 'Un punct de pe a doua latură'] },
   { id: 'intersection', icon: '✕', label: 'Intersecție', hint: ['Prima dreaptă / segment', 'A doua dreaptă / segment'] },
   { id: 'text', icon: 'T', label: 'Text / formulă', hint: ['Click unde vrei textul (LaTeX între $...$)'] },
   { id: 'pen', icon: '✎', label: 'Desen liber', hint: ['Desenează liber cu mouse-ul sau stylus-ul'] },
@@ -99,7 +99,7 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
 ]
 
 /** Tools whose clicks place points (they get the snapping preview). */
-const POINT_TOOLS = new Set<string>(['point', 'segment', 'line', 'ray', 'circle', 'polygon', 'regular', 'angle', 'construct', 'midpoint', 'bisector'])
+const POINT_TOOLS = new Set<string>(['point', 'segment', 'line', 'ray', 'circle', 'polygon', 'regular', 'angle', 'construct', 'midpoint'])
 
 const COLORS = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#db2777']
 
@@ -512,6 +512,48 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       return done(ids)
     }
 
+    /** Bisector of angle a-v-b: asks how far it goes. "To the opposite side" is offered (and preselected) only
+     *  when that side is on the board (a segment / line through a and b, or a polygon side): a triangle, not a
+     *  lone angle, where it would stop halfway at a side nobody drew. */
+    const drawBisector = async (objs: GObj[], a: string, v: string, b: string) => {
+      const joins = (p: string, q: string) => (p === a && q === b) || (p === b && q === a)
+      const toSide = objs.some((o) =>
+        isLinear(o) ? o.dep.kind === 'twoPoints' && joins(o.dep.a, o.dep.b)
+          : o.type === 'polygon' && o.points.some((p, i) => joins(p, o.points[(i + 1) % o.points.length])))
+      if (a === v || b === v || a === b) return
+      const vals = await askForm('Bisectoarea unghiului', [
+        {
+          label: 'Până unde merge bisectoarea',
+          value: toSide ? 'side' : 'ray',
+          options: [
+            ...(toSide ? [{ value: 'side', label: 'până la latura opusă (bisectoarea din triunghi)' }] : []),
+            { value: 'length', label: 'o lungime aleasă de mine' },
+            { value: 'ray', label: 'semidreaptă (infinită)' },
+          ],
+          hint: toSide ? 'Latura opusă = segmentul care unește capetele celor două laturi ale unghiului.' : undefined,
+        },
+        { label: 'Lungimea bisectoarei', placeholder: 'ex: 4', showIf: { field: 0, value: 'length' } },
+      ])
+      if (!vals) return
+      if (vals[0] === 'ray') {
+        newLine(objs, 'ray', { kind: 'bisector', a, v, b }, { dashed: true })
+        commit(objs)
+        return
+      }
+      let end: PointObj
+      if (vals[0] === 'side') end = newPoint(objs, { x: 0, y: 0 }, { kind: 'bisectorFoot', a, v, b })
+      else {
+        const length = Number(vals[1].replace(',', '.'))
+        if (!(length > 0)) {
+          await ask('Lungimea trebuie să fie un număr pozitiv.', '', true)
+          return
+        }
+        end = newPoint(objs, { x: 0, y: 0 }, { kind: 'bisectorPoint', a, v, b, dist: length })
+      }
+      newLine(objs, 'segment', { kind: 'twoPoints', a: v, b: end.id }, { dashed: true, showLength: true })
+      commit(objs)
+    }
+
     switch (tool) {
       case 'point':
         pointAt()
@@ -632,42 +674,70 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         commit(objs)
         break
       }
-      case 'bisector':
-        await needPoints(3, async ([a, v, b]) => {
-          if (a === v || b === v || a === b) return
-          const vals = await askForm('Bisectoarea unghiului', [
-            {
-              label: 'Până unde merge bisectoarea',
-              value: 'side',
-              options: [
-                { value: 'side', label: 'până la latura opusă (bisectoarea din triunghi)' },
-                { value: 'length', label: 'o lungime aleasă de mine' },
-                { value: 'ray', label: 'semidreaptă (infinită)' },
-              ],
-              hint: 'Latura opusă = segmentul dintre primul și al treilea punct ales.',
-            },
-            { label: 'Lungimea bisectoarei', placeholder: 'ex: 4', showIf: { field: 0, value: 'length' } },
-          ])
-          if (!vals) return
-          if (vals[0] === 'ray') {
-            newLine(objs, 'ray', { kind: 'bisector', a, v, b }, { dashed: true })
-            commit(objs)
-            return
+      case 'bisector': {
+        // The angle can be chosen three ways: click its arc, click its two sides, or click three existing
+        // points (side, vertex, side). Clicks on empty paper don't add points: that only got in the way.
+        const target = snapTarget(s)
+        const existing = !pending.some((p) => p.kind === 'line') ? target.existing : undefined
+        if (existing) {
+          const ids = [...pts, existing]
+          if (ids.length < 3) {
+            setPending(ids.map((id) => ({ kind: 'point', id })))
+            break
           }
-          let end: PointObj
-          if (vals[0] === 'side') end = newPoint(objs, { x: 0, y: 0 }, { kind: 'bisectorFoot', a, v, b })
-          else {
-            const length = Number(vals[1].replace(',', '.'))
-            if (!(length > 0)) {
-              await ask('Lungimea trebuie să fie un număr pozitiv.', '', true)
-              return
-            }
-            end = newPoint(objs, { x: 0, y: 0 }, { kind: 'bisectorPoint', a, v, b, dist: length })
+          setPending([])
+          await drawBisector(objs, ids[0], ids[1], ids[2])
+          break
+        }
+        if (!pending.length) {
+          const arc = hitTest(s, (o) => o.type === 'angle')
+          if (arc?.type === 'angle') {
+            await drawBisector(objs, arc.a, arc.v, arc.b)
+            break
           }
-          newLine(objs, 'segment', { kind: 'twoPoints', a: v, b: end.id }, { dashed: true, showLength: true })
-          commit(objs)
-        })
+        }
+        if (pts.length) break // three points were started: wait for another existing point
+        const lineHit = hitTest(s, isLinear)
+        if (!lineHit) break
+        const next = [...pending, { kind: 'line' as const, id: lineHit.id, at: w }]
+        if (next.length < 2) {
+          setPending(next)
+          break
+        }
+        setPending([])
+        const [p1, p2] = next
+        if (p1.id === p2.id) break
+        const l1 = L(p1.id)
+        const l2 = L(p2.id)
+        const x = l1 && l2 ? intersectLines(l1, l2) : null
+        if (!l1 || !l2 || !x) {
+          await ask('Liniile sunt paralele, deci nu formează un unghi.', '', true)
+          break
+        }
+        // two sides of a figure meeting at a common point (a triangle's sides): the angle between them, and
+        // its opposite side joins their other ends. Otherwise: the angle on the parts that were clicked.
+        const ends = (id: string) => {
+          const o = objs.find((g) => g.id === id)
+          return o && isLinear(o) && o.dep.kind === 'twoPoints' ? [o.dep.a, o.dep.b] : []
+        }
+        const e1 = ends(p1.id)
+        const e2 = ends(p2.id)
+        const shared = e1.find((id) => e2.includes(id))
+        if (shared) {
+          await drawBisector(objs, e1.find((id) => id !== shared)!, shared, e2.find((id) => id !== shared)!)
+          break
+        }
+        const hidden = (at: Vec, dep: PointObj['dep']) => {
+          const p = newPoint(objs, at, dep)
+          p.hidden = true
+          return p.id
+        }
+        const v = hidden(x, { kind: 'intersection', l1: p1.id, l2: p2.id })
+        const a = hidden(p1.at!, { kind: 'onLine', line: p1.id, t: projectParam(p1.at!, l1) })
+        const b = hidden(p2.at!, { kind: 'onLine', line: p2.id, t: projectParam(p2.at!, l2) })
+        await drawBisector(objs, a, v, b)
         break
+      }
       case 'construct':
         await needPoints(2, async ([v, a]) => {
           if (v === a) return
@@ -902,7 +972,9 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       setHoverHandle(tool === 'move' && figure ? handleAt(s) : null)
       // perpendicular / parallel place a point only once the line is chosen
       const placesPoint = POINT_TOOLS.has(tool) || ((tool === 'perpendicular' || tool === 'parallel') && pending.some((p) => p.kind === 'line'))
-      setGhost(placesPoint ? snapTarget(s) : null)
+      // the bisector only picks points that are already there: show the ghost just on those
+      const target = placesPoint || tool === 'bisector' ? snapTarget(s) : null
+      setGhost(placesPoint || target?.existing ? target : null)
       return
     }
     if (d.mode === 'pan') {

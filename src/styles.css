@@ -349,3 +349,4 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 .notebook-sheet.over-pencil { cursor: grab; }
 .btn.primary.danger-fill { background: var(--danger); border-color: var(--danger); }
 .btn.primary.danger-fill:hover { filter: brightness(.92); }
+.modal-detail { margin: 0 0 12px; color: var(--muted); font-size: 14px; line-height: 1.5; }

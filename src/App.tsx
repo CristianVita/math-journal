@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import StudentsSidebar from './journal/StudentsSidebar'
 import StudentView from './journal/StudentView'
 import SessionEditor from './journal/SessionEditor'
@@ -10,6 +10,8 @@ import NotebookPage from './notebook/NotebookPage'
 import { emptyScene, type Scene } from './geometry/types'
 import { db } from './db'
 import './symbols/insert'
+import { usePrompt } from './components/PromptDialog'
+import { isDesktop } from './platform'
 
 type Page = 'journal' | 'board' | 'notebook' | 'trig' | 'calculus' | 'symbols'
 
@@ -38,6 +40,34 @@ export default function App() {
       /* ignore quota / private mode */
     }
   }, [board])
+
+  // desktop app: ask before closing the window. Everything is saved as you go, so the question is only a
+  // guard against closing by mistake; after "Închide" it waits a moment for saves still under way.
+  const { confirm, dialog } = usePrompt()
+  const confirmRef = useRef(confirm)
+  confirmRef.current = confirm
+  useEffect(() => {
+    if (!isDesktop()) return
+    let unlisten: (() => void) | undefined
+    let asking = false
+    import('@tauri-apps/api/window').then(async ({ getCurrentWindow }) => {
+      const win = getCurrentWindow()
+      unlisten = await win.onCloseRequested(async (e) => {
+        e.preventDefault()
+        if (asking) return
+        asking = true
+        const close = await confirmRef.current('Închizi aplicația?', 'Închide', false, {
+          detail: 'Tot ce ai lucrat — jurnalul, caietul și tabla — e salvat automat. Îl regăsești exact așa data viitoare.',
+          cancelLabel: 'Rămân',
+        })
+        asking = false
+        if (!close) return
+        await new Promise((r) => setTimeout(r, 800))
+        await win.destroy()
+      })
+    })
+    return () => unlisten?.()
+  }, [])
 
   // open the first student on start so the journal is never blank when data exists
   useEffect(() => {
@@ -107,6 +137,7 @@ export default function App() {
         {page === 'notebook' && <main className="content full"><NotebookPage /></main>}
         {page === 'symbols' && <main className="content full"><SymbolsPage /></main>}
       </div>
+      {dialog}
     </div>
   )
 }

@@ -7,7 +7,7 @@ import { rasterize, saveDocx, savePdf, today } from '../export/exportDoc'
 import { usePrompt } from '../components/PromptDialog'
 import {
   COMPASS_MAX_R, defaultInstruments, formatDms, hitTest, InstrumentsLayer, projectOnEdge, protractorAngle, protractorPoint,
-  PROT_R, PX_PER_CM, type Edge, type Hit, type InstId, type Instruments, type Pt,
+  PROT_R, PX_PER_CM, type Bounds, type Edge, type Hit, type InstId, type Instruments, type Pt,
 } from './instruments'
 
 type Tool = 'pen' | 'marker' | 'eraser'
@@ -35,7 +35,8 @@ interface Notebook {
 type Active = { pointerId: number; start: number[]; before: Stroke[] } & (
   | { mode: 'draw' | 'erase' }
   | { mode: 'move'; id: InstId; dx: number; dy: number }
-  | { mode: 'rotate'; id: InstId; a0: number; rot0: number }
+  /** turning around `pivot` (sheet point); x0, y0, rot0 = where the instrument was when grabbed */
+  | { mode: 'rotate'; id: InstId; pivot: Pt; a0: number; rot0: number; x0: number; y0: number }
   | { mode: 'edge'; id: InstId; edge: Edge; from: Pt }
   | { mode: 'ray' }
   | { mode: 'radius' }
@@ -81,6 +82,7 @@ function load(): Notebook {
 
 const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d
 const uid = () => Math.random().toString(36).slice(2, 10)
+const clampTo = (v: number, max?: number) => (max ? Math.min(max - 10, Math.max(10, v)) : v)
 
 /** perfect-freehand outline → SVG path (quadratic curves through the midpoints). */
 function outlinePath(s: Stroke) {
@@ -196,6 +198,15 @@ export default function NotebookPage() {
   // in-app dialog: window.confirm may return at once without showing anything inside the app's webview
   const { ask, confirm: confirmDialog, dialog } = usePrompt()
   const svgRef = useRef<SVGSVGElement>(null)
+  // size of the sheet on screen, so the instruments' handles stay where they can be grabbed
+  const [bounds, setBounds] = useState<Bounds>()
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    const ro = new ResizeObserver(([e]) => setBounds({ w: e.contentRect.width, h: e.contentRect.height }))
+    ro.observe(svg)
+    return () => ro.disconnect()
+  }, [])
   const active = useRef<Active | null>(null)
 
   const strokes = nb.pages[nb.current]
@@ -298,7 +309,7 @@ export default function NotebookPage() {
     }
     const p = pointAt(e)
     const base = { pointerId: e.pointerId, start: p, before: strokes }
-    const hit = hitTest(nb.tools, p[0], p[1], tool !== 'eraser')
+    const hit = hitTest(nb.tools, p[0], p[1], tool !== 'eraser', bounds)
     const newStroke = (points: number[][], pressure: boolean): Stroke =>
       ({ id: uid(), tool: tool as Stroke['tool'], color: colors[tool as Stroke['tool']], size, points, pressure })
     if (hit?.kind === 'radius') {
@@ -311,7 +322,8 @@ export default function NotebookPage() {
       setDrawing(newStroke([compassPoint(c, c.rot)], true))
     } else if (hit?.kind === 'knob') {
       const i = nb.tools[hit.id]
-      active.current = { ...base, mode: 'rotate', id: hit.id, a0: Math.atan2(p[1] - i.y, p[0] - i.x), rot0: i.rot }
+      const [qx, qy] = hit.pivot
+      active.current = { ...base, mode: 'rotate', id: hit.id, pivot: hit.pivot, a0: Math.atan2(p[1] - qy, p[0] - qx), rot0: i.rot, x0: i.x, y0: i.y }
     } else if (hit?.kind === 'body') {
       const i = nb.tools[hit.id]
       active.current = { ...base, mode: 'move', id: hit.id, dx: p[0] - i.x, dy: p[1] - i.y }
@@ -379,12 +391,13 @@ export default function NotebookPage() {
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const [px, py] = pointAt(e)
     const a = active.current
-    if (!a) setHover(hitTest(nb.tools, px, py, tool !== 'eraser')?.kind ?? null)
+    if (!a) setHover(hitTest(nb.tools, px, py, tool !== 'eraser', bounds)?.kind ?? null)
     // over an instrument the eraser moves it, so it does not show the eraser circle
     if (tool === 'eraser') setCursor(!a && hover ? null : { x: px, y: py })
     if (!a || a.pointerId !== e.pointerId) return
 
-    if (a.mode === 'move') return setInst(a.id, { x: round(px - a.dx), y: round(py - a.dy) })
+    // the pivot stays on the sheet, so an instrument can't be dragged away out of reach
+    if (a.mode === 'move') return setInst(a.id, { x: round(clampTo(px - a.dx, bounds?.w)), y: round(clampTo(py - a.dy, bounds?.h)) })
     if (a.mode === 'radius') {
       const c = nb.tools.compass
       // opening to the millimetre (4 px), pointing where the handle is dragged
@@ -404,13 +417,16 @@ export default function NotebookPage() {
       return setHint({ x: px + 16, y: py - 12, text: formatDms(Math.round(Math.abs(a.sweep))) })
     }
     if (a.mode === 'rotate') {
-      const i = nb.tools[a.id]
-      let rot = a.rot0 + ((Math.atan2(py - i.y, px - i.x) - a.a0) * 180) / Math.PI
+      const [qx, qy] = a.pivot
+      let rot = a.rot0 + ((Math.atan2(py - qy, px - qx) - a.a0) * 180) / Math.PI
       rot = ((rot % 360) + 360) % 360
       // stick to multiples of 15° (0°, 45°, 90°…) when close, unless Shift is held
       const snap = Math.round(rot / 15) * 15
       if (!e.shiftKey && Math.abs(rot - snap) < 2) rot = snap % 360
-      setInst(a.id, { rot: round(rot) })
+      // turn the instrument's position around the pivot by the same angle, so the pivot stays put
+      const t = ((rot - a.rot0) * Math.PI) / 180
+      const dx = a.x0 - qx, dy = a.y0 - qy
+      setInst(a.id, { rot: round(rot), x: round(qx + dx * Math.cos(t) - dy * Math.sin(t), 2), y: round(qy + dx * Math.sin(t) + dy * Math.cos(t), 2) })
       return setHint({ x: px + 16, y: py - 12, text: formatDms(round(rot)) })
     }
     if (a.mode === 'edge') {
@@ -593,7 +609,7 @@ export default function NotebookPage() {
         >
           <PaperBackground paper={nb.paper} />
           {strokes.map((s) => <StrokePath key={s.id} s={s} />)}
-          <InstrumentsLayer tools={nb.tools} />
+          <InstrumentsLayer tools={nb.tools} bounds={bounds} />
           {drawing && <StrokePath s={drawing} />}
           {hint && <text className="nb-hint" x={hint.x} y={hint.y}>{hint.text}</text>}
           {tool === 'eraser' && cursor && (

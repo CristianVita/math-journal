@@ -49,6 +49,24 @@ const GRIP_LEN = 34
 /** the handle that opens and turns the compass, just past the pencil */
 const radiusHandleOf = (r: number): Pt => [r + 24, 0]
 
+/** Size of the visible sheet; handles are kept inside it so they can always be grabbed. */
+export interface Bounds { w: number; h: number }
+const HANDLE_MARGIN = KNOB_R + 4
+
+/**
+ * Where a handle is shown: at its place on the instrument, or, when that is off the sheet (an end of the
+ * ruler pushed past the edge), slid towards the instrument's pivot until it is back on the sheet.
+ */
+function handleAt(i: Inst, at: Pt, b?: Bounds): Pt {
+  if (!b) return at
+  const on = ([x, y]: Pt) => x >= HANDLE_MARGIN && y >= HANDLE_MARGIN && x <= b.w - HANDLE_MARGIN && y <= b.h - HANDLE_MARGIN
+  for (let s = 1; s >= 0; s -= 0.01) {
+    const p: Pt = [at[0] * s, at[1] * s]
+    if (on(toSheet(i, ...p))) return p
+  }
+  return at
+}
+
 const rad = (deg: number) => (deg * Math.PI) / 180
 
 export function toLocal(i: Inst, x: number, y: number): Pt {
@@ -69,6 +87,8 @@ interface Shape {
   inside: (lx: number, ly: number) => boolean
   /** rotate handles */
   knobs: Pt[]
+  /** for each handle, the point that stays put while turning it */
+  pivots: Pt[]
 }
 
 function shapeOf(id: EdgedId, tools: Instruments): Shape {
@@ -80,8 +100,9 @@ function shapeOf(id: EdgedId, tools: Instruments): Shape {
         { a: [-l, h], b: [l, h], n: [0, 1] },
       ],
       inside: (x, y) => Math.abs(x) <= l && Math.abs(y) <= h,
-      // one at each end, so the ruler can be turned from whichever side is handy
+      // one at each end; turning one end keeps the other end where it is, like holding it down with a finger
       knobs: [[l + 24, 0], [-l - 24, 0]],
+      pivots: [[-l, 0], [l, 0]],
     }
   }
   if (id === 'protractor') {
@@ -89,6 +110,7 @@ function shapeOf(id: EdgedId, tools: Instruments): Shape {
       edges: [{ a: [-PROT_R, 0], b: [PROT_R, 0], n: [0, 1] }],
       inside: (x, y) => y <= 0 && Math.hypot(x, y) <= PROT_R,
       knobs: [[0, -PROT_R - 24]],
+      pivots: [[0, 0]],
     }
   }
   const [w, h] = SQUARE_LEGS[tools.square.shape]
@@ -102,6 +124,7 @@ function shapeOf(id: EdgedId, tools: Instruments): Shape {
     ],
     inside: (x, y) => x >= 0 && y <= 0 && x / w - y / h <= 1,
     knobs: [[w / 2 + n[0] * 26, -h / 2 + n[1] * 26]],
+    pivots: [[0, 0]],
   }
 }
 
@@ -112,13 +135,15 @@ function segDist(px: number, py: number, [ax, ay]: Pt, [bx, by]: Pt) {
 }
 
 export type Hit =
-  | { id: InstId; kind: 'knob' | 'center' | 'body' | 'pencil' | 'radius' }
+  | { id: InstId; kind: 'center' | 'body' | 'pencil' | 'radius' }
+  /** a rotate handle; `pivot` (on the sheet) stays fixed while it turns */
+  | { id: InstId; kind: 'knob'; pivot: Pt }
   | { id: InstId; kind: 'edge'; edge: Edge }
 
 /** The compass: its pencil tip draws, the handle past it opens and turns it, the legs move it. */
-function hitCompass(c: Instruments['compass'], x: number, y: number, draw: boolean): Hit | null {
+function hitCompass(c: Instruments['compass'], x: number, y: number, draw: boolean, b?: Bounds): Hit | null {
   const [lx, ly] = toLocal(c, x, y)
-  const [rx, ry] = radiusHandleOf(c.r)
+  const [rx, ry] = handleAt(c, radiusHandleOf(c.r), b)
   if (Math.hypot(lx - rx, ly - ry) <= KNOB_R + 3) return { id: 'compass', kind: 'radius' }
   const hinge = hingeOf(c.r)
   // like a real compass, it draws when turned by the grip on top (or by the pencil itself)
@@ -130,9 +155,9 @@ function hitCompass(c: Instruments['compass'], x: number, y: number, draw: boole
 }
 
 /** What is under the pointer, topmost instrument first. With draw=false (eraser) edges and the center are ignored. */
-export function hitTest(tools: Instruments, x: number, y: number, draw: boolean): Hit | null {
+export function hitTest(tools: Instruments, x: number, y: number, draw: boolean, b?: Bounds): Hit | null {
   if (tools.compass.visible) {
-    const hit = hitCompass(tools.compass, x, y, draw)
+    const hit = hitCompass(tools.compass, x, y, draw, b)
     if (hit) return hit
   }
   for (const id of ['square', 'protractor', 'ruler'] as const) {
@@ -140,7 +165,11 @@ export function hitTest(tools: Instruments, x: number, y: number, draw: boolean)
     if (!inst.visible) continue
     const s = shapeOf(id, tools)
     const [lx, ly] = toLocal(inst, x, y)
-    if (s.knobs.some(([kx, ky]) => Math.hypot(lx - kx, ly - ky) <= KNOB_R + 3)) return { id, kind: 'knob' }
+    const k = s.knobs.findIndex((at) => {
+      const [kx, ky] = handleAt(inst, at, b)
+      return Math.hypot(lx - kx, ly - ky) <= KNOB_R + 3
+    })
+    if (k >= 0) return { id, kind: 'knob', pivot: toSheet(inst, ...s.pivots[k]) }
     if (draw) {
       if (id === 'protractor' && Math.hypot(lx, ly) <= 14) return { id, kind: 'center' }
       let best: { edge: Edge; d: number } | null = null
@@ -262,9 +291,10 @@ function SetSquare({ shape }: { shape: '45' | '60' }) {
   )
 }
 
-function Compass({ r, rot }: { r: number; rot: number }) {
+function Compass({ c, b }: { c: Instruments['compass']; b?: Bounds }) {
+  const { r, rot } = c
   const [hx, hy] = hingeOf(r)
-  const [kx, ky] = radiusHandleOf(r)
+  const [kx, ky] = handleAt(c, radiusHandleOf(r), b)
   const leg = { stroke: '#475569', strokeWidth: 6, strokeLinecap: 'round' as const }
   const legInner = { stroke: '#cbd5e1', strokeWidth: 2, strokeLinecap: 'round' as const }
   return (
@@ -293,15 +323,15 @@ function Compass({ r, rot }: { r: number; rot: number }) {
   )
 }
 
-export function InstrumentsLayer({ tools }: { tools: Instruments }) {
+export function InstrumentsLayer({ tools, bounds }: { tools: Instruments; bounds?: Bounds }) {
   const place = (i: Inst) => `translate(${i.x} ${i.y}) rotate(${i.rot})`
-  const knob = (id: EdgedId) => shapeOf(id, tools).knobs.map((at, k) => <Knob key={k} at={at} />)
+  const knob = (id: EdgedId) => shapeOf(id, tools).knobs.map((at, k) => <Knob key={k} at={handleAt(tools[id], at, bounds)} />)
   return (
     <g className="instruments">
       {tools.ruler.visible && <g transform={place(tools.ruler)}><Ruler />{knob('ruler')}</g>}
       {tools.protractor.visible && <g transform={place(tools.protractor)}><Protractor />{knob('protractor')}</g>}
       {tools.square.visible && <g transform={place(tools.square)}><SetSquare shape={tools.square.shape} />{knob('square')}</g>}
-      {tools.compass.visible && <g transform={place(tools.compass)}><Compass r={tools.compass.r} rot={tools.compass.rot} /></g>}
+      {tools.compass.visible && <g transform={place(tools.compass)}><Compass c={tools.compass} b={bounds} /></g>}
     </g>
   )
 }
