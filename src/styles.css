@@ -184,6 +184,7 @@ textarea { resize: vertical; width: 100%; }
 .tick.small { font-size: 10px; }
 .pt-label { font-size: 14px; font-weight: 600; font-style: italic; font-family: 'Times New Roman', Georgia, serif; fill: var(--ink); }
 .measure { font-size: 12px; font-weight: 600; font-family: 'Segoe UI', system-ui, sans-serif; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+.arc-degrees { font-size: 15px; fill: #4f46e5; }
 .halo { stroke: #a5b4fc; stroke-width: 8; opacity: .6; stroke-linecap: round; }
 .halo-pt { fill: #a5b4fc; opacity: .6; }
 .halo-box { fill: #eef2ff; stroke: #a5b4fc; rx: 4; }
@@ -337,6 +338,10 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 .notebook-pages { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; }
 .notebook-sheet { display: block; width: 100%; height: calc(100vh - 270px); min-height: 360px; touch-action: none; user-select: none; cursor: crosshair; }
 .notebook-sheet.tool-eraser { cursor: none; }
+.notebook-sheet-wrap { position: relative; overflow: hidden; }
+.notebook-sheet.tool-text { cursor: text; }
+.notebook-sheet.tool-text.over-note { cursor: move; }
+.nb-note-input { position: absolute; box-sizing: content-box; margin: 0; padding: 0; border: 0; outline: 1px dashed #6366f1; outline-offset: 2px; background: transparent; resize: none; overflow: hidden; white-space: pre; }
 .instruments-bar { border-top: 0; font-size: 13px; }
 .instruments-bar .instruments-help { font-size: 12px; flex-basis: 100%; }
 .angle-input { display: inline-flex; align-items: center; gap: 2px; }

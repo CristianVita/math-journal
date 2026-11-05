@@ -42,6 +42,15 @@ export function linePoints(a: number[], x: number, y: number) {
   return Array.from({ length: n + 1 }, (_, i) => [round(a[0] + ((x - a[0]) * i) / n), round(a[1] + ((y - a[1]) * i) / n), 0.5])
 }
 
+/** A small X on the center of a circle or arc, to stay on the sheet after the compass is moved. */
+function centerMark(c: Instruments['compass']) {
+  const arm = 4
+  return [
+    { points: linePoints([c.x - arm, c.y - arm], c.x + arm, c.y + arm), thin: true },
+    { points: linePoints([c.x - arm, c.y + arm], c.x + arm, c.y - arm), thin: true },
+  ]
+}
+
 interface Options {
   tools: Instruments
   setTools: (update: (tools: Instruments) => Instruments) => void
@@ -256,10 +265,13 @@ export function useInstruments({ tools, setTools, bounds, onStrokeStart, onStrok
     setHint({ x: px + 16, y: py - 12, text: formatDms(shown) })
   }
 
-  /** The pointer went up: an instrument just turned may come to rest on the other one. */
-  const up = (pointerId: number) => {
+  /**
+   * The pointer went up: an instrument just turned may come to rest on the other one. Returns what goes on the sheet
+   * together with the line or arc just finished, to be undone as one with it.
+   */
+  const up = (pointerId: number): { points: number[][]; thin?: boolean }[] => {
     const a = active.current
-    if (!a || a.pointerId !== pointerId) return
+    if (!a || a.pointerId !== pointerId) return []
     active.current = null
     setHint(null)
     if (a.mode === 'rotate' && a.id === 'ruler') {
@@ -280,6 +292,7 @@ export function useInstruments({ tools, setTools, bounds, onStrokeStart, onStrok
         setInst('square', squareOnRulerEnd(tools, end))
       }
     }
+    return a.mode === 'arc' && a.sweep !== 0 ? centerMark(tools.compass) : []
   }
 
   /** What the pointer is over, for its cursor. */
@@ -304,7 +317,7 @@ export function useInstruments({ tools, setTools, bounds, onStrokeStart, onStrok
   /** A whole circle with the compass as it is set now. */
   const drawCircle = () => {
     const c = tools.compass
-    onStrokes([{ points: arcPoints(c, c.rot, 360) }])
+    onStrokes([{ points: arcPoints(c, c.rot, 360) }, ...centerMark(c)])
   }
 
   /** Draw the angle typed in degrees, minutes and seconds from the protractor's center: two rays and an arc. */

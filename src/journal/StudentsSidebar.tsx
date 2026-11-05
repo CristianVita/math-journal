@@ -27,6 +27,8 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
     if (!(await confirm('Importul înlocuiește toate datele actuale cu cele din backup. Continui?', 'Importă'))) return
     try {
       await importBackup(await f.text())
+      // the open app still holds the old board and notebook in memory and would save them over the restored ones
+      location.reload()
     } catch (e) {
       await ask((e as Error).message, '', true)
     }

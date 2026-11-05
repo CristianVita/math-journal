@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import katex from 'katex'
 import { compile, type EvalFunction } from 'mathjs'
-import type { AngleObj, CircleObj, FunctionObj, GObj, LineAngleObj, LineObj, PathObj, PointObj, PolygonObj, Scene, TextObj } from './types'
+import type { AngleObj, ArcObj, CircleObj, FunctionObj, GObj, LineAngleObj, LineObj, PathObj, PointObj, PolygonObj, Scene, TextObj } from './types'
 import { emptyScene, isLinear } from './types'
 import {
   type ResolvedLine,
@@ -18,6 +18,11 @@ import {
   formatNum,
   intersectLines,
   mul,
+  arcBounds,
+  arcEnd,
+  arcWholeDegrees,
+  centerLabel,
+  onArc,
   nextLabel,
   norm,
   resolve,
@@ -53,6 +58,8 @@ export function parseNumbers(src: string, count: number): number[] {
   return parts.map((p) => Number(p.replace(',', '.')))
 }
 
+const NUMBER_FORMAT = 'Desparte numerele prin virgulă și spațiu; zecimalele merg cu virgulă sau punct: 2,5, 3.'
+
 const TRIANGLE_KINDS: Record<string, string> = {
   right: 'dreptunghic', acute: 'ascuțitunghic', obtuse: 'obtuzunghic', equi: 'echilateral', iso: 'isoscel',
 }
@@ -62,7 +69,15 @@ export function triangleFromInput(kind: string, values: string[]): Triangle | st
   const need: Record<string, [number, number]> = { right: [1, 2], acute: [2, 3], obtuse: [3, 3], equi: [4, 1], iso: [5, 2] }
   const [field, count] = need[kind]
   const n = parseNumbers(values[field], count)
-  if (n.length !== count || n.some((x) => !(x > 0))) return `Scrie ${count === 1 ? 'un număr pozitiv' : `${count} numere pozitive, separate prin virgulă`}.`
+  if (n.length !== count || n.some((x) => !(x > 0))) return `Scrie ${count === 1 ? 'un număr pozitiv' : `${count} numere pozitive`}. ${NUMBER_FORMAT}`
+  if (kind === 'acute' || kind === 'obtuse' || kind === 'iso') {
+    const [x, y, z] = (kind === 'iso' ? [n[0], n[1], n[1]] : [...n]).sort((p, q) => p - q)
+    if (z >= x + y) {
+      return kind === 'iso'
+        ? `Cu baza ${n[0]} și laturile egale ${n[1]} nu se poate forma un triunghi: baza trebuie să fie mai mică decât dublul laturii egale, adică decât ${2 * n[1]}.`
+        : `Cu laturile ${n.join(', ')} nu se poate forma un triunghi: latura cea mai mare (${z}) trebuie să fie mai mică decât suma celorlalte două (${x} + ${y}).`
+    }
+  }
   const input =
     kind === 'right' ? { b: n[0], c: n[1], A: 90 }
     : kind === 'equi' ? { a: n[0], b: n[0], c: n[0] }
@@ -83,7 +98,7 @@ export function triangleFromInput(kind: string, values: string[]): Triangle | st
 }
 
 type Tool =
-  | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'triangle' | 'polygon' | 'regular'
+  | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'arc' | 'sector' | 'triangle' | 'polygon' | 'regular'
   | 'angle' | 'lineAngle' | 'construct' | 'midpoint' | 'perpendicular' | 'mediatrix' | 'parallel' | 'bisector'
   | 'intersection' | 'text' | 'pen' | 'delete'
 
@@ -95,6 +110,8 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
   { id: 'line', icon: '⟷', label: 'Dreaptă', hint: ['Primul punct al dreptei', 'Al doilea punct'] },
   { id: 'ray', icon: '⟶', label: 'Semidreaptă', hint: ['Originea', 'Un punct pe semidreaptă'] },
   { id: 'circle', icon: '◯', label: 'Cerc', hint: ['Centrul', 'Un punct de pe cerc'] },
+  { id: 'arc', icon: '⌒', label: 'Arc de cerc', hint: ['Centrul', 'Începutul arcului', 'Sfârșitul arcului (merge în sens trigonometric)'] },
+  { id: 'sector', icon: '◔', label: 'Sector de cerc', hint: ['Centrul', 'Începutul arcului', 'Sfârșitul arcului (merge în sens trigonometric)'] },
   { id: 'polygon', icon: '⬠', label: 'Poligon', hint: ['Vârfurile pe rând; click pe primul vârf pentru a închide'] },
   { id: 'regular', icon: '⬡', label: 'Poligon regulat', hint: ['Primul vârf', 'Al doilea vârf (apoi alegi nr. de laturi)'] },
   { id: 'triangle', icon: '△', label: 'Triunghi (dreptunghic, ascuțitunghic, obtuzunghic…)', hint: ['Click unde vrei primul vârf, apoi alegi tipul și dimensiunile'] },
@@ -113,7 +130,7 @@ const TOOLS: { id: Tool; icon: string; label: string; hint: string[] }[] = [
 ]
 
 /** Tools whose clicks place points (they get the snapping preview). */
-const POINT_TOOLS = new Set<string>(['point', 'segment', 'line', 'ray', 'circle', 'polygon', 'regular', 'angle', 'construct', 'midpoint'])
+const POINT_TOOLS = new Set<string>(['point', 'segment', 'line', 'ray', 'circle', 'arc', 'sector', 'polygon', 'regular', 'angle', 'construct', 'midpoint'])
 
 const COLORS = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#db2777']
 
@@ -126,7 +143,13 @@ interface Props {
 }
 
 /** Positions (and fixed lengths) of a figure when a scale / rotate gesture starts. */
-type XformBase = { pts: Map<string, Vec>; paths: Map<string, [number, number][]>; dists: Map<string, number> }
+type XformBase = {
+  pts: Map<string, Vec>
+  paths: Map<string, [number, number][]>
+  dists: Map<string, number>
+  /** points glued to a circle or arc, with its center: where they are stays right when the figure turns */
+  glued: Map<string, { p: Vec; c: Vec }>
+}
 
 // `at`: where on the line the user clicked (the angle-between-lines tool uses it to pick a side)
 type Pick = { kind: 'point' | 'line'; id: string; at?: Vec }
@@ -182,7 +205,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const [xformLabel, setXformLabel] = useState<string | null>(null)
   const [hoverHandle, setHoverHandle] = useState<'scale' | 'rotate' | null>(null)
   // where the next point would land (shown before the click)
-  const [ghost, setGhost] = useState<{ pos: Vec; existing?: string; on?: string[] } | null>(null)
+  // deg: how long the arc being drawn is, shown next to the pointer
+  const [ghost, setGhost] = useState<{ pos: Vec; existing?: string; on?: string[]; deg?: number } | null>(null)
   // a short message in the status bar (e.g. "click on a line") instead of silently doing nothing
   const [flashMsg, setFlashMsg] = useState<string | null>(null)
   const flashTimer = useRef<number>()
@@ -238,6 +262,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           const r = dist(c, t)
           pts.push({ x: c.x - r, y: c.y - r }, { x: c.x + r, y: c.y + r })
         }
+      } else if (o.type === 'arc') {
+        const c = resolved.points.get(o.center)
+        const t = resolved.points.get(o.through)
+        const to = resolved.points.get(o.to)
+        if (c && t && to) pts.push(...arcBounds(c, t, to))
       }
     }
     if (!pts.length) return null
@@ -251,12 +280,19 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const pivot = figure ? (pivotId !== 'center' && resolved.points.get(pivotId)) || figure.centroid : null
 
   const xformBase = (movable: Set<string>, ids: Set<string>): XformBase => {
-    const base: XformBase = { pts: new Map(), paths: new Map(), dists: new Map() }
+    const base: XformBase = { pts: new Map(), paths: new Map(), dists: new Map(), glued: new Map() }
     for (const o of sceneRef.current.objects) {
       if (movable.has(o.id) && (o.type === 'point' || o.type === 'text')) base.pts.set(o.id, { x: o.x, y: o.y })
       if (movable.has(o.id) && o.type === 'path') base.paths.set(o.id, o.points)
       // sides of a fixed length (constructed angle, bisector) must grow with the figure
       if (ids.has(o.id) && o.type === 'point' && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint' || o.dep.kind === 'along')) base.dists.set(o.id, o.dep.dist)
+      if (ids.has(o.id) && o.type === 'point' && o.dep.kind === 'onCircle') {
+        const { circle } = o.dep
+        const on = sceneRef.current.objects.find((x) => x.id === circle)
+        const c = on?.type === 'circle' || on?.type === 'arc' ? P(on.center) : null
+        const p = P(o.id)
+        if (c && p) base.glued.set(o.id, { p, c })
+      }
     }
     return base
   }
@@ -271,6 +307,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         return { ...o, points: base.paths.get(o.id)!.map(([x, y]) => { const p = f({ x, y }); return [p.x, p.y] as [number, number] }) }
       if (o.type === 'point' && base.dists.has(o.id) && (o.dep.kind === 'polar' || o.dep.kind === 'bisectorPoint' || o.dep.kind === 'along'))
         return { ...o, dep: { ...o.dep, dist: base.dists.get(o.id)! * k } }
+      if (o.type === 'point' && o.dep.kind === 'onCircle' && base.glued.has(o.id)) {
+        const { p, c } = base.glued.get(o.id)!
+        const a = sub(f(p), f(c))
+        return { ...o, dep: { ...o.dep, angle: Math.atan2(a.y, a.x) } }
+      }
       return o
     })
   const rotateFigure = (deg: number) => {
@@ -333,6 +374,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }, [instruments, instTools])
   const [planeX, planeY] = toPlane({ x: 0, y: 0 })
   const instPath = useRef<string>()
+  const instPathObj = ({ points, thin }: { points: number[][]; thin?: boolean }): PathObj =>
+    ({ id: uid(), type: 'path', points: points.map(planeToWorld), color, width: thin ? 1.5 : 2.5 })
   const inst = useInstruments({
     tools: instTools,
     setTools: setInstTools,
@@ -349,9 +392,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         objects: sceneRef.current.objects.map((o) => (o.id === instPath.current && o.type === 'path' ? { ...o, points: world } : o)),
       })
     },
-    onStrokes: (list) =>
-      commit([...sceneRef.current.objects, ...list.map(({ points, thin }): PathObj =>
-        ({ id: uid(), type: 'path', points: points.map(planeToWorld), color, width: thin ? 1.5 : 2.5 }))]),
+    onStrokes: (list) => commit([...sceneRef.current.objects, ...list.map(instPathObj)]),
     // drawing along an instrument is what the pen does
     onShown: () => changeTool('pen'),
     roams: true,
@@ -422,6 +463,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         const c = P(o.center)
         const t = P(o.through)
         if (c && t) consider(o, Math.abs(dist(c, w) - dist(c, t)) * view.scale, 6)
+      } else if (o.type === 'arc') {
+        const c = P(o.center)
+        const t = P(o.through)
+        const to = P(o.to)
+        if (c && t && to && onArc(w, c, t, to)) {
+          consider(o, Math.abs(dist(c, w) - dist(c, t)) * view.scale, 6)
+          if (o.filled && dist(c, w) < dist(c, t)) consider(o, 5, 6)
+        }
       } else if (o.type === 'text') {
         const p = toScreen(o)
         if (s.x >= p.x - 4 && s.x <= p.x + Math.max(40, o.text.length * o.size * 0.55) && s.y >= p.y - o.size - 4 && s.y <= p.y + 6)
@@ -491,10 +540,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       return { pos: add(l.p, mul(l.d, t)), dep: { kind: 'onLine', line: id, t }, on: [id] }
     }
     for (const o of scene.objects) {
-      if (o.type !== 'circle') continue
+      if (o.type !== 'circle' && o.type !== 'arc') continue
       const c = P(o.center)
       const th = P(o.through)
       if (!c || !th) continue
+      if (o.type === 'arc') {
+        const to = P(o.to)
+        if (!to || !onArc(w, c, th, to)) continue
+      }
       const r = dist(c, th)
       if (Math.abs(dist(c, w) - r) * view.scale <= SNAP_PX && dist(c, w) > 1e-9) {
         const angle = Math.atan2(w.y - c.y, w.x - c.x)
@@ -502,6 +555,22 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       }
     }
     return { pos: snap(w), dep: { kind: 'free' } }
+  }
+
+  /** Where an arc from t around c ends for this pointer position: on its circle, in steps of one degree. */
+  const arcEndAt = (s: Vec, c: Vec, t: Vec) => {
+    const target = snapTarget(s)
+    const at = target.existing ? P(target.existing) : null
+    // pointing at an existing point is exact: it is the end if it is on the circle, otherwise it gives the direction
+    const { pos, deg } = at
+      ? { pos: arcEnd(c, t, at), deg: (angleCCW(t, c, at) * 180) / Math.PI }
+      : arcWholeDegrees(c, t, toWorld(s))
+    return {
+      pos,
+      deg,
+      angle: Math.atan2(pos.y - c.y, pos.x - c.x),
+      existing: at && Math.abs(dist(at, c) - dist(t, c)) < 1e-6 ? target.existing : undefined,
+    }
   }
 
   // ---------- lines through a point: infinite, or a segment of a chosen length ----------
@@ -556,7 +625,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const pointAt = (): string => {
       const target = snapTarget(s)
       if (target.existing) return target.existing
-      return newPoint(objs, target.pos, target.dep).id
+      // asked before the point exists: it may itself get the next free letter
+      const center = (tool === 'circle' || tool === 'arc' || tool === 'sector') && !pts.length ? centerLabel(objs) : null
+      const p = newPoint(objs, target.pos, target.dep)
+      if (center) p.label = center
+      return p.id
     }
     const pts = pending.filter((p) => p.kind === 'point').map((p) => p.id)
     const needPoints = (n: number, done: (ids: string[]) => void | Promise<void>) => {
@@ -634,6 +707,33 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           commit(objs)
         })
         break
+      case 'arc':
+      case 'sector': {
+        if (pts.length < 2) {
+          if (snapTarget(s).existing !== pts[0] || !pts.length) await needPoints(3, () => {})
+          break
+        }
+        const [cId, tId] = pts
+        const c = P(cId)
+        const t = P(tId)
+        if (!c || !t) {
+          setPending([])
+          break
+        }
+        const end = arcEndAt(s, c, t)
+        // no arc yet: its two ends are in the same place
+        if (dist(end.pos, t) < 1e-6) break
+        const id = uid()
+        const to = end.existing ?? newPoint(objs, end.pos, { kind: 'onCircle', circle: id, angle: end.angle }).id
+        objs.push({ id, type: 'arc', center: cId, through: tId, to, color, width: 2, sector: tool === 'sector' } satisfies ArcObj)
+        if (tool === 'sector') {
+          newLine(objs, 'segment', { kind: 'twoPoints', a: cId, b: tId })
+          newLine(objs, 'segment', { kind: 'twoPoints', a: cId, b: to })
+        }
+        setPending([])
+        commit(objs)
+        break
+      }
       case 'midpoint':
         if (!pending.length && hit && hit.type === 'segment' && hit.dep.kind === 'twoPoints') {
           const m = newPoint(objs, { x: 0, y: 0 }, { kind: 'midpoint', a: hit.dep.a, b: hit.dep.b })
@@ -666,11 +766,11 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             value: 'right',
             options: Object.entries(TRIANGLE_KINDS).map(([value, label]) => ({ value, label })),
           },
-          { label: 'Catetele', value: '3, 4', showIf: { field: 0, value: 'right' }, hint: 'Unghiul drept este în vârful pe care ai dat click.' },
-          { label: 'Laturile', value: '5, 6, 7', showIf: { field: 0, value: 'acute' }, hint: 'Trei lungimi; cea mai mare la pătrat < suma pătratelor celorlalte.' },
-          { label: 'Laturile', value: '3, 4, 6', showIf: { field: 0, value: 'obtuse' }, hint: 'Trei lungimi; cea mai mare la pătrat > suma pătratelor celorlalte.' },
-          { label: 'Latura', value: '4', showIf: { field: 0, value: 'equi' } },
-          { label: 'Baza, apoi laturile egale', value: '4, 5', showIf: { field: 0, value: 'iso' } },
+          { label: 'Catetele', value: '3, 4', showIf: { field: 0, value: 'right' }, hint: `Două numere pozitive, oricare. Unghiul drept este în vârful pe care ai dat click. ${NUMBER_FORMAT}` },
+          { label: 'Laturile', value: '5, 6, 7', showIf: { field: 0, value: 'acute' }, hint: `Trei numere pozitive. Pătratul laturii celei mai mari trebuie să fie mai mic decât suma pătratelor celorlalte două. Exemplu: 5, 6, 7, pentru că 7² = 49 < 5² + 6² = 61. ${NUMBER_FORMAT}` },
+          { label: 'Laturile', value: '3, 4, 6', showIf: { field: 0, value: 'obtuse' }, hint: `Trei numere pozitive. Latura cea mai mare trebuie să fie mai mică decât suma celorlalte două, iar pătratul ei mai mare decât suma pătratelor lor. Exemplu: 3, 4, 6, pentru că 6 < 3 + 4 și 6² = 36 > 3² + 4² = 25. ${NUMBER_FORMAT}` },
+          { label: 'Latura', value: '4', showIf: { field: 0, value: 'equi' }, hint: `Un număr pozitiv, oricare. ${NUMBER_FORMAT}` },
+          { label: 'Baza, apoi laturile egale', value: '4, 5', showIf: { field: 0, value: 'iso' }, hint: `Două numere pozitive. Baza trebuie să fie mai mică decât dublul laturii egale. Exemplu: 4, 5, pentru că 4 < 2 · 5. ${NUMBER_FORMAT}` },
         ])
         if (!vals) break
         const t = triangleFromInput(vals[0], vals)
@@ -1043,6 +1143,10 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       // perpendicular / parallel place a point only once the line is chosen
       const placesPoint = POINT_TOOLS.has(tool) || ((tool === 'perpendicular' || tool === 'parallel') && pending.some((p) => p.kind === 'line'))
       // the bisector only picks points that are already there: show the ghost just on those
+      if ((tool === 'arc' || tool === 'sector') && pending.length === 2) {
+        const [c, t] = pending.map((p) => P(p.id))
+        if (c && t) return setGhost(arcEndAt(s, c, t))
+      }
       const target = placesPoint || tool === 'bisector' ? snapTarget(s) : null
       setGhost(placesPoint || target?.existing ? target : null)
       return
@@ -1060,8 +1164,21 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         if (l) dep = { ...o.dep, t: projectParam(w, l) }
       } else if (o.dep.kind === 'onCircle') {
         const c = sceneRef.current.objects.find((x) => x.id === (o.dep as { circle: string }).circle)
-        const center = c?.type === 'circle' ? P(c.center) : null
-        if (center && dist(center, w) > 1e-9) dep = { ...o.dep, angle: Math.atan2(w.y - center.y, w.x - center.x) }
+        const center = c?.type === 'circle' || c?.type === 'arc' ? P(c.center) : null
+        const t = c?.type === 'arc' ? P(c.through) : null
+        if (c?.type === 'arc' && c.to !== d.id) {
+          // a point on the arc stops at its ends; only the arc's own end changes how long it is
+          const to = P(c.to)
+          if (!center || !t || !to || !onArc(w, center, t, to)) return
+        }
+        if (c?.type === 'arc' && c.to === d.id && center && t) {
+          // the arc's end moves one degree at a time, and never closes the arc
+          const end = arcWholeDegrees(center, t, w)
+          if (end.deg) {
+            dep = { ...o.dep, angle: Math.atan2(end.pos.y - center.y, end.pos.x - center.x) }
+            setGhost({ pos: end.pos, deg: end.deg })
+          }
+        } else if (center && dist(center, w) > 1e-9) dep = { ...o.dep, angle: Math.atan2(w.y - center.y, w.x - center.x) }
       }
       if (!dep) return
       if (!d.moved) {
@@ -1130,12 +1247,15 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
 
   const onPointerUp = (e: React.PointerEvent) => {
     if (drag.current?.mode === 'inst') {
-      inst.up(e.pointerId)
+      const marks = inst.up(e.pointerId)
+      // no commit: the undo step taken when the arc began covers these too
+      if (marks.length) onChange({ ...sceneRef.current, objects: [...sceneRef.current.objects, ...marks.map(instPathObj)] })
       inst.hoverAt(...toPlane(screenPos(e)), tool === 'pen')
     }
     drag.current = null
     setPanning(false)
     setXformLabel(null)
+    if (ghost?.deg != null) setGhost(null)
   }
 
   const onWheel = (e: React.WheelEvent) => {
@@ -1321,6 +1441,23 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           </g>
         )
       }
+      case 'arc': {
+        const c = P(o.center)
+        const t = P(o.through)
+        const to = P(o.to)
+        if (!c || !t || !to) return null
+        const d = arcPath(c, t, to)
+        const sc = toScreen(c)
+        const mid = toScreen(rotate(t, c, angleCCW(t, c, to) / 2))
+        return (
+          <g key={o.id}>
+            {o.filled && <path d={`M ${sc.x} ${sc.y} L ${d.slice(2)} Z`} fill={o.color + '22'} stroke="none" />}
+            {hl && <path d={d} className="halo" fill="none" />}
+            <path d={d} stroke={o.color} strokeWidth={o.width} fill="none" />
+            {o.showRadius && <text x={mid.x + 6} y={mid.y - 6} className="measure" fill={o.color}>r = {formatNum(dist(c, t))}</text>}
+          </g>
+        )
+      }
       case 'polygon': {
         const pts = o.points.map(P)
         if (!pts.every(Boolean)) return null
@@ -1425,6 +1562,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     )
   }
 
+  /** SVG path of an arc, starting with "M x y". On screen y points down, but so does the turn: counter-clockwise stays so. */
+  const arcPath = (c: Vec, t: Vec, to: Vec) => {
+    const s = toScreen(t)
+    const e = toScreen(arcEnd(c, t, to))
+    const r = dist(c, t) * view.scale
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${angleCCW(t, c, to) > Math.PI ? 1 : 0} 0 ${e.x} ${e.y}`
+  }
+
   const preview = () => {
     if (!mouse || !pending.length) return null
     const last = pending[pending.length - 1]
@@ -1433,7 +1578,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     if (!a) return null
     const sa = toScreen(a)
     const sm = toScreen(ghost?.pos ?? snap(mouse))
-    if (tool === 'circle')
+    if ((tool === 'arc' || tool === 'sector') && pending.length === 2) {
+      const c = P(pending[0].id)
+      if (!c || !ghost) return null
+      const d = arcPath(c, a, ghost.pos)
+      const sc = toScreen(c)
+      return <path data-ui d={tool === 'sector' ? `M ${sc.x} ${sc.y} L ${d.slice(2)} Z` : d} className="preview" fill="none" />
+    }
+    if (tool === 'circle' || tool === 'arc' || tool === 'sector')
       return <circle data-ui cx={sa.x} cy={sa.y} r={dist(sa, sm)} className="preview" fill="none" />
     return <line data-ui x1={sa.x} y1={sa.y} x2={sm.x} y2={sm.y} className="preview" />
   }
@@ -1456,9 +1608,16 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             const t = P(c.through)
             if (cc && t) return <circle key={id} cx={toScreen(cc).x} cy={toScreen(cc).y} r={dist(cc, t) * view.scale} className="snap-halo" fill="none" />
           }
+          if (c?.type === 'arc') {
+            const cc = P(c.center)
+            const t = P(c.through)
+            const to = P(c.to)
+            if (cc && t && to) return <path key={id} d={arcPath(cc, t, to)} className="snap-halo" fill="none" />
+          }
           return null
         })}
         <circle cx={g.x} cy={g.y} r={ghost.existing ? 9 : 5} className={ghost.existing ? 'ghost-existing' : 'ghost-pt'} />
+        {ghost.deg != null && <text x={g.x + 12} y={g.y - 12} className="measure arc-degrees">{formatNum(ghost.deg, 1)}°</text>}
       </g>
     )
   }
@@ -1616,6 +1775,11 @@ function fitView(scene: Scene, points: Map<string, Vec | null>, size: { w: numbe
         push(c.x - r, c.y - r)
         push(c.x + r, c.y + r)
       }
+    } else if (o.type === 'arc') {
+      const c = points.get(o.center)
+      const t = points.get(o.through)
+      const to = points.get(o.to)
+      if (c && t && to) for (const q of arcBounds(c, t, to)) push(q.x, q.y)
     }
   }
   if (!xs.length) return { ...scene.view, scale: Math.min(scene.view.scale, 20) }
@@ -1743,7 +1907,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
   figureTools?: FigureTools
 }) {
   const names: Record<GObj['type'], string> = {
-    point: 'Punct', segment: 'Segment', line: 'Dreaptă', ray: 'Semidreaptă', circle: 'Cerc',
+    point: 'Punct', segment: 'Segment', line: 'Dreaptă', ray: 'Semidreaptă', circle: 'Cerc', arc: 'Arc de cerc',
     polygon: 'Poligon', angle: 'Unghi', lineAngle: 'Unghi între linii', text: 'Text', path: 'Desen liber', function: 'Funcție',
   }
   const label = (id: string) => (scene.objects.find((x) => x.id === id) as PointObj | undefined)?.label ?? '?'
@@ -1752,6 +1916,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
   if (isLinear(o) && o.dep.kind === 'twoPoints') title += ` ${label(o.dep.a)}${label(o.dep.b)}`
   if (o.type === 'angle') title += ` ∠${label(o.a)}${label(o.v)}${label(o.b)}`
   if (o.type === 'polygon') title += ' ' + o.points.map(label).join('')
+  if (o.type === 'arc') title = `${o.sector ? 'Sector de cerc' : 'Arc de cerc'}, centrul ${label(o.center)}`
 
   return (
     <div className="inspector">
@@ -1798,7 +1963,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
             </>
           )}
           {(o.dep.kind === 'onLine' || o.dep.kind === 'onCircle') && (
-            <div className="insp-note">Punct lipit de {o.dep.kind === 'onLine' ? 'dreaptă' : 'cerc'}: îl poți trage doar de-a lungul ei; se mută odată cu ea.</div>
+            <div className="insp-note">Punct lipit de {o.dep.kind === 'onLine' ? 'dreaptă' : 'cerc sau arc'}: îl poți trage doar de-a lungul ei; se mută odată cu ea.</div>
           )}
           {o.dep.kind !== 'free' && o.dep.kind !== 'onLine' && o.dep.kind !== 'onCircle' && (
             <div className="insp-note">Punct construit — se mișcă odată cu punctele de care depinde.</div>
@@ -1821,6 +1986,13 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
               {resolvedLen(o.id) != null && <b> ({formatNum(resolvedLen(o.id)!, 3)})</b>}</label>
           )}
           <label className="insp-row chk"><input type="checkbox" checked={!!o.dashed} onChange={(e) => onPatch({ dashed: e.target.checked })} /> Punctat</label>
+          <label className="insp-row">Grosime <input type="range" min={1} max={6} step={0.5} value={o.width} onChange={(e) => onPatch({ width: Number(e.target.value) })} /></label>
+        </>
+      )}
+      {o.type === 'arc' && (
+        <>
+          {o.sector && <label className="insp-row chk"><input type="checkbox" checked={!!o.filled} onChange={(e) => onPatch({ filled: e.target.checked })} /> Colorează interiorul</label>}
+          <label className="insp-row chk"><input type="checkbox" checked={!!o.showRadius} onChange={(e) => onPatch({ showRadius: e.target.checked })} /> Arată raza</label>
           <label className="insp-row">Grosime <input type="range" min={1} max={6} step={0.5} value={o.width} onChange={(e) => onPatch({ width: Number(e.target.value) })} /></label>
         </>
       )}

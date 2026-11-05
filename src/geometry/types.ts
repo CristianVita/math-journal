@@ -19,7 +19,7 @@ export type PointDep =
   | { kind: 'along'; through: string; ref: string; perp: boolean; dist: number }
   // glued to a line / segment / ray: p + t·d of the resolved line (t = 0 at its first point, 1 at the second)
   | { kind: 'onLine'; line: string; t: number }
-  // glued to a circle, at `angle` radians from the centre
+  // glued to a circle or an arc, at `angle` radians from the centre
   | { kind: 'onCircle'; circle: string; angle: number }
 
 export interface PointObj {
@@ -59,6 +59,21 @@ export interface CircleObj {
   through: string
   color: string
   width: number
+  showRadius?: boolean
+}
+
+/** Arc from `through` counter-clockwise to the direction of `to`, on the circle of center `center` through `through`. */
+export interface ArcObj {
+  id: string
+  type: 'arc'
+  center: string
+  through: string
+  to: string
+  color: string
+  width: number
+  /** a circular sector: its two radii are segments of their own, this only adds the color inside */
+  sector?: boolean
+  filled?: boolean
   showRadius?: boolean
 }
 
@@ -125,7 +140,7 @@ export interface FunctionObj {
   width: number
 }
 
-export type GObj = PointObj | LineObj | CircleObj | PolygonObj | AngleObj | LineAngleObj | TextObj | PathObj | FunctionObj
+export type GObj = PointObj | LineObj | CircleObj | ArcObj | PolygonObj | AngleObj | LineAngleObj | TextObj | PathObj | FunctionObj
 
 export interface View {
   cx: number // world coordinates at the canvas centre

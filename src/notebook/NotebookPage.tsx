@@ -8,7 +8,7 @@ import { usePrompt } from '../components/PromptDialog'
 import { defaultInstruments, InstrumentsLayer, type Bounds, type Instruments } from './instruments'
 import { InstrumentsBar, linePoints, round, useInstruments } from './useInstruments'
 
-type Tool = 'pen' | 'marker' | 'eraser'
+type Tool = 'pen' | 'marker' | 'text' | 'eraser'
 type Paper = 'grid' | 'lines' | 'blank'
 
 interface Stroke {
@@ -22,24 +22,42 @@ interface Stroke {
   pressure: boolean
 }
 
+/** Typed text; (x, y) is the top left corner of its first line. */
+interface Note {
+  id: string
+  tool: 'text'
+  color: string
+  size: number
+  x: number
+  y: number
+  text: string
+}
+
+type Item = Stroke | Note
+
 interface Notebook {
   paper: Paper
-  pages: Stroke[][]
+  pages: Item[][]
   current: number
   tools: Instruments
 }
 
 /** What the pointer is doing between pointerdown and pointerup; 'inst' = an instrument has it. */
-interface Active { pointerId: number; start: number[]; before: Stroke[]; mode: 'draw' | 'erase' | 'inst' }
+interface Active { pointerId: number; start: number[]; before: Item[]; mode: 'draw' | 'erase' | 'inst' | 'note'; note?: Note }
+
+/** The text being typed; id is null for a new one. */
+interface NoteEdit { page: number; id: string | null; color: string; size: number; x: number; y: number; text: string }
 
 const KEY = 'math-journal:notebook'
-const COLORS: Record<'pen' | 'marker', { name: string; value: string }[]> = {
-  pen: [
-    { name: 'negru', value: '#111827' },
-    { name: 'albastru', value: '#1d4ed8' },
-    { name: 'roșu', value: '#dc2626' },
-    { name: 'verde', value: '#15803d' },
-  ],
+const PEN_COLORS = [
+  { name: 'negru', value: '#111827' },
+  { name: 'albastru', value: '#1d4ed8' },
+  { name: 'roșu', value: '#dc2626' },
+  { name: 'verde', value: '#15803d' },
+]
+const COLORS: Record<'pen' | 'marker' | 'text', { name: string; value: string }[]> = {
+  pen: PEN_COLORS,
+  text: PEN_COLORS,
   marker: [
     { name: 'galben', value: '#facc15' },
     { name: 'verde', value: '#4ade80' },
@@ -47,8 +65,12 @@ const COLORS: Record<'pen' | 'marker', { name: string; value: string }[]> = {
     { name: 'albastru', value: '#60a5fa' },
   ],
 }
-const SIZES: Record<Tool, number[]> = { pen: [2, 3.5, 6], marker: [12, 18, 26], eraser: [8, 16, 30] }
+const SIZES: Record<Tool, number[]> = { pen: [2, 3.5, 6], marker: [12, 18, 26], text: [16, 22, 32], eraser: [8, 16, 30] }
 const SIZE_LABELS = ['Fin', 'Mediu', 'Gros']
+const TEXT_SIZE_LABELS = ['Mic', 'Mediu', 'Mare']
+// a font every system has: an exported page is drawn as an image, which cannot use the page's own fonts
+const NOTE_FONT = 'Arial, Helvetica, sans-serif'
+const NOTE_LINE = 1.3
 const PAPERS: { id: Paper; label: string }[] = [
   { id: 'grid', label: 'Matematică' },
   { id: 'lines', label: 'Dictando' },
@@ -103,7 +125,45 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
   return Math.hypot(px - ax - t * dx, py - ay - t * dy)
 }
 
-function touches(s: Stroke, x: number, y: number, r: number) {
+let measurer: CanvasRenderingContext2D | null = null
+
+/** Width and height of a text on the sheet. */
+function noteBox(text: string, size: number) {
+  measurer ??= document.createElement('canvas').getContext('2d')
+  const lines = text.split('\n')
+  if (measurer) measurer.font = `${size}px ${NOTE_FONT}`
+  const w = Math.max(...lines.map((l) => measurer?.measureText(l).width ?? l.length * size * 0.6))
+  return { w, h: lines.length * size * NOTE_LINE }
+}
+
+function onNote(n: Note, x: number, y: number, r: number) {
+  const { w, h } = noteBox(n.text, n.size)
+  return x >= n.x - r && x <= n.x + w + r && y >= n.y - r && y <= n.y + h + r
+}
+
+/** The text at this point, the one on top if they overlap. */
+function noteAt(page: Item[], x: number, y: number) {
+  for (let i = page.length - 1; i >= 0; i--) {
+    const it = page[i]
+    if (it.tool === 'text' && onNote(it, x, y, 2)) return it
+  }
+  return null
+}
+
+const NoteText = memo(function NoteText({ n }: { n: Note }) {
+  return (
+    <text fontFamily={NOTE_FONT} fontSize={n.size} fill={n.color} style={{ whiteSpace: 'pre' }}>
+      {n.text.split('\n').map((line, i) => (
+        <tspan key={i} x={n.x} y={round(n.y + n.size + i * n.size * NOTE_LINE)}>{line}</tspan>
+      ))}
+    </text>
+  )
+})
+
+const PageItem = ({ s }: { s: Item }) => (s.tool === 'text' ? <NoteText n={s} /> : <StrokePath s={s} />)
+
+function touches(s: Item, x: number, y: number, r: number) {
+  if (s.tool === 'text') return onNote(s, x, y, r)
   const reach = r + s.size / 2
   const p = s.points
   if (p.length === 1) return Math.hypot(p[0][0] - x, p[0][1] - y) <= reach
@@ -134,15 +194,18 @@ function PaperBackground({ paper }: { paper: Paper }) {
  * One page as a picture for export: the paper and the strokes, without the instruments. It is as wide as the
  * sheet on screen and tall enough for everything written on it (pages may have been written on a taller window).
  */
-async function pagePicture(strokes: Stroke[], paper: Paper, width: number, minHeight: number, title: string) {
+async function pagePicture(strokes: Item[], paper: Paper, width: number, minHeight: number, title: string) {
   const { renderToStaticMarkup } = await import('react-dom/server')
   let bottom = 0
-  for (const s of strokes) for (const p of s.points) bottom = Math.max(bottom, p[1] + s.size)
+  for (const s of strokes) {
+    if (s.tool === 'text') bottom = Math.max(bottom, s.y + noteBox(s.text, s.size).h)
+    else for (const p of s.points) bottom = Math.max(bottom, p[1] + s.size)
+  }
   const height = Math.max(minHeight, Math.ceil(bottom + 40))
   const markup = renderToStaticMarkup(
     <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height}>
       <PaperBackground paper={paper} />
-      {strokes.map((s) => <StrokePath key={s.id} s={s} />)}
+      {strokes.map((s) => <PageItem key={s.id} s={s} />)}
     </svg>,
   )
   return rasterize(markup, width, height, title)
@@ -151,13 +214,19 @@ async function pagePicture(strokes: Stroke[], paper: Paper, width: number, minHe
 export default function NotebookPage() {
   const [nb, setNb] = useState<Notebook>(load)
   const [tool, setTool] = useState<Tool>('pen')
-  const [colors, setColors] = useState({ pen: COLORS.pen[0].value, marker: COLORS.marker[0].value })
-  const [sizeIdx, setSizeIdx] = useState<Record<Tool, number>>({ pen: 1, marker: 1, eraser: 1 })
+  const [colors, setColors] = useState({ pen: COLORS.pen[0].value, marker: COLORS.marker[0].value, text: COLORS.text[0].value })
+  const [sizeIdx, setSizeIdx] = useState<Record<Tool, number>>({ pen: 1, marker: 1, text: 1, eraser: 1 })
   const [drawing, setDrawing] = useState<Stroke | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   // undo / redo: snapshots of one page's strokes (strokes are never mutated, so this is cheap)
-  const [past, setPast] = useState<{ page: number; strokes: Stroke[] }[]>([])
-  const [future, setFuture] = useState<{ page: number; strokes: Stroke[] }[]>([])
+  const [past, setPast] = useState<{ page: number; strokes: Item[] }[]>([])
+  const [future, setFuture] = useState<{ page: number; strokes: Item[] }[]>([])
+  const [editing, setEditing] = useState<NoteEdit | null>(null)
+  const [overNote, setOverNote] = useState(false)
+  const noteInput = useRef<HTMLTextAreaElement>(null)
+  // opened on click, not on press: on a touch screen the events after the press would take the focus away again
+  const toOpen = useRef<NoteEdit | null>(null)
+  const dropEdit = useRef(false)
   const [busy, setBusy] = useState(false)
   // in-app dialog: window.confirm may return at once without showing anything inside the app's webview
   const { ask, confirm: confirmDialog, dialog } = usePrompt()
@@ -175,8 +244,12 @@ export default function NotebookPage() {
 
   const strokes = nb.pages[nb.current]
   const size = SIZES[tool][sizeIdx[tool]]
+  const drawsOn = tool === 'pen' || tool === 'marker'
   const newStroke = (points: number[][], pressure: boolean): Stroke =>
     ({ id: uid(), tool: tool as Stroke['tool'], color: colors[tool as Stroke['tool']], size, points, pressure })
+
+  const instStroke = ({ points, thin }: { points: number[][]; thin?: boolean }): Stroke =>
+    ({ id: uid(), tool: 'pen', color: colors.pen, size: thin ? 1.5 : SIZES.pen[sizeIdx.pen], points, pressure: true })
 
   const inst = useInstruments({
     tools: nb.tools,
@@ -186,29 +259,61 @@ export default function NotebookPage() {
     onStrokeChange: (points) => setDrawing((d) => d && { ...d, points }),
     onStrokes: (list) => {
       remember(nb.current, strokes)
-      setPage(nb.current, [...strokes, ...list.map(({ points, thin }): Stroke =>
-        ({ id: uid(), tool: 'pen', color: colors.pen, size: thin ? 1.5 : SIZES.pen[sizeIdx.pen], points, pressure: true }))])
+      setPage(nb.current, [...strokes, ...list.map(instStroke)])
     },
   })
 
+  const saveNotebook = (data: Notebook) => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data))
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }
+
   useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        localStorage.setItem(KEY, JSON.stringify(nb))
-      } catch {
-        /* ignore quota / private mode */
-      }
-    }, 400)
+    const t = setTimeout(() => saveNotebook(nb), 400)
     return () => clearTimeout(t)
   }, [nb])
 
-  const setPage = (page: number, next: Stroke[]) =>
+  // leaving the page before that delay is over must not lose the last change
+  const latest = useRef(nb)
+  latest.current = nb
+  useEffect(() => () => saveNotebook(latest.current), [])
+
+  const typing = editing !== null
+  useEffect(() => {
+    const el = noteInput.current
+    if (!typing || !el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [typing])
+
+  const setPage = (page: number, next: Item[]) =>
     setNb((n) => ({ ...n, pages: n.pages.map((p, i) => (i === page ? next : p)) }))
 
   /** Record the page as it was, before a change, so it can be undone. */
-  const remember = (page: number, before: Stroke[]) => {
+  const remember = (page: number, before: Item[]) => {
     setPast((p) => [...p.slice(-99), { page, strokes: before }])
     setFuture([])
+  }
+
+  /** The text box lost the focus: keep what was typed, unless Esc was pressed. */
+  const finishEdit = () => {
+    const ed = editing
+    setEditing(null)
+    if (!ed || dropEdit.current) {
+      dropEdit.current = false
+      return
+    }
+    const text = ed.text.trimEnd()
+    const page = nb.pages[ed.page]
+    const old = page.find((s): s is Note => s.tool === 'text' && s.id === ed.id)
+    if (old ? old.text === text : !text.trim()) return
+    remember(ed.page, page)
+    if (!text.trim()) return setPage(ed.page, page.filter((s) => s !== old))
+    const note: Note = { id: ed.id ?? uid(), tool: 'text', color: ed.color, size: ed.size, x: ed.x, y: ed.y, text }
+    setPage(ed.page, old ? page.map((s) => (s === old ? note : s)) : [...page, note])
   }
 
   const undo = () => {
@@ -260,6 +365,7 @@ export default function NotebookPage() {
       else if (e.ctrlKey || e.metaKey || e.altKey) return
       else if (k === 'p') setTool('pen')
       else if (k === 'm') setTool('marker')
+      else if (k === 't') setTool('text')
       else if (k === 'e') setTool('eraser')
     }
     window.addEventListener('keydown', onKey)
@@ -279,7 +385,9 @@ export default function NotebookPage() {
     })
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (active.current || (e.pointerType === 'mouse' && e.button !== 0)) return
+    toOpen.current = null
+    // a press outside the text box only ends the typing: the box loses the focus right after this
+    if (typing || active.current || (e.pointerType === 'mouse' && e.button !== 0)) return
     try {
       // keep receiving moves when the pen leaves the sheet mid-stroke
       e.currentTarget.setPointerCapture(e.pointerId)
@@ -288,8 +396,10 @@ export default function NotebookPage() {
     }
     const p = pointAt(e)
     const base = { pointerId: e.pointerId, start: p, before: strokes }
-    if (inst.down(e.pointerId, p, tool !== 'eraser', size / 2 + 1)) {
+    if (inst.down(e.pointerId, p, drawsOn, size / 2 + 1)) {
       active.current = { ...base, mode: 'inst' }
+    } else if (tool === 'text') {
+      active.current = { ...base, mode: 'note', note: noteAt(strokes, p[0], p[1]) ?? undefined }
     } else if (tool === 'eraser') {
       active.current = { ...base, mode: 'erase' }
       eraseAt(p[0], p[1])
@@ -302,11 +412,19 @@ export default function NotebookPage() {
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const [px, py] = pointAt(e)
     const a = active.current
-    if (!a) inst.hoverAt(px, py, tool !== 'eraser')
+    if (!a) inst.hoverAt(px, py, drawsOn)
+    if (tool === 'text') setOverNote(!!noteAt(strokes, px, py))
     // over an instrument the eraser moves it, so it does not show the eraser circle
     if (tool === 'eraser') setCursor(!a && inst.hover ? null : { x: px, y: py })
     if (!a || a.pointerId !== e.pointerId) return
     if (a.mode === 'inst') return inst.move(e.pointerId, px, py, e.shiftKey)
+    if (a.mode === 'note') {
+      const n = a.note
+      // a slip of the hand while clicking is not a move
+      if (!n || (nb.pages[nb.current] === a.before && Math.hypot(px - a.start[0], py - a.start[1]) < 4)) return
+      const moved = { ...n, x: round(Math.max(0, n.x + px - a.start[0])), y: round(Math.max(0, n.y + py - a.start[1])) }
+      return setPage(nb.current, a.before.map((s) => (s === n ? moved : s)))
+    }
 
     // coalesced events: all the positions the mouse passed through since the last frame, for smooth curves
     const events = e.nativeEvent.getCoalescedEvents?.() ?? []
@@ -325,17 +443,27 @@ export default function NotebookPage() {
     const a = active.current
     if (!a || a.pointerId !== e.pointerId) return
     active.current = null
-    inst.up(e.pointerId)
+    const marks = inst.up(e.pointerId)
     // the pointer may have left the instrument during the drag: don't keep its cursor until the next move
     const [ux, uy] = pointAt(e)
-    inst.hoverAt(ux, uy, tool !== 'eraser')
+    inst.hoverAt(ux, uy, drawsOn)
+    if (a.mode === 'note') {
+      if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before)
+      else if (e.type === 'pointerup') {
+        const n = a.note
+        toOpen.current = n
+          ? { page: nb.current, id: n.id, color: n.color, size: n.size, x: n.x, y: n.y, text: n.text }
+          : { page: nb.current, id: null, color: colors.text, size, x: ux, y: round(Math.max(0, uy - size * NOTE_LINE / 2)), text: '' }
+      }
+      return
+    }
     if (a.mode === 'erase') {
       if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before)
       return
     }
     if (drawing) {
       remember(nb.current, a.before)
-      setPage(nb.current, [...a.before, drawing])
+      setPage(nb.current, [...a.before, drawing, ...marks.map(instStroke)])
     }
     setDrawing(null)
   }
@@ -359,6 +487,7 @@ export default function NotebookPage() {
   }
 
   const empty = nb.pages.every((p) => !p.length)
+  const editBox = editing && noteBox(editing.text, editing.size)
 
   return (
     <div className="page notebook-page">
@@ -380,6 +509,7 @@ export default function NotebookPage() {
           <div className="seg">
             <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} title="Pix (P)">✒️ Pix</button>
             <button className={tool === 'marker' ? 'active' : ''} onClick={() => setTool('marker')} title="Evidențiator (M)">🖍️ Evidențiator</button>
+            <button className={tool === 'text' ? 'active' : ''} onClick={() => setTool('text')} title="Text (T): clic pe foaie și scrii; clic pe un text ca să-l modifici, trage de el ca să-l muți">🔤 Text</button>
             <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge trăsăturile atinse">🧽 Radieră</button>
           </div>
           {tool !== 'eraser' && (
@@ -397,7 +527,7 @@ export default function NotebookPage() {
             </div>
           )}
           <div className="seg">
-            {SIZE_LABELS.map((l, i) => (
+            {(tool === 'text' ? TEXT_SIZE_LABELS : SIZE_LABELS).map((l, i) => (
               <button key={l} className={sizeIdx[tool] === i ? 'active' : ''} onClick={() => setSizeIdx({ ...sizeIdx, [tool]: i })}>{l}</button>
             ))}
           </div>
@@ -421,9 +551,14 @@ export default function NotebookPage() {
 
         <InstrumentsBar inst={inst} />
 
+        <div className="notebook-sheet-wrap">
         <svg
           ref={svgRef}
-          className={'notebook-sheet tool-' + tool + (inst.hover ? ' over-' + inst.hover : '')}
+          className={'notebook-sheet tool-' + tool + (tool === 'text' && overNote ? ' over-note' : '') + (inst.hover ? ' over-' + inst.hover : '')}
+          onClick={() => {
+            if (toOpen.current) setEditing(toOpen.current)
+            toOpen.current = null
+          }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -431,7 +566,7 @@ export default function NotebookPage() {
           onPointerLeave={() => { setCursor(null); inst.setHover(null) }}
         >
           <PaperBackground paper={nb.paper} />
-          {strokes.map((s) => <StrokePath key={s.id} s={s} />)}
+          {strokes.map((s) => s.id !== editing?.id && <PageItem key={s.id} s={s} />)}
           <InstrumentsLayer tools={nb.tools} bounds={bounds} />
           {drawing && <StrokePath s={drawing} />}
           {inst.hint && <text className="nb-hint" x={inst.hint.x} y={inst.hint.y}>{inst.hint.text}</text>}
@@ -439,6 +574,33 @@ export default function NotebookPage() {
             <circle className="eraser-cursor" cx={cursor.x} cy={cursor.y} r={size} fill="rgba(255,255,255,.6)" stroke="#6b7280" strokeDasharray="3 3" />
           )}
         </svg>
+        {editing && editBox && (
+          <textarea
+            ref={noteInput}
+            className="nb-note-input"
+            wrap="off"
+            spellCheck={false}
+            placeholder="Scrie aici…"
+            value={editing.text}
+            style={{
+              left: editing.x,
+              top: editing.y,
+              color: editing.color,
+              fontFamily: NOTE_FONT,
+              fontSize: editing.size,
+              lineHeight: NOTE_LINE,
+              width: Math.max(editBox.w, editing.size * 6) + editing.size,
+              height: Math.max(editBox.h, editing.size * NOTE_LINE),
+            }}
+            onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+            onBlur={finishEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') dropEdit.current = true
+              if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) e.currentTarget.blur()
+            }}
+          />
+        )}
+        </div>
       </div>
       {dialog}
     </div>

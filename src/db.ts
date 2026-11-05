@@ -64,9 +64,17 @@ export function newSession(studentId: number): Session {
   }
 }
 
+// the notebook and the board live in localStorage, not in the database; the backup carries them as saved
+const LOCAL_KEYS = ['math-journal:notebook', 'math-journal:board', 'math-journal:board-instruments']
+
 export async function exportBackup(): Promise<string> {
   const [students, sessions] = await Promise.all([db.students.toArray(), db.sessions.toArray()])
-  return JSON.stringify({ app: 'math-journal', version: 1, exportedAt: new Date().toISOString(), students, sessions }, null, 2)
+  const local: Record<string, string> = {}
+  for (const key of LOCAL_KEYS) {
+    const value = localStorage.getItem(key)
+    if (value !== null) local[key] = value
+  }
+  return JSON.stringify({ app: 'math-journal', version: 2, exportedAt: new Date().toISOString(), students, sessions, local }, null, 2)
 }
 
 export async function importBackup(json: string): Promise<void> {
@@ -78,4 +86,13 @@ export async function importBackup(json: string): Promise<void> {
     await db.students.bulkAdd(data.students)
     await db.sessions.bulkAdd(data.sessions)
   })
+  // a version 1 backup has no notebook or board: what is on this device stays
+  try {
+    for (const key of LOCAL_KEYS) {
+      const value = data.local?.[key]
+      if (typeof value === 'string') localStorage.setItem(key, value)
+    }
+  } catch {
+    throw new Error('Elevii și ședințele au fost restaurate, dar Caietul sau Tabla nu au încăput în spațiul de stocare.')
+  }
 }

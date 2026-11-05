@@ -45,6 +45,29 @@ export function angleCCW(a: Vec, v: Vec, b: Vec) {
   return r
 }
 
+/** Is the direction of q from c on the arc that goes counter-clockwise from t to the direction of `to`? */
+export function onArc(q: Vec, c: Vec, t: Vec, to: Vec) {
+  return angleCCW(t, c, q) <= angleCCW(t, c, to) + 1e-9
+}
+
+/** Where the drawn arc ends: on its circle, in the direction of `to`. */
+export function arcEnd(c: Vec, t: Vec, to: Vec) {
+  return add(c, mul(norm(sub(to, c)), dist(c, t)))
+}
+
+/** The end of an arc from t around c towards q, a whole number of degrees long (0 to 359). */
+export function arcWholeDegrees(c: Vec, t: Vec, q: Vec) {
+  const deg = Math.min(359, Math.round((angleCCW(t, c, q) * 180) / Math.PI))
+  return { deg, pos: rotate(t, c, (deg * Math.PI) / 180) }
+}
+
+/** The points that bound an arc: its two ends and whichever of the circle's extremes are on it. */
+export function arcBounds(c: Vec, t: Vec, to: Vec) {
+  const r = dist(c, t)
+  const extremes = [{ x: c.x + r, y: c.y }, { x: c.x, y: c.y + r }, { x: c.x - r, y: c.y }, { x: c.x, y: c.y - r }]
+  return [t, arcEnd(c, t, to), ...extremes.filter((q) => onArc(q, c, t, to))]
+}
+
 /** Interior (non-reflex) angle at v, in [0, π]. */
 export function angleAt(a: Vec, v: Vec, b: Vec) {
   const r = angleCCW(a, v, b)
@@ -104,7 +127,7 @@ export function resolve(scene: Scene): Resolved {
       if (l) r = add(l.p, mul(l.d, dep.t))
     } else if (dep.kind === 'onCircle') {
       const c = byId.get(dep.circle)
-      if (c?.type === 'circle') {
+      if (c?.type === 'circle' || c?.type === 'arc') {
         const center = point(c.center)
         const through = point(c.through)
         if (center && through) r = add(center, mul({ x: Math.cos(dep.angle), y: Math.sin(dep.angle) }, dist(center, through)))
@@ -206,6 +229,8 @@ export function dependsOn(o: GObj): string[] {
       return [o.dep.through, o.dep.ref]
     case 'circle':
       return [o.center, o.through]
+    case 'arc':
+      return [o.center, o.through, o.to]
     case 'polygon':
       return o.points
     case 'angle':
@@ -267,6 +292,14 @@ export function nextLabel(scene: Scene): string {
       if (!used.has(l)) return l
     }
   }
+}
+
+/** The center of a circle is called O; when that is taken, O′, O′′ and so on. A typed O' counts as taken too. */
+export function centerLabel(objects: GObj[]): string {
+  const used = new Set(objects.flatMap((o) => (o.type === 'point' ? [o.label.replace(/'/g, '′')] : [])))
+  let l = 'O'
+  while (used.has(l)) l += '′'
+  return l
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 10)
