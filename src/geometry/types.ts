@@ -1,6 +1,8 @@
 // Scene model for the geometry board. Coordinates are world units with y pointing up.
 // Objects reference points by id, so dragging a point updates everything built on it.
 
+import type { SolidId } from '../notebook/solids'
+
 export type PointDep =
   | { kind: 'free' }
   | { kind: 'midpoint'; a: string; b: string }
@@ -21,6 +23,8 @@ export type PointDep =
   | { kind: 'onLine'; line: string; t: number }
   // glued to a circle or an arc, at `angle` radians from the centre
   | { kind: 'onCircle'; circle: string; angle: number }
+  // a weighted sum of points, the weights adding up to 1: stays true whichever way a solid is seen
+  | { kind: 'combo'; parts: [string, number][] }
 
 export interface PointObj {
   id: string
@@ -31,6 +35,20 @@ export interface PointObj {
   color: string
   dep: PointDep
   hidden?: boolean
+  /** a corner of a solid: it shares the group of the solid's edges */
+  group?: string
+  /** stays where it is: on a sheet the solid is ink, and cannot follow its corners */
+  locked?: boolean
+  /** which corner of the solid this is, and how close it is to the viewer */
+  corner?: number
+  depth?: number
+  /** where it is on the body, and the corners it shares an edge with */
+  at3?: [number, number, number]
+  joins?: number[]
+  /** the center of a circle of the solid: which two corners, from here, are its two axes */
+  rim?: [number, number]
+  /** the center of a sphere: which three corners, from here, are its three axes */
+  ball?: [number, number, number]
 }
 
 export type LineKind = 'segment' | 'line' | 'ray'
@@ -50,6 +68,8 @@ export interface LineObj {
   dashed?: boolean
   showLength?: boolean
   label?: string
+  /** not drawn: an edge of a solid, turned into a line for the tools to build on */
+  ghost?: boolean
 }
 
 export interface CircleObj {
@@ -124,12 +144,31 @@ export interface TextObj {
   size: number
 }
 
+/** How a solid is seen. The body has its middle at the first point of the path that holds this. */
+export interface SolidFrame {
+  solid: SolidId
+  w: number
+  h: number
+  yaw: number
+  pitch: number
+}
+
 export interface PathObj {
   id: string
   type: 'path'
   points: [number, number][]
   color: string
   width: number
+  dashed?: boolean
+  /** the edges of a solid share a group: they move and go away together */
+  group?: string
+  /** an edge of a solid: how close each of its points is to the viewer */
+  depth?: number[]
+  /**
+   * Not drawn: its three points are the origin and the axes of the view of a solid.
+   * Being a path, it is moved, turned and scaled along with the edges.
+   */
+  frame?: SolidFrame
 }
 
 export interface FunctionObj {

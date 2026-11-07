@@ -1,6 +1,7 @@
 // What the drawing instruments do under the pointer, shared by the notebook and the board. Everything here works in
 // "sheet" coordinates; the page converts its pointer to them, shows the layer on top and keeps whatever gets drawn.
 import { useRef, useState } from 'react'
+import { ToolIcon } from '../components/ToolIcon'
 import {
   COMPASS_MAX_R, dockedPose, findDock, findSquareDock, formatDms, hitTest, projectOnEdge, protractorAngle, protractorPoint,
   PROT_R, PX_PER_CM, rulerOnSquareSide, slideDock, slideSquareDock, squareDockedPose, squareOnRulerEnd,
@@ -178,7 +179,7 @@ export function useInstruments({ tools, setTools, bounds, onStrokeStart, onStrok
    * The pointer went down at `p`. True when an instrument took it. draw: it can draw (false: only move the instruments);
    * off: how far from an edge a line runs, half its width.
    */
-  const down = (pointerId: number, p: number[], draw: boolean, off: number) => {
+  const down = (pointerId: number, p: number[], draw: boolean | 'compass', off: number) => {
     const hit = hitTest(tools, p[0], p[1], draw, bounds)
     if (!hit) return false
     const base = { pointerId }
@@ -296,7 +297,7 @@ export function useInstruments({ tools, setTools, bounds, onStrokeStart, onStrok
   }
 
   /** What the pointer is over, for its cursor. */
-  const hoverAt = (px: number, py: number, draw: boolean) => setHover(hitTest(tools, px, py, draw, bounds)?.kind ?? null)
+  const hoverAt = (px: number, py: number, draw: boolean | 'compass') => setHover(hitTest(tools, px, py, draw, bounds)?.kind ?? null)
 
   /** Show or hide an instrument; it appears in the visible part of the sheet. */
   const toggle = (id: InstId) => {
@@ -346,15 +347,15 @@ export function InstrumentsBar({ inst }: { inst: ReturnType<typeof useInstrument
   return (
     <div className="board-toolbar notebook-toolbar instruments-bar">
       <span className="muted">Instrumente:</span>
-      <button className={'btn small' + (tools.ruler.visible ? ' active' : '')} onClick={() => toggle('ruler')}>📏 Riglă</button>
-      <button className={'btn small' + (tools.square.visible ? ' active' : '')} onClick={() => toggle('square')}>📐 Echer</button>
+      <button className={'btn small' + (tools.ruler.visible ? ' active' : '')} onClick={() => toggle('ruler')}><ToolIcon name="ruler" />Riglă</button>
+      <button className={'btn small' + (tools.square.visible ? ' active' : '')} onClick={() => toggle('square')}><ToolIcon name="square" />Echer</button>
       {tools.square.visible && (
         <select value={tools.square.shape} onChange={(e) => setInst('square', { shape: e.target.value as '45' | '60' })} title="Tipul echerului">
           <option value="45">45° – 45°</option>
           <option value="60">30° – 60°</option>
         </select>
       )}
-      <button className={'btn small' + (tools.protractor.visible ? ' active' : '')} onClick={() => toggle('protractor')}>◠ Raportor</button>
+      <button className={'btn small' + (tools.protractor.visible ? ' active' : '')} onClick={() => toggle('protractor')}><ToolIcon name="protractor" />Raportor</button>
       {tools.protractor.visible && (
         <span className="angle-input" title="Desenează din centrul raportorului un unghi de exact atâtea grade, minute și secunde">
           <input type="number" min={0} max={360} value={angle.d} onChange={(e) => setAngle({ ...angle, d: e.target.value })} aria-label="grade" />°
@@ -363,7 +364,7 @@ export function InstrumentsBar({ inst }: { inst: ReturnType<typeof useInstrument
           <button className="btn small" onClick={() => drawAngle((Number(angle.d) || 0) + (Number(angle.m) || 0) / 60 + (Number(angle.s) || 0) / 3600)}>Desenează unghiul</button>
         </span>
       )}
-      <button className={'btn small' + (tools.compass.visible ? ' active' : '')} onClick={() => toggle('compass')}>🧭 Compas</button>
+      <button className={'btn small' + (tools.compass.visible ? ' active' : '')} onClick={() => toggle('compass')}><ToolIcon name="compass" />Compas</button>
       {tools.compass.visible && (
         <span className="angle-input" title="Deschiderea compasului">
           r =

@@ -163,6 +163,8 @@ textarea { resize: vertical; width: 100%; }
 .tool.labeled span { font-size: 12px; font-weight: 600; }
 .tool.danger { color: var(--danger); }
 .tool:disabled { opacity: .35; }
+.tool-icon { flex: none; vertical-align: -4px; margin-right: 5px; }
+.tool .tool-icon { margin-right: 0; }
 .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 .swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); padding: 0; }
 .swatch.active { box-shadow: 0 0 0 2px var(--ink); }
@@ -171,7 +173,7 @@ textarea { resize: vertical; width: 100%; }
 .board-body { display: flex; min-height: 0; position: relative; }
 .board-canvas { flex: 1; position: relative; min-width: 0; overflow: hidden; }
 .board-canvas svg { display: block; user-select: none; }
-.board-status { position: absolute; left: 8px; bottom: 6px; font-size: 12px; background: rgba(255,255,255,.9); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); display: flex; gap: 10px; pointer-events: none; }
+.board-status { position: absolute; left: 8px; top: 6px; font-size: 12px; background: rgba(255,255,255,.9); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); display: flex; gap: 10px; pointer-events: none; }
 .coords { color: var(--muted); font-family: Consolas, monospace; }
 .board-status .flash { color: #b45309; font-weight: 600; }
 .ghost { pointer-events: none; }
@@ -336,9 +338,18 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 .notebook-toolbar .swatches { display: flex; gap: 6px; align-items: center; }
 .notebook-toolbar .toolbar-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
 .notebook-pages { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; }
-.notebook-sheet { display: block; width: 100%; height: calc(100vh - 270px); min-height: 360px; touch-action: none; user-select: none; cursor: crosshair; }
+.notebook-sheet { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; cursor: crosshair; }
 .notebook-sheet.tool-eraser { cursor: none; }
-.notebook-sheet-wrap { position: relative; overflow: hidden; }
+.notebook-sheet-wrap { position: relative; overflow: auto; height: calc(100vh - 270px); min-height: 360px; background: #f1f5f9; }
+.notebook-page { position: relative; transform-origin: 0 0; background: #fff; }
+.notebook-zoom-ctl { display: inline-flex; align-items: center; gap: 2px; }
+.notebook-page .board-status { transform: translate(var(--sheet-left, 0), var(--sheet-top, 0)) scale(calc(1 / var(--sheet-zoom, 1))); transform-origin: 0 0; }
+.sheet-constructions { position: absolute; inset: 0; pointer-events: none; }
+.sheet-constructions.active { pointer-events: auto; }
+.board.sheet { height: 100%; border: 0; border-radius: 0; background: transparent; }
+.board.sheet .board-body { height: 100%; }
+.notebook-page .board.sheet .inspector { transform: translate(var(--sheet-right, 0), var(--sheet-top, 0)) scale(calc(1 / var(--sheet-zoom, 1))); transform-origin: 100% 0; }
+.board.sheet .inspector { position: absolute; top: 8px; right: 8px; width: 240px; max-width: calc(100% - 16px); max-height: calc(100% - 16px); flex-direction: column; flex-wrap: nowrap; border: 1px solid var(--line); border-radius: var(--radius); }
 .notebook-sheet.tool-text { cursor: text; }
 .notebook-sheet.tool-text.over-note { cursor: move; }
 .nb-note-input { position: absolute; box-sizing: content-box; margin: 0; padding: 0; border: 0; outline: 1px dashed #6366f1; outline-offset: 2px; background: transparent; resize: none; overflow: hidden; white-space: pre; }

@@ -40,11 +40,12 @@ function appCss() {
 
 /**
  * Draw SVG markup onto a white canvas and return it as PNG. `overlay` can paint more on top, in CSS pixels
- * (the board's formulas).
+ * (the board's formulas). transparent: no white under it, to go on top of another picture.
  */
 export async function rasterize(
   markup: string, width: number, height: number, title: string,
   overlay?: (ctx: CanvasRenderingContext2D) => Promise<void>,
+  transparent = false,
 ): Promise<PageImage> {
   const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }))
   try {
@@ -55,8 +56,10 @@ export async function rasterize(
     canvas.height = Math.round(height * SCALE)
     const ctx = canvas.getContext('2d')!
     ctx.scale(SCALE, SCALE)
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, width, height)
+    if (!transparent) {
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, width, height)
+    }
     ctx.drawImage(img, 0, 0, width, height)
     await overlay?.(ctx)
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'))
@@ -73,7 +76,7 @@ export async function rasterize(
  * browser refuse to export the canvas, so the SVG is drawn without it and each formula is painted on top
  * separately with html2canvas, from a copy placed off-screen.
  */
-export async function svgElementPicture(svg: SVGSVGElement, remove: string, title: string) {
+export async function svgElementPicture(svg: SVGSVGElement, remove: string, title: string, transparent = false) {
   const box = svg.getBoundingClientRect()
   const clone = svg.cloneNode(true) as SVGSVGElement
   clone.querySelectorAll(remove + ', foreignObject').forEach((el) => el.remove())
@@ -81,7 +84,8 @@ export async function svgElementPicture(svg: SVGSVGElement, remove: string, titl
   clone.setAttribute('width', String(box.width))
   clone.setAttribute('height', String(box.height))
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
-  style.textContent = appCss()
+  // the app's page color is set on :root, which here is the picture itself
+  style.textContent = appCss() + (transparent ? '\n:root { background: none; }' : '')
   clone.insertBefore(style, clone.firstChild)
 
   const html = [...svg.querySelectorAll('foreignObject')]
@@ -108,7 +112,7 @@ export async function svgElementPicture(svg: SVGSVGElement, remove: string, titl
         copy.remove()
       }
     }
-  })
+  }, transparent)
 }
 
 /** One page per picture, A4, turned sideways for wide pictures. */

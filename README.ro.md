@@ -2,6 +2,8 @@
 
 *[English](README.md) · Română*
 
+> **AI written with [Claude Code](https://claude.com/claude-code).** Codul acestui proiect a fost scris de Claude Code, sub îndrumarea autorului.
+
 Jurnal pentru meditații de matematică: elevi, ședințe, notițe cu formule LaTeX, construcții geometrice, unelte de trigonometrie și o paletă completă de simboluri matematice.
 
 Rulează în browser și ca aplicație desktop pentru Windows și Linux ([Tauri](https://tauri.app)).
@@ -16,6 +18,8 @@ Installerele sunt pe pagina [Releases](https://github.com/CristianVita/math-jour
 
 Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „Mai multe informații” → „Rulează oricum”.
 
+> Ultima versiune publicată (v0.4.1) nu are încă Caietul, instrumentele de desen și corpurile 3D. Acestea sunt pe [site](https://cristianvita.github.io/math-journal/) și în codul sursă.
+
 ## Ce face
 
 **Jurnal**
@@ -28,15 +32,33 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 **Tablă (geometrie)**
 - Punct, segment (cu lungime), dreaptă, semidreaptă, cerc, poligon, poligon regulat cu n laturi
 - **Triunghiuri** după tip și dimensiuni: dreptunghic (catete), ascuțitunghic și obtuzunghic (trei laturi, verificate față de tip), echilateral, isoscel
-- Unghi cu măsura afișată (grade sau radiani), marcaj automat de unghi drept; **unghiul dintre două linii desenate**
-- **Construiește un unghi de x°** cu laturi de lungime aleasă (sau semidrepte infinite)
-- Mijloc, intersecție, **perpendiculara dintr-un punct până la picior** (cu distanța), **mediatoare**, paralele și perpendiculare de lungime aleasă, **bisectoare** până la latura opusă sau de lungime aleasă
+- **Unghiul dintre două linii**, cu măsura afișată (grade sau radiani) și marcaj automat de unghi drept; măsurile de la același vârf nu se suprapun
+- **Construiește un unghi** din trei puncte (al doilea este vârful), cu măsura exactă scrisă într-un dialog
+- **Arce și sectoare de cerc**, cu gradele afișate din 1° în 1°
+- Mijloc, intersecție, **perpendiculara dintr-un punct până la picior** (cu distanța și cu prelungire punctată, dacă piciorul iese din segment), **mediatoare**, paralele și perpendiculare de lungime aleasă, **bisectoare** până la latura opusă sau de lungime aleasă
+- Perpendiculara și paralela au **previzualizare** înainte de clic, iar un clic pe un loc liber creează punctul
 - Punctele noi **se lipesc de linii, cercuri și intersecții**, cu previzualizare înainte de click; punctele lipite rămân pe linie și se plimbă de-a lungul ei
 - **Selectezi o figură întreagă** și o muți, o scalezi sau o rotești (în jurul centrului sau al oricărui vârf), cu mânere sau cu valori exacte
 - Construcțiile sunt dependente: muți un punct și tot ce e construit pe el se actualizează
 - Text și formule LaTeX pe tablă, desen liber (mouse / stylus), graficul oricărei funcții f(x)
 - Grilă, axe, aliniere la grilă, zoom (rotița), mutarea tablei (unealta mână, click dreapta sau Space + trage), anulare/refacere, export PNG/SVG
 - Figurile pot fi salvate direct într-o ședință din jurnal
+- **Instrumente de desen:** riglă, echer, raportor și compas, care se lipesc între ele pentru a trasa drepte paralele
+
+**Corpuri 3D** (pe Tablă și în Caiet)
+- Cub, paralelipiped, prisme triunghiulară, patrulateră și hexagonală, cilindru, con, sferă, tetraedru regulat, piramide triunghiulară, patrulateră și hexagonală, cu muchiile ascunse punctate
+- Modele 3D reale: pe Tablă **rotești corpul în spațiu** cu mânerul 3D sau cu glisoarele, iar muchiile ascunse se recalculează
+- **Vârfuri cu litere** (ABCDA′B′C′D′, V, O, O′), pentru diagonale, raze și înălțimi; punctele noi se prind de muchii și de cercuri și rămân pe ele când corpul se mută sau se rotește
+- Mijlocul, perpendiculara, mediatoarea, paralela, bisectoarea și unghiul dintre două linii merg direct pe muchii și sunt **calculate pe corp, nu pe ecran**: unghiul drept al unui cub arată 90° din orice direcție, iar lungimile sunt cele reale
+- **Dreptele necoplanare se văd:** unde două linii ale corpului doar par să se taie, cea din spate e întreruptă; cele care se taie cu adevărat rămân continue
+
+**Caiet**
+- Scris liber cu pixul, evidențiatorul sau radiera, cu mouse-ul, creionul sau degetul; text scris de la tastatură; pagini și mai multe tipuri de foaie
+- Rândul Figuri (segment, triunghiuri, patrulatere, zmeu, cerc, elipsă), cu vârfuri cu litere pe care se poate construi
+- Rândul Construcții: toate uneltele Tablei, separat pe fiecare pagină
+- Instrumentele de desen și corpurile 3D
+- **Zoom** între 50% și 300%: rotița mouse-ului, Ctrl cu + sau -, Ctrl+0 pentru revenire, sau butoanele
+- Export în PDF, Word sau PNG
 
 **Trigonometrie**
 - Cercul trigonometric interactiv: sin, cos, tg, ctg cu valori exacte la unghiurile remarcabile
@@ -108,10 +130,12 @@ Installerele apar într-un release *draft* pe GitHub. Îl verifici și apoi îl 
 
 ```
 src/
-  App.tsx              navigare: Jurnal, Tablă, Trigonometrie, Simboluri
+  App.tsx              navigare: Jurnal, Tablă, Caiet, Trigonometrie, Calculator, Simboluri
   db.ts                baza de date locală (Dexie / IndexedDB), backup
   journal/             elevi, listă de ședințe, editorul de ședință
   geometry/            modelul scenei, motorul de construcții, tabla interactivă
+  notebook/            pagina Caietului, instrumentele de desen, figurile, corpurile 3D
+  export/              export PDF, Word și imagine
   trig/                cercul trigonometric, grafice, rezolvarea triunghiului, formule
   calculus/            motorul de derivate, worker-ul SymPy (integrale), explicarea pașilor, pagina calculatorului
   symbols/             lista de simboluri, paleta, inserarea în text

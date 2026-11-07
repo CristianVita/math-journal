@@ -1,14 +1,20 @@
 // Freehand notebook: write with the mouse, a pen tablet or a finger, like with a pen on paper.
 // Strokes are kept as points and drawn as SVG outlines (perfect-freehand), so they stay sharp and small to store.
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getStroke } from 'perfect-freehand'
 import { saveFile } from '../platform'
-import { rasterize, saveDocx, savePdf, today } from '../export/exportDoc'
+import { rasterize, saveDocx, savePdf, svgElementPicture, today } from '../export/exportDoc'
+import GeometryBoard, { SHEET_ORIGIN } from '../geometry/GeometryBoard'
+import { dist, resolve } from '../geometry/engine'
+import { emptyScene, type Scene } from '../geometry/types'
 import { usePrompt } from '../components/PromptDialog'
-import { defaultInstruments, InstrumentsLayer, type Bounds, type Instruments } from './instruments'
+import { defaultInstruments, InstrumentsLayer, PX_PER_CM, type Bounds, type Instruments } from './instruments'
+import { SolidIcon, ToolIcon } from '../components/ToolIcon'
 import { InstrumentsBar, linePoints, round, useInstruments } from './useInstruments'
+import { SHAPES, shapePoints, shapeStrokes, type ShapeId } from './shapes'
+import { SOLIDS, solidPoints, solidStrokes, type SolidId } from './solids'
 
-type Tool = 'pen' | 'marker' | 'text' | 'eraser'
+type Tool = 'pen' | 'marker' | 'text' | 'shape' | 'geometry' | 'eraser'
 type Paper = 'grid' | 'lines' | 'blank'
 
 interface Stroke {
@@ -38,12 +44,14 @@ type Item = Stroke | Note
 interface Notebook {
   paper: Paper
   pages: Item[][]
+  /** the constructions on each page, a layer of their own over what is written */
+  scenes: Scene[]
   current: number
   tools: Instruments
 }
 
 /** What the pointer is doing between pointerdown and pointerup; 'inst' = an instrument has it. */
-interface Active { pointerId: number; start: number[]; before: Item[]; mode: 'draw' | 'erase' | 'inst' | 'note'; note?: Note }
+interface Active { pointerId: number; start: number[]; before: Item[]; mode: 'draw' | 'erase' | 'inst' | 'note' | 'shape'; note?: Note }
 
 /** The text being typed; id is null for a new one. */
 interface NoteEdit { page: number; id: string | null; color: string; size: number; x: number; y: number; text: string }
@@ -55,9 +63,10 @@ const PEN_COLORS = [
   { name: 'roșu', value: '#dc2626' },
   { name: 'verde', value: '#15803d' },
 ]
-const COLORS: Record<'pen' | 'marker' | 'text', { name: string; value: string }[]> = {
+const COLORS: Record<'pen' | 'marker' | 'text' | 'shape', { name: string; value: string }[]> = {
   pen: PEN_COLORS,
   text: PEN_COLORS,
+  shape: PEN_COLORS,
   marker: [
     { name: 'galben', value: '#facc15' },
     { name: 'verde', value: '#4ade80' },
@@ -65,7 +74,7 @@ const COLORS: Record<'pen' | 'marker' | 'text', { name: string; value: string }[
     { name: 'albastru', value: '#60a5fa' },
   ],
 }
-const SIZES: Record<Tool, number[]> = { pen: [2, 3.5, 6], marker: [12, 18, 26], text: [16, 22, 32], eraser: [8, 16, 30] }
+const SIZES: Record<Tool, number[]> = { pen: [2, 3.5, 6], marker: [12, 18, 26], text: [16, 22, 32], shape: [2, 3.5, 6], geometry: [2, 3.5, 6], eraser: [8, 16, 30] }
 const SIZE_LABELS = ['Fin', 'Mediu', 'Gros']
 const TEXT_SIZE_LABELS = ['Mic', 'Mediu', 'Mare']
 // a font every system has: an exported page is drawn as an image, which cannot use the page's own fonts
@@ -77,17 +86,29 @@ const PAPERS: { id: Paper; label: string }[] = [
   { id: 'blank', label: 'Albă' },
 ]
 
+const newScene = (): Scene => {
+  const scene = emptyScene()
+  // the paper is the grid here, and the plane does not move
+  return { ...scene, view: { ...scene.view, grid: false, axes: false } }
+}
+
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 3
+const ZOOM_STEP = 1.1
+
 function load(): Notebook {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const saved = JSON.parse(raw)
-      return { ...saved, tools: { ...defaultInstruments(), ...saved.tools } }
+      // a notebook saved before there were constructions has none
+      const scenes = saved.pages.map((_: Item[], i: number) => saved.scenes?.[i] ?? newScene())
+      return { ...saved, scenes, tools: { ...defaultInstruments(), ...saved.tools } }
     }
   } catch {
     /* storage unavailable: start empty */
   }
-  return { paper: 'grid', pages: [[]], current: 0, tools: defaultInstruments() }
+  return { paper: 'grid', pages: [[]], scenes: [newScene()], current: 0, tools: defaultInstruments() }
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10)
@@ -160,6 +181,16 @@ const NoteText = memo(function NoteText({ n }: { n: Note }) {
   )
 })
 
+/** A figure as a small picture for its button. */
+function ShapeIcon({ shape }: { shape: ShapeId }) {
+  const sides = shapeStrokes(shape, shape === 'segment' ? [2, 14] : [2, 3], 14, shape === 'segment' ? 2 : 13)
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+      {sides.map((p, i) => <polyline key={i} points={p.map(([x, y]) => x + ',' + y).join(' ')} />)}
+    </svg>
+  )
+}
+
 const PageItem = ({ s }: { s: Item }) => (s.tool === 'text' ? <NoteText n={s} /> : <StrokePath s={s} />)
 
 function touches(s: Item, x: number, y: number, r: number) {
@@ -194,33 +225,85 @@ function PaperBackground({ paper }: { paper: Paper }) {
  * One page as a picture for export: the paper and the strokes, without the instruments. It is as wide as the
  * sheet on screen and tall enough for everything written on it (pages may have been written on a taller window).
  */
-async function pagePicture(strokes: Item[], paper: Paper, width: number, minHeight: number, title: string) {
+// what is only there while editing a construction, as on the board's own export
+const EDIT_ONLY = '[data-ui], .halo, .halo-pt, .halo-box, .snap-halo, .ghost, .preview'
+
+/** How far down the sheet a page's constructions go, in pixels. */
+function sceneBottom(scene: Scene) {
+  const { points } = resolve(scene)
+  const toSheet = (y: number) => 300 - y * 40
+  let bottom = 0
+  const see = (y: number) => { bottom = Math.max(bottom, toSheet(y)) }
+  for (const o of scene.objects) {
+    if (o.type === 'point') { const p = points.get(o.id); if (p) see(p.y) }
+    else if (o.type === 'text') see(o.y)
+    else if (o.type === 'path') o.points.forEach(([, y]) => see(y))
+    else if (o.type === 'circle' || o.type === 'arc') {
+      const c = points.get(o.center)
+      const t = points.get(o.through)
+      if (c && t) see(c.y - dist(c, t))
+    }
+  }
+  return bottom
+}
+
+/** Paint a page's constructions over its picture: they are drawn by the board itself, off-screen, formulas included. */
+async function paintScene(ctx: CanvasRenderingContext2D, scene: Scene, width: number, height: number) {
+  const { createRoot } = await import('react-dom/client')
+  const host = document.createElement('div')
+  Object.assign(host.style, { position: 'fixed', left: '-10000px', top: '0', width: width + 'px', height: height + 'px' })
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  try {
+    root.render(<GeometryBoard scene={scene} onChange={() => {}} height={height} sheet={{ toolbar: null, active: false, page: 0, onActivate: () => {}, onRemember: () => {} }} />)
+    let svg: SVGSVGElement | null = null
+    // until it has measured itself
+    for (let i = 0; i < 40 && Math.round(svg?.getBoundingClientRect().width ?? 0) !== Math.round(width); i++) {
+      await new Promise((r) => setTimeout(r, 25))
+      svg = host.querySelector('svg')
+    }
+    if (!svg) return
+    const pic = await svgElementPicture(svg, EDIT_ONLY, '', true)
+    const img = new Image()
+    await new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; img.src = pic.dataUrl })
+    ctx.drawImage(img, 0, 0, width, height)
+  } finally {
+    root.unmount()
+    host.remove()
+  }
+}
+
+async function pagePicture(strokes: Item[], scene: Scene, paper: Paper, width: number, minHeight: number, title: string) {
   const { renderToStaticMarkup } = await import('react-dom/server')
   let bottom = 0
   for (const s of strokes) {
     if (s.tool === 'text') bottom = Math.max(bottom, s.y + noteBox(s.text, s.size).h)
     else for (const p of s.points) bottom = Math.max(bottom, p[1] + s.size)
   }
-  const height = Math.max(minHeight, Math.ceil(bottom + 40))
+  const height = Math.max(minHeight, Math.ceil(Math.max(bottom, sceneBottom(scene)) + 40))
   const markup = renderToStaticMarkup(
     <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height}>
       <PaperBackground paper={paper} />
       {strokes.map((s) => <PageItem key={s.id} s={s} />)}
     </svg>,
   )
-  return rasterize(markup, width, height, title)
+  return rasterize(markup, width, height, title, scene.objects.length ? (ctx) => paintScene(ctx, scene, width, height) : undefined)
 }
 
 export default function NotebookPage() {
   const [nb, setNb] = useState<Notebook>(load)
   const [tool, setTool] = useState<Tool>('pen')
-  const [colors, setColors] = useState({ pen: COLORS.pen[0].value, marker: COLORS.marker[0].value, text: COLORS.text[0].value })
-  const [sizeIdx, setSizeIdx] = useState<Record<Tool, number>>({ pen: 1, marker: 1, text: 1, eraser: 1 })
+  const [colors, setColors] = useState({ pen: COLORS.pen[0].value, marker: COLORS.marker[0].value, text: COLORS.text[0].value, shape: COLORS.shape[0].value })
+  const [sizeIdx, setSizeIdx] = useState<Record<Tool, number>>({ pen: 1, marker: 1, text: 1, shape: 1, geometry: 1, eraser: 1 })
   const [drawing, setDrawing] = useState<Stroke | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   // undo / redo: snapshots of one page's strokes (strokes are never mutated, so this is cheap)
-  const [past, setPast] = useState<{ page: number; strokes: Item[] }[]>([])
-  const [future, setFuture] = useState<{ page: number; strokes: Item[] }[]>([])
+  const [past, setPast] = useState<{ page: number; strokes: Item[]; scene: Scene }[]>([])
+  const [future, setFuture] = useState<{ page: number; strokes: Item[]; scene: Scene }[]>([])
+  // the row the construction tools go in
+  const [geometryBar, setGeometryBar] = useState<HTMLElement | null>(null)
+  const [shape, setShape] = useState<ShapeId | SolidId>('rectangle')
+  const [draft, setDraft] = useState<Stroke[]>([])
   const [editing, setEditing] = useState<NoteEdit | null>(null)
   const [overNote, setOverNote] = useState(false)
   const noteInput = useRef<HTMLTextAreaElement>(null)
@@ -242,9 +325,72 @@ export default function NotebookPage() {
   }, [])
   const active = useRef<Active | null>(null)
 
+  // zoom: the sheet keeps its own coordinates and is only shown larger or smaller, so nothing drawn or exported changes
+  const [zoom, setZoom] = useState(1)
+  const zoomNow = useRef(1)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  // the size the sheet has at 100%: that of its frame, with or without scrollbars
+  const [frame, setFrame] = useState<{ w: number; h: number } | null>(null)
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => setFrame({ w: wrap.offsetWidth, h: wrap.offsetHeight }))
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [])
+  const scrollTo = useRef<{ x: number; y: number } | null>(null)
+  /** The new zoom, keeping in place the point under the pointer (without one, the middle of what is visible). */
+  const zoomTo = (next: number, clientX?: number, clientY?: number) => {
+    const wrap = wrapRef.current
+    const z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)) * 100) / 100
+    if (!wrap || z === zoomNow.current) return
+    const r = wrap.getBoundingClientRect()
+    const ax = clientX === undefined ? wrap.clientWidth / 2 : clientX - r.left
+    const ay = clientY === undefined ? wrap.clientHeight / 2 : clientY - r.top
+    const k = z / zoomNow.current
+    scrollTo.current = { x: (wrap.scrollLeft + ax) * k - ax, y: (wrap.scrollTop + ay) * k - ay }
+    zoomNow.current = z
+    setZoom(z)
+  }
+  // what floats above the sheet (the status of the tools, the inspector) stays in the visible part, at its usual size
+  const syncFloating = () => {
+    const wrap = wrapRef.current
+    const page = wrap?.firstElementChild?.firstElementChild as HTMLElement | null | undefined
+    if (!wrap || !page) return
+    const z = zoomNow.current
+    page.style.setProperty('--sheet-zoom', String(z))
+    page.style.setProperty('--sheet-left', wrap.scrollLeft / z + 'px')
+    page.style.setProperty('--sheet-top', wrap.scrollTop / z + 'px')
+    page.style.setProperty('--sheet-right', Math.min(0, (wrap.scrollLeft + wrap.clientWidth) / z - page.offsetWidth) + 'px')
+  }
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current
+    if (wrap && scrollTo.current) {
+      wrap.scrollLeft = scrollTo.current.x
+      wrap.scrollTop = scrollTo.current.y
+      scrollTo.current = null
+    }
+    syncFloating()
+  }, [zoom, frame])
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const onWheel = (e: WheelEvent) => {
+      // not passive: it must not scroll the page, nor zoom the whole window with Ctrl
+      e.preventDefault()
+      zoomTo(zoomNow.current * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP), e.clientX, e.clientY)
+    }
+    wrap.addEventListener('wheel', onWheel, { passive: false })
+    return () => wrap.removeEventListener('wheel', onWheel)
+  }, [])
+
   const strokes = nb.pages[nb.current]
+  const scene = nb.scenes[nb.current]
+  const blankPage = !strokes.length && !scene.objects.length
   const size = SIZES[tool][sizeIdx[tool]]
   const drawsOn = tool === 'pen' || tool === 'marker'
+  // with a figure or the text tool the compass still draws; the eraser only moves the instruments
+  const instDraw = drawsOn || (tool === 'eraser' ? false : 'compass')
   const newStroke = (points: number[][], pressure: boolean): Stroke =>
     ({ id: uid(), tool: tool as Stroke['tool'], color: colors[tool as Stroke['tool']], size, points, pressure })
 
@@ -255,12 +401,14 @@ export default function NotebookPage() {
     tools: nb.tools,
     setTools: (update) => setNb((n) => ({ ...n, tools: update(n.tools) })),
     bounds,
-    onStrokeStart: (first) => setDrawing(newStroke([first], true)),
+    onStrokeStart: (first) => setDrawing(drawsOn ? newStroke([first], true) : instStroke({ points: [first] })),
     onStrokeChange: (points) => setDrawing((d) => d && { ...d, points }),
     onStrokes: (list) => {
       remember(nb.current, strokes)
       setPage(nb.current, [...strokes, ...list.map(instStroke)])
     },
+    // an instrument just taken out is meant for drawing, as on the board
+    onShown: () => { if (!drawsOn) setTool('pen') },
   })
 
   const saveNotebook = (data: Notebook) => {
@@ -293,8 +441,8 @@ export default function NotebookPage() {
     setNb((n) => ({ ...n, pages: n.pages.map((p, i) => (i === page ? next : p)) }))
 
   /** Record the page as it was, before a change, so it can be undone. */
-  const remember = (page: number, before: Item[]) => {
-    setPast((p) => [...p.slice(-99), { page, strokes: before }])
+  const remember = (page: number, before: Item[], sceneBefore = nb.scenes[page]) => {
+    setPast((p) => [...p.slice(-99), { page, strokes: before, scene: sceneBefore }])
     setFuture([])
   }
 
@@ -320,44 +468,72 @@ export default function NotebookPage() {
     const last = past[past.length - 1]
     if (!last) return
     setPast(past.slice(0, -1))
-    setFuture((f) => [...f, { page: last.page, strokes: nb.pages[last.page] }])
-    setNb((n) => ({ ...n, current: last.page, pages: n.pages.map((p, i) => (i === last.page ? last.strokes : p)) }))
+    setFuture((f) => [...f, { page: last.page, strokes: nb.pages[last.page], scene: nb.scenes[last.page] }])
+    setNb((n) => ({
+      ...n,
+      current: last.page,
+      pages: n.pages.map((p, i) => (i === last.page ? last.strokes : p)),
+      scenes: n.scenes.map((s, i) => (i === last.page ? last.scene : s)),
+    }))
   }
 
   const redo = () => {
     const next = future[future.length - 1]
     if (!next) return
     setFuture(future.slice(0, -1))
-    setPast((p) => [...p, { page: next.page, strokes: nb.pages[next.page] }])
-    setNb((n) => ({ ...n, current: next.page, pages: n.pages.map((p, i) => (i === next.page ? next.strokes : p)) }))
+    setPast((p) => [...p, { page: next.page, strokes: nb.pages[next.page], scene: nb.scenes[next.page] }])
+    setNb((n) => ({
+      ...n,
+      current: next.page,
+      pages: n.pages.map((p, i) => (i === next.page ? next.strokes : p)),
+      scenes: n.scenes.map((s, i) => (i === next.page ? next.scene : s)),
+    }))
   }
 
   const clearPage = () => {
-    if (!strokes.length) return
+    if (blankPage) return
     remember(nb.current, strokes)
-    setPage(nb.current, [])
+    setNb((n) => ({
+      ...n,
+      pages: n.pages.map((p, i) => (i === n.current ? [] : p)),
+      scenes: n.scenes.map((s, i) => (i === n.current ? newScene() : s)),
+    }))
   }
 
-  const addPage = () => setNb((n) => ({ ...n, pages: [...n.pages, []], current: n.pages.length }))
+  const addPage = () => setNb((n) => ({ ...n, pages: [...n.pages, []], scenes: [...n.scenes, newScene()], current: n.pages.length }))
 
   const clearAll = async () => {
     if (!(await confirmDialog('Golești tot caietul? Se șterg toate paginile și nu se mai poate anula.', 'Golește tot'))) return
     setPast([])
     setFuture([])
-    setNb((n) => ({ ...n, pages: [[]], current: 0 }))
+    setNb((n) => ({ ...n, pages: [[]], scenes: [newScene()], current: 0 }))
   }
 
   const deletePage = async () => {
     if (nb.pages.length < 2) return clearPage()
-    if (strokes.length && !(await confirmDialog('Ștergi pagina cu tot ce e scris pe ea?', 'Șterge pagina'))) return
+    if (!blankPage && !(await confirmDialog('Ștergi pagina cu tot ce e scris pe ea?', 'Șterge pagina'))) return
     // page numbers in the undo history would point to the wrong pages after this
     setPast([])
     setFuture([])
-    setNb((n) => ({ ...n, pages: n.pages.filter((_, i) => i !== n.current), current: Math.max(0, n.current - 1) }))
+    setNb((n) => ({
+      ...n,
+      pages: n.pages.filter((_, i) => i !== n.current),
+      scenes: n.scenes.filter((_, i) => i !== n.current),
+      current: Math.max(0, n.current - 1),
+    }))
   }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // also while typing: otherwise Ctrl with + or - would zoom the whole window
+      if (e.ctrlKey || e.metaKey) {
+        const change = e.key === '+' || e.key === '=' ? ZOOM_STEP : e.key === '-' ? 1 / ZOOM_STEP : e.key === '0' ? 0 : null
+        if (change !== null) {
+          e.preventDefault()
+          zoomTo(change ? zoomNow.current * change : 1)
+          return
+        }
+      }
       if (['INPUT', 'TEXTAREA', 'SELECT', 'MATH-FIELD'].includes((e.target as HTMLElement).tagName)) return
       const k = e.key.toLowerCase()
       if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo() }
@@ -366,6 +542,7 @@ export default function NotebookPage() {
       else if (k === 'p') setTool('pen')
       else if (k === 'm') setTool('marker')
       else if (k === 't') setTool('text')
+      else if (k === 'f') setTool('shape')
       else if (k === 'e') setTool('eraser')
     }
     window.addEventListener('keydown', onKey)
@@ -374,7 +551,7 @@ export default function NotebookPage() {
 
   const pointAt = (e: { clientX: number; clientY: number; pressure: number; pointerType: string }) => {
     const r = svgRef.current!.getBoundingClientRect()
-    return [round(e.clientX - r.left), round(e.clientY - r.top), e.pointerType === 'pen' ? round(e.pressure || 0.5, 2) : 0.5]
+    return [round((e.clientX - r.left) / zoom), round((e.clientY - r.top) / zoom), e.pointerType === 'pen' ? round(e.pressure || 0.5, 2) : 0.5]
   }
 
   const eraseAt = (x: number, y: number) =>
@@ -396,10 +573,12 @@ export default function NotebookPage() {
     }
     const p = pointAt(e)
     const base = { pointerId: e.pointerId, start: p, before: strokes }
-    if (inst.down(e.pointerId, p, drawsOn, size / 2 + 1)) {
+    if (inst.down(e.pointerId, p, instDraw, size / 2 + 1)) {
       active.current = { ...base, mode: 'inst' }
     } else if (tool === 'text') {
       active.current = { ...base, mode: 'note', note: noteAt(strokes, p[0], p[1]) ?? undefined }
+    } else if (tool === 'shape') {
+      active.current = { ...base, mode: 'shape' }
     } else if (tool === 'eraser') {
       active.current = { ...base, mode: 'erase' }
       eraseAt(p[0], p[1])
@@ -412,12 +591,18 @@ export default function NotebookPage() {
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const [px, py] = pointAt(e)
     const a = active.current
-    if (!a) inst.hoverAt(px, py, drawsOn)
+    if (!a) inst.hoverAt(px, py, instDraw)
     if (tool === 'text') setOverNote(!!noteAt(strokes, px, py))
     // over an instrument the eraser moves it, so it does not show the eraser circle
     if (tool === 'eraser') setCursor(!a && inst.hover ? null : { x: px, y: py })
     if (!a || a.pointerId !== e.pointerId) return
     if (a.mode === 'inst') return inst.move(e.pointerId, px, py, e.shiftKey)
+    if (a.mode === 'shape') {
+      const solid = SOLIDS.find((f) => f.id === shape)
+      const strokes = solid ? solidStrokes(solid.id, a.start[0], a.start[1], px, py) : shapeStrokes(shape as ShapeId, a.start, px, py)
+      return setDraft(strokes.map((points) =>
+        ({ id: uid(), tool: 'pen', color: colors.shape, size, points, pressure: true })))
+    }
     if (a.mode === 'note') {
       const n = a.note
       // a slip of the hand while clicking is not a move
@@ -446,7 +631,25 @@ export default function NotebookPage() {
     const marks = inst.up(e.pointerId)
     // the pointer may have left the instrument during the drag: don't keep its cursor until the next move
     const [ux, uy] = pointAt(e)
-    inst.hoverAt(ux, uy, drawsOn)
+    inst.hoverAt(ux, uy, instDraw)
+    if (a.mode === 'shape') {
+      setDraft([])
+      // a click without a drag leaves nothing behind
+      if (e.type === 'pointerup' && draft.length && Math.hypot(ux - a.start[0], uy - a.start[1]) >= 4) {
+        remember(nb.current, a.before)
+        setPage(nb.current, [...a.before, ...draft])
+        // its corners go on the constructions layer, to build on with Construcții
+        const wx = (px: number) => (px - SHEET_ORIGIN.x) / PX_PER_CM
+        const wy = (py: number) => (SHEET_ORIGIN.y - py) / PX_PER_CM
+        const extra = { color: colors.shape, group: uid(), locked: true }
+        const solid = SOLIDS.find((f) => f.id === shape)
+        const corners = solid
+          ? solidPoints(solid.id, wx(a.start[0]), wy(a.start[1]), wx(ux), wy(uy), scene.objects, extra)
+          : shapePoints(shape as ShapeId, a.start, ux, uy, scene.objects, ([px, py]) => [wx(px), wy(py)], extra)
+        setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? { ...s, objects: [...s.objects, ...corners] } : s)) }))
+      }
+      return
+    }
     if (a.mode === 'note') {
       if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before)
       else if (e.type === 'pointerup') {
@@ -469,12 +672,14 @@ export default function NotebookPage() {
   }
 
   const exportAs = async (kind: 'pdf' | 'docx' | 'png') => {
-    const { width, height } = svgRef.current!.getBoundingClientRect()
-    const pages = kind === 'png' ? [nb.current] : nb.pages.map((_, i) => i).filter((i) => nb.pages[i].length)
+    // the size of the sheet, whatever the zoom
+    if (!bounds) return
+    const { w: width, h: height } = bounds
+    const pages = kind === 'png' ? [nb.current] : nb.pages.map((_, i) => i).filter((i) => nb.pages[i].length || nb.scenes[i].objects.length)
     setBusy(true)
     try {
       const pictures = []
-      for (const i of pages) pictures.push(await pagePicture(nb.pages[i], nb.paper, width, height, `Pagina ${i + 1}`))
+      for (const i of pages) pictures.push(await pagePicture(nb.pages[i], nb.scenes[i], nb.paper, width, height, `Pagina ${i + 1}`))
       const name = `caiet-${today()}`
       if (kind === 'png') await saveFile(`${name}-pagina-${nb.current + 1}.png`, pictures[0].blob)
       else if (kind === 'pdf') await savePdf(pictures, name + '.pdf')
@@ -486,7 +691,7 @@ export default function NotebookPage() {
     }
   }
 
-  const empty = nb.pages.every((p) => !p.length)
+  const empty = nb.pages.every((p, i) => !p.length && !nb.scenes[i].objects.length)
   const editBox = editing && noteBox(editing.text, editing.size)
 
   return (
@@ -500,19 +705,19 @@ export default function NotebookPage() {
           <span className="muted">{busy ? 'Se exportă…' : 'Exportă:'}</span>
           <button className="btn" onClick={() => exportAs('pdf')} disabled={empty || busy} title="Toate paginile scrise, câte una pe o foaie A4">📄 PDF</button>
           <button className="btn" onClick={() => exportAs('docx')} disabled={empty || busy} title="Document Word cu toate paginile scrise">📝 Word</button>
-          <button className="btn" onClick={() => exportAs('png')} disabled={!strokes.length || busy} title="Pagina curentă ca imagine PNG">🖼️ Imagine</button>
+          <button className="btn" onClick={() => exportAs('png')} disabled={blankPage || busy} title="Pagina curentă ca imagine PNG">🖼️ Imagine</button>
         </div>
       </div>
 
       <div className="notebook">
         <div className="board-toolbar notebook-toolbar">
           <div className="seg">
-            <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} title="Pix (P)">✒️ Pix</button>
-            <button className={tool === 'marker' ? 'active' : ''} onClick={() => setTool('marker')} title="Evidențiator (M)">🖍️ Evidențiator</button>
-            <button className={tool === 'text' ? 'active' : ''} onClick={() => setTool('text')} title="Text (T): clic pe foaie și scrii; clic pe un text ca să-l modifici, trage de el ca să-l muți">🔤 Text</button>
-            <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge trăsăturile atinse">🧽 Radieră</button>
+            <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} title="Pix (P)"><ToolIcon name="pen" />Pix</button>
+            <button className={tool === 'marker' ? 'active' : ''} onClick={() => setTool('marker')} title="Evidențiator (M)"><ToolIcon name="marker" />Evidențiator</button>
+            <button className={tool === 'text' ? 'active' : ''} onClick={() => setTool('text')} title="Text (T): clic pe foaie și scrii; clic pe un text ca să-l modifici, trage de el ca să-l muți"><ToolIcon name="text" />Text</button>
+            <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge trăsăturile atinse"><ToolIcon name="eraser" />Radieră</button>
           </div>
-          {tool !== 'eraser' && (
+          {tool !== 'eraser' && tool !== 'geometry' && (
             <div className="swatches">
               {COLORS[tool].map((c) => (
                 <button
@@ -526,20 +731,25 @@ export default function NotebookPage() {
               ))}
             </div>
           )}
-          <div className="seg">
+          {tool !== 'geometry' && <div className="seg">
             {(tool === 'text' ? TEXT_SIZE_LABELS : SIZE_LABELS).map((l, i) => (
               <button key={l} className={sizeIdx[tool] === i ? 'active' : ''} onClick={() => setSizeIdx({ ...sizeIdx, [tool]: i })}>{l}</button>
             ))}
-          </div>
+          </div>}
           <span className="toolbar-sep" />
           <button className="btn small" onClick={undo} disabled={!past.length} title="Anulează (Ctrl+Z)">↶ Anulează</button>
           <button className="btn small" onClick={redo} disabled={!future.length} title="Refă (Ctrl+Y)">↷ Refă</button>
-          <button className="btn small" onClick={clearPage} disabled={!strokes.length} title="Șterge tot de pe pagina curentă (se poate anula)">🧹 Golește pagina</button>
+          <button className="btn small" onClick={clearPage} disabled={blankPage} title="Șterge tot de pe pagina curentă (se poate anula)">🧹 Golește pagina</button>
           <button className="btn small danger" onClick={clearAll} disabled={empty && nb.pages.length === 1} title="Șterge toate paginile caietului">Golește tot caietul</button>
           <span className="toolbar-sep" />
           <select value={nb.paper} onChange={(e) => setNb({ ...nb, paper: e.target.value as Paper })} title="Tipul foii">
             {PAPERS.map((p) => <option key={p.id} value={p.id}>Foaie: {p.label}</option>)}
           </select>
+          <span className="notebook-zoom-ctl">
+            <button className="btn small" disabled={zoom <= ZOOM_MIN} onClick={() => zoomTo(zoom / ZOOM_STEP)} title="Micșorează (Ctrl și -, sau rotița mouse-ului)" aria-label="Micșorează">−</button>
+            <button className="btn small" onClick={() => zoomTo(1)} title="Înapoi la 100% (Ctrl+0)">{Math.round(zoom * 100)}%</button>
+            <button className="btn small" disabled={zoom >= ZOOM_MAX} onClick={() => zoomTo(zoom * ZOOM_STEP)} title="Mărește (Ctrl și +, sau rotița mouse-ului)" aria-label="Mărește">+</button>
+          </span>
           <span className="notebook-pages">
             <button className="btn small" disabled={nb.current === 0} onClick={() => setNb({ ...nb, current: nb.current - 1 })} title="Pagina anterioară">◀</button>
             <span>Pagina {nb.current + 1} / {nb.pages.length}</span>
@@ -549,9 +759,43 @@ export default function NotebookPage() {
           </span>
         </div>
 
+        <div className="board-toolbar notebook-toolbar shapes-bar">
+          <span className="muted">Figuri:</span>
+          {SHAPES.map((f) => (
+            <button
+              key={f.id}
+              className={'btn small icon' + (tool === 'shape' && shape === f.id ? ' active' : '')}
+              title={f.label + ': trage cu mouse-ul de la un colț la cel opus'}
+              aria-label={f.label}
+              onClick={() => { setShape(f.id); setTool('shape') }}
+            >
+              <ShapeIcon shape={f.id} />
+            </button>
+          ))}
+        </div>
+
+        <div className="board-toolbar notebook-toolbar shapes-bar">
+          <span className="muted">Corpuri:</span>
+          {SOLIDS.map((f) => (
+            <button
+              key={f.id}
+              className={'btn small icon' + (tool === 'shape' && shape === f.id ? ' active' : '')}
+              title={f.label + ': trage cu mouse-ul de la un colț la cel opus'}
+              aria-label={f.label}
+              onClick={() => { setShape(f.id); setTool('shape') }}
+            >
+              <SolidIcon solid={f.id} />
+            </button>
+          ))}
+        </div>
+
+        <div ref={setGeometryBar} />
+
         <InstrumentsBar inst={inst} />
 
-        <div className="notebook-sheet-wrap">
+        <div className="notebook-sheet-wrap" ref={wrapRef} onScroll={syncFloating}>
+        <div style={frame ? { width: frame.w * zoom, height: frame.h * zoom } : { height: '100%' }}>
+        <div className="notebook-page" style={frame ? { width: frame.w, height: frame.h, transform: `scale(${zoom})` } : { height: '100%' }}>
         <svg
           ref={svgRef}
           className={'notebook-sheet tool-' + tool + (tool === 'text' && overNote ? ' over-note' : '') + (inst.hover ? ' over-' + inst.hover : '')}
@@ -569,11 +813,27 @@ export default function NotebookPage() {
           {strokes.map((s) => s.id !== editing?.id && <PageItem key={s.id} s={s} />)}
           <InstrumentsLayer tools={nb.tools} bounds={bounds} />
           {drawing && <StrokePath s={drawing} />}
+          {draft.map((d) => <StrokePath key={d.id} s={d} />)}
           {inst.hint && <text className="nb-hint" x={inst.hint.x} y={inst.hint.y}>{inst.hint.text}</text>}
           {tool === 'eraser' && cursor && (
             <circle className="eraser-cursor" cx={cursor.x} cy={cursor.y} r={size} fill="rgba(255,255,255,.6)" stroke="#6b7280" strokeDasharray="3 3" />
           )}
         </svg>
+        <div className={'sheet-constructions' + (tool === 'geometry' ? ' active' : '')}>
+          <GeometryBoard
+            scene={scene}
+            height="100%"
+            onChange={(next) => setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? next : s)) }))}
+            sheet={{
+              toolbar: geometryBar,
+              active: tool === 'geometry',
+              page: nb.current,
+              onActivate: () => setTool('geometry'),
+              onRemember: (before) => remember(nb.current, strokes, before),
+              zoom,
+            }}
+          />
+        </div>
         {editing && editBox && (
           <textarea
             ref={noteInput}
@@ -600,6 +860,8 @@ export default function NotebookPage() {
             }}
           />
         )}
+        </div>
+        </div>
         </div>
       </div>
       {dialog}

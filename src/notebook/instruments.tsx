@@ -307,10 +307,13 @@ function hitCompass(c: Instruments['compass'], x: number, y: number, draw: boole
   return null
 }
 
-/** What is under the pointer, topmost instrument first. With draw=false (eraser) edges and the center are ignored. */
-export function hitTest(tools: Instruments, x: number, y: number, draw: boolean, b?: Bounds): Hit | null {
+/**
+ * What is under the pointer, topmost instrument first. With draw=false (eraser) edges and the center are ignored;
+ * with 'compass' only the compass draws: its handles can't be mistaken for the start of a figure or a text.
+ */
+export function hitTest(tools: Instruments, x: number, y: number, draw: boolean | 'compass', b?: Bounds): Hit | null {
   if (tools.compass.visible) {
-    const hit = hitCompass(tools.compass, x, y, draw, b)
+    const hit = hitCompass(tools.compass, x, y, !!draw, b)
     if (hit) return hit
   }
   for (const id of ['square', 'protractor', 'ruler'] as const) {
@@ -325,7 +328,7 @@ export function hitTest(tools: Instruments, x: number, y: number, draw: boolean,
     if (k >= 0) return { id, kind: 'knob', pivot: toSheet(inst, ...s.pivots[k]) }
     // the ruler's surface moves it, up to a thin rim on its edge; a line along it starts on that rim or just outside
     const onRuler = id === 'ruler' && Math.abs(lx) <= RULER_L / 2 && Math.abs(ly) <= RULER_H / 2 - RULER_RIM
-    if (draw && !onRuler) {
+    if (draw === true && !onRuler) {
       if (id === 'protractor' && Math.hypot(lx, ly) <= 14) return { id, kind: 'center' }
       let best: { edge: Edge; d: number } | null = null
       for (const edge of s.edges) {

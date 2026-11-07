@@ -122,6 +122,9 @@ export function resolve(scene: Scene): Resolved {
           r = add(v, mul(norm(dir), dep.dist))
         }
       }
+    } else if (dep.kind === 'combo') {
+      const parts = dep.parts.map(([id2, w]) => [point(id2), w] as const)
+      if (parts.every(([p]) => p)) r = parts.reduce<Vec>((s, [p, w]) => add(s, mul(p!, w)), { x: 0, y: 0 })
     } else if (dep.kind === 'onLine') {
       const l = line(dep.line)
       if (l) r = add(l.p, mul(l.d, dep.t))
@@ -217,6 +220,7 @@ export function dependsOn(o: GObj): string[] {
       if (o.dep.kind === 'foot') return [o.dep.point, o.dep.line]
       if (o.dep.kind === 'along') return [o.dep.through, o.dep.ref]
       if (o.dep.kind === 'onLine') return [o.dep.line]
+      if (o.dep.kind === 'combo') return o.dep.parts.map(([p]) => p)
       if (o.dep.kind === 'onCircle') return [o.dep.circle]
       if (o.dep.kind === 'bisectorPoint' || o.dep.kind === 'bisectorFoot') return [o.dep.a, o.dep.v, o.dep.b]
       if (o.dep.kind === 'intersection') return [o.dep.l1, o.dep.l2]
@@ -255,6 +259,12 @@ export function figureOf(scene: Scene, id: string): Set<string> {
     links.get(b)!.add(a)
   }
   for (const o of scene.objects) for (const d of dependsOn(o)) link(o.id, d)
+  const groups = new Map<string, string>()
+  for (const o of scene.objects) {
+    if ((o.type !== 'path' && o.type !== 'point') || !o.group) continue
+    if (groups.has(o.group)) link(o.id, groups.get(o.group)!)
+    else groups.set(o.group, o.id)
+  }
   const out = new Set([id])
   const queue = [id]
   while (queue.length) {
@@ -268,9 +278,62 @@ export function figureOf(scene: Scene, id: string): Set<string> {
   return out
 }
 
+/** Smallest convex polygon around the points, counter-clockwise (monotone chain). */
+function convexHull(points: Vec[]): Vec[] {
+  const pts = [...points].sort((a, b) => a.x - b.x || a.y - b.y)
+  const turn = (o: Vec, a: Vec, b: Vec) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+  const half = (list: Vec[]) => {
+    const out: Vec[] = []
+    for (const p of list) {
+      while (out.length > 1 && turn(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop()
+      out.push(p)
+    }
+    out.pop()
+    return out
+  }
+  return [...half(pts), ...half([...pts].reverse())]
+}
+
+/** The figure of `id`; for a solid, also whatever is drawn inside it, so that it follows the solid. */
+export function figureWithContents(scene: Scene, points: Resolved['points'], id: string): Set<string> {
+  const out = figureOf(scene, id)
+  const self = scene.objects.find((o) => o.id === id)
+  if ((self?.type !== 'path' && self?.type !== 'point') || !self.group) return out
+  const edges = scene.objects.flatMap((o) => (o.type === 'path' && o.group === self.group && !o.frame ? o.points : []))
+  if (!edges.length) return out
+  const cx = edges.reduce((s, p) => s + p[0], 0) / edges.length
+  const cy = edges.reduce((s, p) => s + p[1], 0) / edges.length
+  // a little wider, for what was drawn right up to an edge
+  const hull = convexHull(edges.map(([x, y]) => ({ x: cx + (x - cx) * 1.1, y: cy + (y - cy) * 1.1 })))
+  const inside = (p: Vec) => hull.every((a, i) => {
+    const b = hull[(i + 1) % hull.length]
+    return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= 0
+  })
+  const seen = new Set(out)
+  for (const o of scene.objects) {
+    if (seen.has(o.id)) continue
+    const part = figureOf(scene, o.id)
+    part.forEach((p) => seen.add(p))
+    // what a move acts on: everything else in that figure is built on it
+    const spots = scene.objects.filter((x) => part.has(x.id)).flatMap((x): Vec[] => {
+      if (x.type === 'point' && x.dep.kind === 'free') return [points.get(x.id) ?? { x: x.x, y: x.y }]
+      if (x.type === 'path' && !x.frame) return x.points.map(([px, py]) => ({ x: px, y: py }))
+      if (x.type === 'text') return [{ x: x.x, y: x.y }]
+      return []
+    })
+    if (spots.length && spots.every(inside)) part.forEach((p) => out.add(p))
+  }
+  return out
+}
+
 /** Ids to remove when deleting `id`: the object plus everything (transitively) built on it. */
 export function cascade(scene: Scene, id: string): Set<string> {
   const out = new Set([id])
+  const self = scene.objects.find((o) => o.id === id)
+  // a solid goes with its corners; one corner on the board can go alone, but on a sheet they are a set
+  if ((self?.type === 'path' || (self?.type === 'point' && self.locked)) && self.group) {
+    for (const o of scene.objects) if ((o.type === 'path' || o.type === 'point') && o.group === self.group) out.add(o.id)
+  }
   let changed = true
   while (changed) {
     changed = false
@@ -282,6 +345,269 @@ export function cascade(scene: Scene, id: string): Set<string> {
     }
   }
   return out
+}
+
+/**
+ * Where lines of a solid only seem to cross, being in fact one behind the other: the one behind is broken there.
+ * Lines that really meet have the same depth at that spot, so they stay whole. Only edges and segments
+ * whose ends have a known depth take part, and only within a solid. Gives the gaps as lengths along each line.
+ */
+export function solidGaps(scene: Scene, resolved: Resolved, gap: number): Map<string, [number, number][]> {
+  const byId = new Map(scene.objects.map((o) => [o.id, o]))
+  const lineDepth = (lineId: string, at: Vec, seen: Set<string>) => {
+    const o = byId.get(lineId)
+    const l = resolved.lines.get(lineId)
+    if (!o || !l || !isLinear(o) || o.dep.kind !== 'twoPoints') return null
+    const a = depthOf(o.dep.a, new Set(seen))
+    const b = depthOf(o.dep.b, new Set(seen))
+    if (!a || !b || a.group !== b.group) return null
+    const along = sub(l.b, l.a)
+    return { group: a.group, depth: a.depth + ((b.depth - a.depth) * dot(sub(at, l.a), along)) / dot(along, along) }
+  }
+  function depthOf(id: string, seen: Set<string>): { group: string; depth: number } | null {
+    if (seen.has(id)) return null
+    seen.add(id)
+    const o = byId.get(id)
+    if (o?.type !== 'point') return null
+    if (o.group && o.depth != null) return { group: o.group, depth: o.depth }
+    const at = resolved.points.get(id)
+    if (!at) return null
+    if (o.dep.kind === 'midpoint') {
+      const a = depthOf(o.dep.a, new Set(seen))
+      const b = depthOf(o.dep.b, new Set(seen))
+      return a && b && a.group === b.group ? { group: a.group, depth: (a.depth + b.depth) / 2 } : null
+    }
+    if (o.dep.kind === 'combo') {
+      const parts = o.dep.parts.map(([p, w]) => [depthOf(p, new Set(seen)), w] as const)
+      if (!parts.every(([p]) => p && p.group === parts[0][0]?.group)) return null
+      return { group: parts[0][0]!.group, depth: parts.reduce((s, [p, w]) => s + p!.depth * w, 0) }
+    }
+    if (o.dep.kind === 'onLine') return lineDepth(o.dep.line, at, seen)
+    if (o.dep.kind === 'intersection') return lineDepth(o.dep.l1, at, seen)
+    return null
+  }
+
+  type Item = { id: string; pts: [number, number][]; depth: number[]; x0: number; x1: number; y0: number; y1: number }
+  const groups = new Map<string, Item[]>()
+  const add3d = (group: string, id: string, pts: [number, number][], depth: number[]) => {
+    const xs = pts.map((p) => p[0])
+    const ys = pts.map((p) => p[1])
+    const item = { id, pts, depth, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group)!.push(item)
+  }
+  for (const o of scene.objects) {
+    if (o.type === 'path' && o.group && o.depth && !o.frame) add3d(o.group, o.id, o.points, o.depth)
+    if (o.type === 'segment' && !o.ghost && o.dep.kind === 'twoPoints') {
+      const a = depthOf(o.dep.a, new Set())
+      const b = depthOf(o.dep.b, new Set())
+      const l = resolved.lines.get(o.id)
+      if (a && b && l && a.group === b.group) add3d(a.group, o.id, [[l.a.x, l.a.y], [l.b.x, l.b.y]], [a.depth, b.depth])
+    }
+  }
+
+  const out = new Map<string, [number, number][]>()
+  const mark = (id: string, at: number) => {
+    if (!out.has(id)) out.set(id, [])
+    out.get(id)!.push([at - gap, at + gap])
+  }
+  for (const items of groups.values()) {
+    const all = items.flatMap((i) => i.depth)
+    const same = Math.max(1e-6, (Math.max(...all) - Math.min(...all)) * 0.01)
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const A = items[i]
+        const B = items[j]
+        if (A.x0 > B.x1 || B.x0 > A.x1 || A.y0 > B.y1 || B.y0 > A.y1) continue
+        let sa = 0
+        for (let p = 0; p + 1 < A.pts.length; p++) {
+          const [ax, ay] = A.pts[p]
+          const [bx, by] = A.pts[p + 1]
+          const la = Math.hypot(bx - ax, by - ay)
+          let sb = 0
+          for (let q = 0; q + 1 < B.pts.length; q++) {
+            const [cx, cy] = B.pts[q]
+            const [dx, dy] = B.pts[q + 1]
+            const lb = Math.hypot(dx - cx, dy - cy)
+            const den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+            if (Math.abs(den) > 1e-12) {
+              const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den
+              const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / den
+              if (t >= 0 && t < 1 && u >= 0 && u < 1) {
+                const za = A.depth[p] + (A.depth[p + 1] - A.depth[p]) * t
+                const zb = B.depth[q] + (B.depth[q + 1] - B.depth[q]) * u
+                if (Math.abs(za - zb) > same) {
+                  if (za < zb) mark(A.id, sa + la * t)
+                  else mark(B.id, sb + lb * u)
+                }
+              }
+            }
+            sb += lb
+          }
+          sa += la
+        }
+      }
+    }
+  }
+  return out
+}
+
+/** The parts of a line left once the gaps (lengths along it) are taken out. */
+export function withoutGaps(pts: [number, number][], gaps: [number, number][]): [number, number][][] {
+  const sorted = [...gaps].sort((a, b) => a[0] - b[0])
+  const runs: [number, number][][] = []
+  let run: [number, number][] = []
+  let along = 0
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, ay] = pts[i]
+    const [bx, by] = pts[i + 1]
+    const len = Math.hypot(bx - ax, by - ay)
+    const end = along + len
+    const at = (s: number): [number, number] => [ax + ((bx - ax) * (s - along)) / len, ay + ((by - ay) * (s - along)) / len]
+    let s = along
+    while (s < end) {
+      const from = s
+      const g = sorted.find((x) => x[1] > from)
+      if (g && g[0] <= s) {
+        if (run.length > 1) runs.push(run)
+        run = []
+        s = Math.min(end, g[1])
+        continue
+      }
+      const stop = g ? Math.min(end, g[0]) : end
+      if (!run.length) run.push(at(s))
+      run.push(at(stop))
+      s = stop
+    }
+    along = end
+  }
+  if (run.length > 1) runs.push(run)
+  return runs
+}
+
+// ---------- on the body of a solid: measures and constructions that do not depend on how it is seen ----------
+export type V3 = [number, number, number]
+export const minus3 = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+export const dot3 = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+export const len3 = (a: V3) => Math.sqrt(dot3(a, a))
+const cross3 = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+/** Where a point is on the body of a solid: a corner or anything worked out from corners; null for the rest. */
+export function pos3(objects: GObj[], resolved: Resolved, id: string, seen = new Set<string>()): { group: string; at: V3 } | null {
+  if (seen.has(id)) return null
+  seen.add(id)
+  const o = objects.find((x) => x.id === id)
+  if (o?.type !== 'point') return null
+  if (o.at3 && o.group) return { group: o.group, at: o.at3 }
+  const blend = (parts: [string, number][]) => {
+    const found = parts.map(([p, w]) => [pos3(objects, resolved, p, new Set(seen)), w] as const)
+    const group = found[0][0]?.group
+    if (!group || !found.every(([p]) => p?.group === group)) return null
+    const at = found.reduce<V3>((s, [p, w]) => [s[0] + p!.at[0] * w, s[1] + p!.at[1] * w, s[2] + p!.at[2] * w], [0, 0, 0])
+    return { group, at }
+  }
+  const endsOf = (lineId: string) => {
+    const l = objects.find((x) => x.id === lineId)
+    return l && isLinear(l) && l.dep.kind === 'twoPoints' ? l.dep : null
+  }
+  if (o.dep.kind === 'midpoint') return blend([[o.dep.a, 0.5], [o.dep.b, 0.5]])
+  if (o.dep.kind === 'combo') return blend(o.dep.parts)
+  if (o.dep.kind === 'onLine') {
+    const e = endsOf(o.dep.line)
+    return e && blend([[e.a, 1 - o.dep.t], [e.b, o.dep.t]])
+  }
+  if (o.dep.kind === 'intersection') {
+    const e = endsOf(o.dep.l1)
+    const l = resolved.lines.get(o.dep.l1)
+    const at = resolved.points.get(id)
+    if (!e || !l || !at) return null
+    const t = dot(sub(at, l.a), l.d) / dot(l.d, l.d)
+    return blend([[e.a, 1 - t], [e.b, t]])
+  }
+  return null
+}
+
+export interface Line3 { group: string; a: V3; b: V3; ids: [string, string] }
+
+/** A line whose two points are both on the body of the same solid. */
+export function line3(objects: GObj[], resolved: Resolved, id: string): Line3 | null {
+  const l = objects.find((x) => x.id === id)
+  if (!l || !isLinear(l) || l.dep.kind !== 'twoPoints') return null
+  const a = pos3(objects, resolved, l.dep.a)
+  const b = pos3(objects, resolved, l.dep.b)
+  return a && b && a.group === b.group ? { group: a.group, a: a.at, b: b.at, ids: [l.dep.a, l.dep.b] } : null
+}
+
+/** How many units of the plane one unit of the body is: it changes when the solid is scaled. */
+export function solidScale(objects: GObj[], group: string) {
+  const holder = objects.find((o) => o.type === 'path' && o.group === group && !!o.frame)
+  if (holder?.type !== 'path') return 1
+  const [[ox, oy], [ex, ey]] = holder.points
+  return Math.hypot(ex - ox, ey - oy)
+}
+
+/** The real length between two points of a solid, whichever way it is seen. */
+export function trueLength(objects: GObj[], resolved: Resolved, a: string, b: string): number | null {
+  const p = pos3(objects, resolved, a)
+  const q = pos3(objects, resolved, b)
+  return p && q && p.group === q.group ? len3(minus3(p.at, q.at)) * solidScale(objects, p.group) : null
+}
+
+const between = (u: V3, v: V3) => Math.acos(Math.max(-1, Math.min(1, dot3(u, v) / (len3(u) * len3(v) || 1))))
+
+/** The real angle at v between points of a solid. */
+export function trueAngleAt(objects: GObj[], resolved: Resolved, a: string, v: string, b: string): number | null {
+  const [pa, pv, pb] = [a, v, b].map((id) => pos3(objects, resolved, id))
+  if (!pa || !pv || !pb || pa.group !== pv.group || pb.group !== pv.group) return null
+  return between(minus3(pa.at, pv.at), minus3(pb.at, pv.at))
+}
+
+/** The real angle between two lines of a solid; s1, s2 pick which of their parts. */
+export function trueLineAngle(objects: GObj[], resolved: Resolved, l1: string, s1: number, l2: string, s2: number): number | null {
+  const a = line3(objects, resolved, l1)
+  const b = line3(objects, resolved, l2)
+  if (!a || !b || a.group !== b.group) return null
+  const d = minus3(a.b, a.a).map((c) => c * s1) as V3
+  const e = minus3(b.b, b.a).map((c) => c * s2) as V3
+  return between(d, e)
+}
+
+/** Two lines of a solid that only seem to meet on the plane: they do not lie in one plane. */
+export function isSkew(objects: GObj[], resolved: Resolved, l1: string, l2: string) {
+  const a = line3(objects, resolved, l1)
+  const b = line3(objects, resolved, l2)
+  if (!a || !b || a.group !== b.group) return false
+  const n = cross3(minus3(a.b, a.a), minus3(b.b, b.a))
+  return len3(n) > 1e-9 && Math.abs(dot3(minus3(b.a, a.a), n)) / len3(n) > 1e-6
+}
+
+/**
+ * The planes through a line of a solid in which a perpendicular can be drawn, each with a corner that fixes it.
+ * The faces, when the line lies on any; otherwise every plane through it and another corner.
+ */
+export function planesThrough(objects: GObj[], group: string, a: V3, b: V3): { third: string; name: string }[] {
+  const corners = objects.filter((o): o is PointObj => o.type === 'point' && o.group === group && !!o.at3)
+  const d = minus3(b, a)
+  const found: { third: string; n: V3; onIt: PointObj[]; face: boolean }[] = []
+  for (const c of corners) {
+    const n = cross3(d, minus3(c.at3!, a))
+    if (len3(n) < 1e-9) continue
+    const unit = n.map((x) => x / len3(n)) as V3
+    if (found.some((f) => Math.abs(Math.abs(dot3(f.n, unit)) - 1) < 1e-9)) continue
+    const side = corners.map((p) => dot3(unit, minus3(p.at3!, a)))
+    found.push({
+      third: c.id,
+      n: unit,
+      onIt: corners.filter((_, i) => Math.abs(side[i]) < 1e-9),
+      face: side.every((x) => x > -1e-9) || side.every((x) => x < 1e-9),
+    })
+  }
+  const faces = found.filter((f) => f.face)
+  return (faces.length ? faces : found).map((f) => {
+    // a center is not one of the letters a face is called by, unless there is nothing else (a sphere)
+    const edged = f.onIt.filter((p) => p.joins?.length)
+    return { third: f.third, name: (edged.length ? edged : f.onIt.filter((p) => !p.hidden)).map((p) => p.label).join('') }
+  })
 }
 
 export function nextLabel(scene: Scene): string {

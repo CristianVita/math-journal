@@ -2,6 +2,8 @@
 
 *English · [Română](README.ro.md)*
 
+> **AI written with [Claude Code](https://claude.com/claude-code).** The code of this project was written by Claude Code, under the direction of its author.
+
 A journal for math tutors: keep track of students and sessions, write notes with LaTeX formulas, build geometric constructions, explore trigonometry, and insert any math symbol in one click.
 
 It runs in the browser and as a desktop app for Windows and Linux (built with [Tauri](https://tauri.app)). All data stays on your device.
@@ -22,6 +24,8 @@ Get the installer for your system from the [latest release](https://github.com/C
 
 The Windows installer is not code-signed yet. If SmartScreen shows "Windows protected your PC", click **More info → Run anyway**.
 
+> The latest release (v0.4.1) does not have the notebook, the drawing instruments or the 3D solids yet. They are on the [website](https://cristianvita.github.io/math-journal/) and in the source code.
+
 ## Features
 
 **Journal**
@@ -34,15 +38,33 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 **Geometry board**
 - Point, segment (with length), line, ray, circle, polygon, regular polygon with n sides
 - **Triangles** by type and size: right (two legs), acute and obtuse (three sides, checked against the type), equilateral, isosceles
-- Angle with its measure shown (degrees or radians), automatic right-angle mark; **angle between two drawn lines**
-- **Construct an angle of x°** with sides of a chosen length (or infinite rays)
-- Midpoint, intersection, **perpendicular from a point to its foot** (with the distance), **perpendicular bisector**, parallel and perpendicular lines of a chosen length, **angle bisector** to the opposite side or of a chosen length
+- **Angle between two lines**, with its measure (degrees or radians) and an automatic right-angle mark; measures at the same vertex keep clear of one another
+- **Construct an angle** from three points (the second is the vertex), with the exact measure typed in a dialog
+- Circular **arcs and sectors**, with the degrees shown in steps of 1°
+- Midpoint, intersection, **perpendicular from a point to its foot** (with the distance, and a dashed extension when the foot falls beyond a segment), **perpendicular bisector**, parallel and perpendicular lines of a chosen length, **angle bisector** to the opposite side or of a chosen length
+- Perpendicular and parallel lines show a **preview** before the click, and a click on a free spot creates the point
 - New points **snap onto lines, circles and intersections**, with a preview before the click; snapped points stay on their line and slide along it
 - **Select a whole figure** and move it, scale it or rotate it (around its centre or any vertex), by dragging handles or with exact values
 - Constructions are dependent: move a point and everything built on it follows
 - Text and LaTeX labels, freehand drawing (mouse or stylus), plot any function f(x)
 - Grid, axes, snap to grid, zoom (mouse wheel), pan (hand tool, right-drag or Space-drag), undo/redo, PNG/SVG export
 - Save a figure straight into a journal session
+- **Drawing instruments:** ruler, set square, protractor and compass, which dock onto each other to draw parallel lines
+
+**3D solids** (on the board and in the notebook)
+- Cube, cuboid, triangular, square and hexagonal prisms, cylinder, cone, sphere, regular tetrahedron, triangular, square and hexagonal pyramids, with their hidden edges dashed
+- Real 3D models: on the board, **turn a solid in space** with the 3D handle or the sliders, and the hidden edges are worked out again
+- **Lettered corners** (ABCDA′B′C′D′, V, O, O′) to draw diagonals, radii and heights; new points snap onto edges and circles, and stay there when the solid moves or turns
+- Midpoint, perpendicular, perpendicular bisector, parallel, angle bisector and angle between two lines work directly on edges, and are **computed on the body, not on the screen**: a right angle of a cube reads 90° from any direction, and lengths are the real ones
+- **Skew lines are visible:** where two lines of a solid only seem to cross, the one behind is broken; lines that really meet stay whole
+
+**Notebook**
+- Free writing with a pen, highlighter or eraser, using a mouse, a stylus or a finger; typed text; pages and several kinds of paper
+- A row of figures (segment, triangles, quadrilaterals, kite, circle, ellipse) with lettered corners that tools can build on
+- A row of constructions: all the tools of the board, separately on each page
+- The drawing instruments, and the 3D solids
+- **Zoom** from 50% to 300%: mouse wheel, Ctrl with + or -, Ctrl+0 to reset, or the buttons
+- Export to PDF, Word or PNG
 
 **Trigonometry**
 - Interactive unit circle: sin, cos, tan, cot with exact values at the special angles
@@ -114,10 +136,12 @@ The installers are attached to a *draft* release on GitHub. Review it, then publ
 
 ```
 src/
-  App.tsx              navigation: Journal, Board, Trigonometry, Symbols
+  App.tsx              navigation: Journal, Board, Notebook, Trigonometry, Calculator, Symbols
   db.ts                local database (Dexie / IndexedDB), backup
   journal/             students, session list, session editor
   geometry/            scene model, construction engine, interactive board
+  notebook/            notebook page, drawing instruments, figures, 3D solids
+  export/              PDF, Word and image export
   trig/                unit circle, plots, triangle solver, formulas
   calculus/            derivative engine, SymPy worker (integrals), step explanations, calculator page
   symbols/             symbol list, palette, insert-at-cursor
