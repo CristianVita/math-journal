@@ -24,8 +24,6 @@ Get the installer for your system from the [latest release](https://github.com/C
 
 The Windows installer is not code-signed yet. If SmartScreen shows "Windows protected your PC", click **More info → Run anyway**.
 
-> The latest release (v0.4.1) does not have the notebook, the drawing instruments or the 3D solids yet. They are on the [website](https://cristianvita.github.io/math-journal/) and in the source code.
-
 ## Features
 
 **Journal**

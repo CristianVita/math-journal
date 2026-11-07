@@ -18,8 +18,6 @@ Installerele sunt pe pagina [Releases](https://github.com/CristianVita/math-jour
 
 Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „Mai multe informații” → „Rulează oricum”.
 
-> Ultima versiune publicată (v0.4.1) nu are încă Caietul, instrumentele de desen și corpurile 3D. Acestea sunt pe [site](https://cristianvita.github.io/math-journal/) și în codul sursă.
-
 ## Ce face
 
 **Jurnal**
