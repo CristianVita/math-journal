@@ -2,7 +2,7 @@
 
 *[English](README.md) · Română*
 
-> **AI written with [Claude Code](https://claude.com/claude-code).** Codul acestui proiect a fost scris de Claude Code, sub îndrumarea autorului.
+AI written with Claude-Code
 
 Jurnal pentru meditații de matematică: elevi, ședințe, notițe cu formule LaTeX, construcții geometrice, unelte de trigonometrie și o paletă completă de simboluri matematice.
 

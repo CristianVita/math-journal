@@ -2,7 +2,7 @@
 
 *English · [Română](README.ro.md)*
 
-> **AI written with [Claude Code](https://claude.com/claude-code).** The code of this project was written by Claude Code, under the direction of its author.
+AI written with Claude-Code
 
 A journal for math tutors: keep track of students and sessions, write notes with LaTeX formulas, build geometric constructions, explore trigonometry, and insert any math symbol in one click.
 
