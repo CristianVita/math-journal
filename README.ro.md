@@ -31,9 +31,10 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - Punct, segment (cu lungime), dreaptă, semidreaptă, cerc, poligon, poligon regulat cu n laturi
 - **Triunghiuri** după tip și dimensiuni: dreptunghic (catete), ascuțitunghic și obtuzunghic (trei laturi, verificate față de tip), echilateral, isoscel
 - **Unghiul dintre două linii**, cu măsura afișată (grade sau radiani) și marcaj automat de unghi drept; măsurile de la același vârf nu se suprapun
-- **Construiește un unghi** din trei puncte (al doilea este vârful), cu măsura exactă scrisă într-un dialog
-- **Arce și sectoare de cerc**, cu gradele afișate din 1° în 1°
-- Mijloc, intersecție, **perpendiculara dintr-un punct până la picior** (cu distanța și cu prelungire punctată, dacă piciorul iese din segment), **mediatoare**, paralele și perpendiculare de lungime aleasă, **bisectoare** până la latura opusă sau de lungime aleasă
+- **Construiește un unghi** din trei puncte (al doilea este vârful), cu măsura exactă și lungimile exacte ale laturilor scrise într-un dialog
+- **Arce și sectoare de cerc**, cu gradele afișate din 1° în 1°; cu bifa **Arată măsura** gradele rămân scrise pe tablă
+- Dialogurile păstrează ce ai scris când o valoare e greșită și spun ce trebuie corectat
+- Mijloc, intersecție (și între laturi de poligon sau muchii de corp), **perpendiculara dintr-un punct până la picior** (cu distanța și cu prelungire punctată, dacă piciorul iese din segment), **mediatoare**, paralele și perpendiculare de lungime aleasă, **bisectoare** până la latura opusă sau de lungime aleasă
 - Perpendiculara și paralela au **previzualizare** înainte de clic, iar un clic pe un loc liber creează punctul
 - Punctele noi **se lipesc de linii, cercuri și intersecții**, cu previzualizare înainte de click; punctele lipite rămân pe linie și se plimbă de-a lungul ei
 - **Selectezi o figură întreagă** și o muți, o scalezi sau o rotești (în jurul centrului sau al oricărui vârf), cu mânere sau cu valori exacte
@@ -41,7 +42,8 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - Text și formule LaTeX pe tablă, desen liber (mouse / stylus), graficul oricărei funcții f(x)
 - Grilă, axe, aliniere la grilă, zoom (rotița), mutarea tablei (unealta mână, click dreapta sau Space + trage), anulare/refacere, export PNG/SVG
 - Figurile pot fi salvate direct într-o ședință din jurnal
-- **Instrumente de desen:** riglă, echer, raportor și compas, care se lipesc între ele pentru a trasa drepte paralele
+- **Instrumente de desen:** riglă, echer, raportor și compas, care se lipesc între ele pentru a trasa drepte paralele; o linie dreaptă trasă pe lângă ele devine un segment adevărat, pe care se poate construi
+- Ștergerea unui poligon ia și segmentele create din laturile lui; un vârf comun mai multor unghiuri are litera în afara tuturor
 
 **Corpuri 3D** (pe Tablă și în Caiet)
 - Cub, paralelipiped, prisme triunghiulară, patrulateră și hexagonală, cilindru, con, sferă, tetraedru regulat, piramide triunghiulară, patrulateră și hexagonală, cu muchiile ascunse punctate
@@ -49,13 +51,17 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - **Vârfuri cu litere** (ABCDA′B′C′D′, V, O, O′), pentru diagonale, raze și înălțimi; punctele noi se prind de muchii și de cercuri și rămân pe ele când corpul se mută sau se rotește
 - Mijlocul, perpendiculara, mediatoarea, paralela, bisectoarea și unghiul dintre două linii merg direct pe muchii și sunt **calculate pe corp, nu pe ecran**: unghiul drept al unui cub arată 90° din orice direcție, iar lungimile sunt cele reale
 - **Dreptele necoplanare se văd:** unde două linii ale corpului doar par să se taie, cea din spate e întreruptă; cele care se taie cu adevărat rămân continue
+- **Segmentele se punctează singure:** o diagonală, o înălțime sau o rază trasată pe corp e punctată cât timp trece prin interior sau stă pe o față din spate, și se schimbă la rotire
+- Punctele și literele unui corp sau ale unei figuri se pot ascunde, când desenul e doar o ilustrație
+- Ștergerea unui corp ia și ce e desenat în interiorul lui (Ctrl+Z le aduce înapoi)
 
 **Caiet**
 - Scris liber cu pixul, evidențiatorul sau radiera, cu mouse-ul, creionul sau degetul; text scris de la tastatură; pagini și mai multe tipuri de foaie
+- **Radiera șterge doar porțiunea pe care treci**, ca una adevărată
 - Rândul Figuri (segment, triunghiuri, patrulatere, zmeu, cerc, elipsă), cu vârfuri cu litere pe care se poate construi
 - Rândul Construcții: toate uneltele Tablei, separat pe fiecare pagină
-- Instrumentele de desen și corpurile 3D
-- **Zoom** între 50% și 300%: rotița mouse-ului, Ctrl cu + sau -, Ctrl+0 pentru revenire, sau butoanele
+- Instrumentele de desen, care stau deasupra construcțiilor, și corpurile 3D, care **se rotesc în spațiu** ca pe Tablă
+- **Zoom fluid** între 50% și 300%: rotița mouse-ului sau touchpad-ul, Ctrl cu + sau -, Ctrl+0 pentru revenire, sau butoanele
 - Export în PDF, Word sau PNG
 
 **Trigonometrie**
@@ -89,6 +95,12 @@ npm run dev
 Apoi deschide http://localhost:5173.
 
 > Pe Windows, dacă PowerShell refuză `npm` („running scripts is disabled”), folosește `npm.cmd` în loc de `npm`.
+
+Teste automate (corpurile 3D: vârfuri, muchii ascunse, lungimi și unghiuri reale, drepte necoplanare):
+
+```bash
+npm test
+```
 
 Build pentru web (fișierele statice ajung în `dist/`):
 

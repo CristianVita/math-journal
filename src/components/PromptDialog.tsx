@@ -22,6 +22,9 @@ interface State {
   /** a line of explanation under the title, and the text of the cancel button */
   detail?: string
   cancelLabel?: string
+  /** looks at the values before the dialog closes: a message keeps it open, with the values as they were */
+  check?: (values: string[]) => string | null
+  error?: string | null
 }
 
 // In-app replacement for window.prompt and window.confirm (which are unreliable inside desktop webviews:
@@ -30,11 +33,14 @@ export function usePrompt() {
   const [state, setState] = useState<State | null>(null)
   const resolver = useRef<((v: string[] | null) => void) | null>(null)
 
-  /** Several inputs in one dialog; resolves with the values in order, or null when cancelled. */
-  const askForm = (title: string, fields: PromptField[]) =>
+  /**
+   * Several inputs in one dialog; resolves with the values in order, or null when cancelled.
+   * With `check`, a wrong answer is explained inside the dialog, which stays open for it to be put right.
+   */
+  const askForm = (title: string, fields: PromptField[], check?: (values: string[]) => string | null) =>
     new Promise<string[] | null>((resolve) => {
       resolver.current = resolve
-      setState({ title, fields, values: fields.map((f) => f.value ?? ''), info: false })
+      setState({ title, fields, values: fields.map((f) => f.value ?? ''), info: false, check })
     })
 
   /** One input (or, with info = true, just a message with OK). */
@@ -63,7 +69,9 @@ export function usePrompt() {
         className="modal small"
         onSubmit={(e) => {
           e.preventDefault()
-          close(state.values)
+          const error = state.check?.(state.values) ?? null
+          if (error) setState({ ...state, error })
+          else close(state.values)
         }}
       >
         <div className="modal-title">{state.title}</div>
@@ -74,7 +82,7 @@ export function usePrompt() {
             const want = f.showIf.value
             if (Array.isArray(want) ? !want.includes(v) : v !== want) return null
           }
-          const set = (val: string) => setState({ ...state, values: state.values.map((v, j) => (j === i ? val : v)) })
+          const set = (val: string) => setState({ ...state, error: null, values: state.values.map((v, j) => (j === i ? val : v)) })
           return (
             <label key={i} className="field">
               {f.label}
@@ -89,6 +97,7 @@ export function usePrompt() {
             </label>
           )
         })}
+        {state.error && <p className="modal-error" role="alert">{state.error}</p>}
         <div className="modal-actions">
           {!state.info && <button type="button" className="btn" onClick={() => close(null)}>{state.cancelLabel ?? 'Renunță'}</button>}
           <button type="submit" className={'btn primary' + (state.danger ? ' danger-fill' : '')} autoFocus={state.info || !state.fields.length}>

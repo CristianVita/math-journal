@@ -8,7 +8,7 @@ import TrigPage from './trig/TrigPage'
 import CalculusPage from './calculus/CalculusPage'
 import NotebookPage from './notebook/NotebookPage'
 import { emptyScene, type Scene } from './geometry/types'
-import { db } from './db'
+import { db, flushLocal, localSaveFailed, readLocal, writeLocal } from './db'
 import './symbols/insert'
 import { usePrompt } from './components/PromptDialog'
 import { isDesktop } from './platform'
@@ -19,7 +19,7 @@ const BOARD_KEY = 'math-journal:board'
 
 function loadBoard(): Scene {
   try {
-    const raw = localStorage.getItem(BOARD_KEY)
+    const raw = readLocal(BOARD_KEY)
     if (raw) return JSON.parse(raw)
   } catch {
     /* storage unavailable: start empty */
@@ -33,13 +33,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState<number>()
   const [board, setBoard] = useState<Scene>(loadBoard)
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(BOARD_KEY, JSON.stringify(board))
-    } catch {
-      /* ignore quota / private mode */
-    }
-  }, [board])
+  useEffect(() => writeLocal(BOARD_KEY, JSON.stringify(board)), [board])
 
   // desktop app: ask before closing the window. Everything is saved as you go, so the question is only a
   // guard against closing by mistake; after "Închide" it waits a moment for saves still under way.
@@ -62,7 +56,18 @@ export default function App() {
         })
         asking = false
         if (!close) return
-        await new Promise((r) => setTimeout(r, 800))
+        // the notebook saves a moment after the last change: let it, then wait for the database
+        await new Promise((r) => setTimeout(r, 500))
+        await flushLocal()
+        if (localSaveFailed()) {
+          asking = true
+          const anyway = await confirmRef.current('Ultimele modificări din Caiet sau de pe Tablă nu au putut fi salvate.', 'Închide oricum', true, {
+            detail: 'Dacă închizi acum, le pierzi. Poți rămâne și face un backup din Jurnal.',
+            cancelLabel: 'Rămân',
+          })
+          asking = false
+          if (!anyway) return
+        }
         await win.destroy()
       })
     })

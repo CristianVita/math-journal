@@ -342,10 +342,13 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 .notebook-sheet.tool-eraser { cursor: none; }
 .notebook-sheet-wrap { position: relative; overflow: auto; height: calc(100vh - 270px); min-height: 360px; background: #f1f5f9; }
 .notebook-page { position: relative; transform-origin: 0 0; background: #fff; }
+/* while the wheel turns, the sheet is scaled as a picture; it is drawn sharp again once it stops */
+.notebook-sheet-wrap.zooming .notebook-page { will-change: transform; }
 .notebook-zoom-ctl { display: inline-flex; align-items: center; gap: 2px; }
 .notebook-page .board-status { transform: translate(var(--sheet-left, 0), var(--sheet-top, 0)) scale(calc(1 / var(--sheet-zoom, 1))); transform-origin: 0 0; }
 .sheet-constructions { position: absolute; inset: 0; pointer-events: none; }
 .sheet-constructions.active { pointer-events: auto; }
+.sheet-instruments { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .board.sheet { height: 100%; border: 0; border-radius: 0; background: transparent; }
 .board.sheet .board-body { height: 100%; }
 .notebook-page .board.sheet .inspector { transform: translate(var(--sheet-right, 0), var(--sheet-top, 0)) scale(calc(1 / var(--sheet-zoom, 1))); transform-origin: 100% 0; }
@@ -366,3 +369,4 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 .btn.primary.danger-fill { background: var(--danger); border-color: var(--danger); }
 .btn.primary.danger-fill:hover { filter: brightness(.92); }
 .modal-detail { margin: 0 0 12px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.modal-error { margin: 4px 0 12px; padding: 8px 10px; border-radius: 6px; background: #fef2f2; color: #b91c1c; font-size: 14px; line-height: 1.45; }

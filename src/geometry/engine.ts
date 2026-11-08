@@ -1,4 +1,4 @@
-import type { GObj, LineObj, PointObj, Scene } from './types'
+import type { GObj, LineObj, PointObj, PolygonObj, Scene } from './types'
 import { isLinear } from './types'
 
 export type Vec = { x: number; y: number }
@@ -326,6 +326,40 @@ export function figureWithContents(scene: Scene, points: Resolved['points'], id:
   return out
 }
 
+/**
+ * Where the letter of a vertex goes, as a unit vector on the plane: in the middle of the widest opening left
+ * between the rays that start there. With one angle, that is opposite to the middle of the angle.
+ */
+export function labelDirection(v: Vec, rays: Vec[]): Vec | null {
+  const turns = rays.filter((r) => r.x !== v.x || r.y !== v.y).map((r) => Math.atan2(r.y - v.y, r.x - v.x)).sort((a, b) => a - b)
+  if (!turns.length) return null
+  let best = { from: turns[turns.length - 1], gap: turns[0] + 2 * Math.PI - turns[turns.length - 1] }
+  for (let i = 0; i + 1 < turns.length; i++) {
+    const gap = turns[i + 1] - turns[i]
+    if (gap > best.gap + 1e-9) best = { from: turns[i], gap }
+  }
+  const mid = best.from + best.gap / 2
+  return { x: Math.cos(mid), y: Math.sin(mid) }
+}
+
+/**
+ * A segment made from a side of `poly` before 8 November 2026, when such segments did not yet say which polygon
+ * they came from: told apart by how they were made. Its ends are two neighboring corners, it has the polygon's
+ * color and width, no length shown and no dashes, and it came after the polygon. A segment drawn by hand shows
+ * its length, and the sides of the Triangle tool too, so they stay.
+ */
+function oldSideOf(scene: Scene, poly: PolygonObj, o: GObj) {
+  if (o.type !== 'segment' || o.side || o.ghost || o.showLength || o.dashed || o.dep.kind !== 'twoPoints') return false
+  if (o.color !== poly.color || o.width !== poly.width) return false
+  const { a, b } = o.dep
+  const n = poly.points.length
+  const neighbors = poly.points.some((p, i) => {
+    const q = poly.points[(i + 1) % n]
+    return (p === a && q === b) || (p === b && q === a)
+  })
+  return neighbors && scene.objects.indexOf(o) > scene.objects.indexOf(poly)
+}
+
 /** Ids to remove when deleting `id`: the object plus everything (transitively) built on it. */
 export function cascade(scene: Scene, id: string): Set<string> {
   const out = new Set([id])
@@ -334,11 +368,14 @@ export function cascade(scene: Scene, id: string): Set<string> {
   if ((self?.type === 'path' || (self?.type === 'point' && self.locked)) && self.group) {
     for (const o of scene.objects) if ((o.type === 'path' || o.type === 'point') && o.group === self.group) out.add(o.id)
   }
+  if (self?.type === 'polygon') for (const o of scene.objects) if (oldSideOf(scene, self, o)) out.add(o.id)
   let changed = true
   while (changed) {
     changed = false
     for (const o of scene.objects) {
-      if (!out.has(o.id) && dependsOn(o).some((d) => out.has(d))) {
+      // a segment made from the side of a polygon goes with the polygon
+      const ofSide = o.type === 'segment' && !!o.side && out.has(o.side)
+      if (!out.has(o.id) && (ofSide || dependsOn(o).some((d) => out.has(d)))) {
         out.add(o.id)
         changed = true
       }
@@ -351,8 +388,10 @@ export function cascade(scene: Scene, id: string): Set<string> {
  * Where lines of a solid only seem to cross, being in fact one behind the other: the one behind is broken there.
  * Lines that really meet have the same depth at that spot, so they stay whole. Only edges and segments
  * whose ends have a known depth take part, and only within a solid. Gives the gaps as lengths along each line.
+ * `inkNear` (a point of the plane): whether the ink of a solid drawn on a sheet is still there, so that an edge
+ * rubbed out with the eraser no longer breaks what is behind it.
  */
-export function solidGaps(scene: Scene, resolved: Resolved, gap: number): Map<string, [number, number][]> {
+export function solidGaps(scene: Scene, resolved: Resolved, gap: number, inkNear?: (at: Vec) => boolean): Map<string, [number, number][]> {
   const byId = new Map(scene.objects.map((o) => [o.id, o]))
   const lineDepth = (lineId: string, at: Vec, seen: Set<string>) => {
     const o = byId.get(lineId)
@@ -387,12 +426,13 @@ export function solidGaps(scene: Scene, resolved: Resolved, gap: number): Map<st
     return null
   }
 
-  type Item = { id: string; pts: [number, number][]; depth: number[]; x0: number; x1: number; y0: number; y1: number }
+  type Item = { id: string; pts: [number, number][]; depth: number[]; x0: number; x1: number; y0: number; y1: number; ink: boolean }
   const groups = new Map<string, Item[]>()
-  const add3d = (group: string, id: string, pts: [number, number][], depth: number[]) => {
+  // `ink`: an edge drawn on the sheet, which cannot be broken, but breaks what is behind it
+  const add3d = (group: string, id: string, pts: [number, number][], depth: number[], ink = false) => {
     const xs = pts.map((p) => p[0])
     const ys = pts.map((p) => p[1])
-    const item = { id, pts, depth, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }
+    const item = { id, pts, depth, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), ink }
     if (!groups.has(group)) groups.set(group, [])
     groups.get(group)!.push(item)
   }
@@ -403,6 +443,21 @@ export function solidGaps(scene: Scene, resolved: Resolved, gap: number): Map<st
       const b = depthOf(o.dep.b, new Set())
       const l = resolved.lines.get(o.id)
       if (a && b && l && a.group === b.group) add3d(a.group, o.id, [[l.a.x, l.a.y], [l.b.x, l.b.y]], [a.depth, b.depth])
+    }
+  }
+  // In the notebook a solid is ink and only its corners are here: its edges are rebuilt from the corners they join.
+  // On the board the edges are paths of their own, so a group that has them is left as it is.
+  const drawn = new Set(scene.objects.flatMap((o) => (o.type === 'path' && o.group && o.depth ? [o.group] : [])))
+  const cornerAt = new Map<string, PointObj>()
+  for (const o of scene.objects) {
+    if (o.type === 'point' && o.group && o.corner != null && o.depth != null && !drawn.has(o.group)) cornerAt.set(o.group + ':' + o.corner, o)
+  }
+  for (const p of cornerAt.values()) {
+    for (const k of p.joins ?? []) {
+      const q = cornerAt.get(p.group + ':' + k)
+      const a = resolved.points.get(p.id)
+      const b = q && resolved.points.get(q.id)
+      if (q && a && b && k > p.corner!) add3d(p.group!, 'edge:' + p.id + ':' + q.id, [[a.x, a.y], [b.x, b.y]], [p.depth!, q.depth!], true)
     }
   }
 
@@ -436,9 +491,13 @@ export function solidGaps(scene: Scene, resolved: Resolved, gap: number): Map<st
               if (t >= 0 && t < 1 && u >= 0 && u < 1) {
                 const za = A.depth[p] + (A.depth[p + 1] - A.depth[p]) * t
                 const zb = B.depth[q] + (B.depth[q + 1] - B.depth[q]) * u
-                if (Math.abs(za - zb) > same) {
-                  if (za < zb) mark(A.id, sa + la * t)
-                  else mark(B.id, sb + lb * u)
+                // an edge of ink breaks a line only where the ink still is
+                const front = za < zb ? B : A
+                const inkGone = front.ink && inkNear && !inkNear({ x: ax + (bx - ax) * t, y: ay + (by - ay) * t })
+                if (Math.abs(za - zb) > same && !inkGone) {
+                  if (za < zb) {
+                    if (!A.ink) mark(A.id, sa + la * t)
+                  } else if (!B.ink) mark(B.id, sb + lb * u)
                 }
               }
             }
@@ -536,6 +595,84 @@ export function line3(objects: GObj[], resolved: Resolved, id: string): Line3 | 
   const a = pos3(objects, resolved, l.dep.a)
   const b = pos3(objects, resolved, l.dep.b)
   return a && b && a.group === b.group ? { group: a.group, a: a.at, b: b.at, ids: [l.dep.a, l.dep.b] } : null
+}
+
+/**
+ * The direction the viewer looks from, in the solid's own coordinates: the depth of each corner on the screen
+ * is that of its place on the body along this direction (plus a constant), so it is found from the corners.
+ */
+function viewerOf(corners: PointObj[]): V3 | null {
+  const rows = corners.filter((c) => c.at3 && c.depth != null).map((c) => [...c.at3!, 1, c.depth!])
+  if (rows.length < 4) return null
+  // least squares: (Σ r rᵀ) x = Σ r·depth, solved by elimination
+  const m = [0, 1, 2, 3].map((i) => [0, 1, 2, 3].map((j) => rows.reduce((s, r) => s + r[i] * r[j], 0)).concat(rows.reduce((s, r) => s + r[i] * r[4], 0)))
+  for (let c = 0; c < 4; c++) {
+    let p = c
+    for (let r = c + 1; r < 4; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r
+    if (Math.abs(m[p][c]) < 1e-12) return null
+    ;[m[c], m[p]] = [m[p], m[c]]
+    for (let r = 0; r < 4; r++) {
+      if (r === c) continue
+      const k = m[r][c] / m[c][c]
+      for (let j = c; j < 5; j++) m[r][j] -= k * m[c][j]
+    }
+  }
+  return [m[0][4] / m[0][0], m[1][4] / m[1][1], m[2][4] / m[2][2]]
+}
+
+/**
+ * Whether a segment between two points of a solid is out of sight: inside the body, or on a face turned away.
+ * A convex body hides all of its inside, and each face is wholly seen or wholly hidden. On a cylinder or a cone
+ * the only flat faces are the disks; a segment along an edge is seen when one of its two faces is.
+ * Null when it cannot be told: not on one solid, or along the curved side of a cylinder or a cone.
+ */
+export function hiddenOnSolid(objects: GObj[], resolved: Resolved, id: string): boolean | null {
+  const l = line3(objects, resolved, id)
+  if (!l) return null
+  const corners = objects.filter((o): o is PointObj => o.type === 'point' && o.group === l.group && !!o.at3 && o.corner != null)
+  const viewer = viewerOf(corners)
+  if (!viewer) return null
+  const size = Math.max(...corners.map((c) => len3(minus3(c.at3!, corners[0].at3!))))
+  const eps = 1e-6 * size
+  if (len3(minus3(l.b, l.a)) < eps) return null
+  const byCorner = new Map(corners.map((c) => [c.corner!, c]))
+  const curved = corners.some((c) => c.rim || c.ball)
+  // the equator of a sphere is a circle on it, not a face: a sphere has none
+  const sphere = corners.some((c) => c.ball)
+  const middle = corners.reduce<V3>((s, c) => [s[0] + c.at3![0] / corners.length, s[1] + c.at3![1] / corners.length, s[2] + c.at3![2] / corners.length], [0, 0, 0])
+  /** A plane through p with normal n, turned outwards, away from the middle of the body. */
+  const outward = (p: V3, n: V3) => {
+    const unit = n.map((x) => x / len3(n)) as V3
+    return { p, n: dot3(unit, minus3(middle, p)) > 0 ? (unit.map((x) => -x) as V3) : unit }
+  }
+  const faces: { p: V3; n: V3 }[] = []
+  if (curved) {
+    // a generator of the curved side: whether it is in sight changes along the side; left as drawn
+    const [a, b] = l.ids.map((pid) => objects.find((o): o is PointObj => o.id === pid && o.type === 'point'))
+    if (a?.corner != null && b?.corner != null && a.group === l.group && b.group === l.group && a.joins?.includes(b.corner)) return null
+    for (const c of corners) {
+      if (!c.rim || sphere) continue
+      const [u, v] = c.rim.map((k) => byCorner.get(k)?.at3)
+      if (!u || !v) continue
+      const n = cross3(minus3(u, c.at3!), minus3(v, c.at3!))
+      if (len3(n) > eps) faces.push(outward(c.at3!, n))
+    }
+  } else {
+    const d = minus3(l.b, l.a)
+    for (const c of corners) {
+      const n = cross3(d, minus3(c.at3!, l.a))
+      if (len3(n) < eps * size) continue
+      const f = outward(l.a, n)
+      const side = corners.map((x) => dot3(f.n, minus3(x.at3!, l.a)))
+      // a face: no corner beyond it, and at least three on it
+      if (side.every((s) => s < eps) && side.filter((s) => Math.abs(s) < eps).length >= 3
+        && !faces.some((g) => dot3(g.n, f.n) > 1 - 1e-9)) faces.push(f)
+    }
+  }
+  const on = faces.filter((f) => Math.abs(dot3(f.n, minus3(l.a, f.p))) < eps && Math.abs(dot3(f.n, minus3(l.b, f.p))) < eps)
+  // through the inside of the body: always hidden
+  if (!on.length) return true
+  return !on.some((f) => dot3(f.n, viewer) > 1e-9)
 }
 
 /** How many units of the plane one unit of the body is: it changes when the solid is scaled. */

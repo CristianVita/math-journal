@@ -1,6 +1,7 @@
 // Freehand notebook: write with the mouse, a pen tablet or a finger, like with a pen on paper.
 // Strokes are kept as points and drawn as SVG outlines (perfect-freehand), so they stay sharp and small to store.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { getStroke } from 'perfect-freehand'
 import { saveFile } from '../platform'
 import { rasterize, saveDocx, savePdf, svgElementPicture, today } from '../export/exportDoc'
@@ -8,11 +9,13 @@ import GeometryBoard, { SHEET_ORIGIN } from '../geometry/GeometryBoard'
 import { dist, resolve } from '../geometry/engine'
 import { emptyScene, type Scene } from '../geometry/types'
 import { usePrompt } from '../components/PromptDialog'
+import { readLocal, writeLocal } from '../db'
+import { eraseLine } from './erase'
 import { defaultInstruments, InstrumentsLayer, PX_PER_CM, type Bounds, type Instruments } from './instruments'
 import { SolidIcon, ToolIcon } from '../components/ToolIcon'
 import { InstrumentsBar, linePoints, round, useInstruments } from './useInstruments'
 import { SHAPES, shapePoints, shapeStrokes, type ShapeId } from './shapes'
-import { SOLIDS, solidPoints, solidStrokes, type SolidId } from './solids'
+import { SOLIDS, solidObjects, solidStrokes, type SolidId } from './solids'
 
 type Tool = 'pen' | 'marker' | 'text' | 'shape' | 'geometry' | 'eraser'
 type Paper = 'grid' | 'lines' | 'blank'
@@ -98,7 +101,7 @@ const ZOOM_STEP = 1.1
 
 function load(): Notebook {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = readLocal(KEY)
     if (raw) {
       const saved = JSON.parse(raw)
       // a notebook saved before there were constructions has none
@@ -338,20 +341,44 @@ export default function NotebookPage() {
     ro.observe(wrap)
     return () => ro.disconnect()
   }, [])
-  const scrollTo = useRef<{ x: number; y: number } | null>(null)
-  /** The new zoom, keeping in place the point under the pointer (without one, the middle of what is visible). */
-  const zoomTo = (next: number, clientX?: number, clientY?: number) => {
+  /**
+   * The new zoom, keeping in place the point under the pointer (without one, the middle of what is visible).
+   * It is set on the page right away, without drawing anything anew: the sheet is only scaled. React, and with it
+   * the constructions, learns of it once the wheel stops (`settleZoom`), so that a turn of the wheel stays light.
+   */
+  const applyZoom = (next: number, clientX?: number, clientY?: number) => {
     const wrap = wrapRef.current
-    const z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)) * 100) / 100
-    if (!wrap || z === zoomNow.current) return
+    const sizer = wrap?.firstElementChild as HTMLElement | null | undefined
+    const page = sizer?.firstElementChild as HTMLElement | null | undefined
+    const z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)) * 1000) / 1000
+    if (!wrap || !sizer || !page || !frame || z === zoomNow.current) return false
     const r = wrap.getBoundingClientRect()
     const ax = clientX === undefined ? wrap.clientWidth / 2 : clientX - r.left
     const ay = clientY === undefined ? wrap.clientHeight / 2 : clientY - r.top
     const k = z / zoomNow.current
-    scrollTo.current = { x: (wrap.scrollLeft + ax) * k - ax, y: (wrap.scrollTop + ay) * k - ay }
+    const x = (wrap.scrollLeft + ax) * k - ax
+    const y = (wrap.scrollTop + ay) * k - ay
+    sizer.style.width = frame.w * z + 'px'
+    sizer.style.height = frame.h * z + 'px'
+    page.style.transform = `scale(${z})`
+    wrap.scrollLeft = x
+    wrap.scrollTop = y
     zoomNow.current = z
-    setZoom(z)
+    syncFloating()
+    return true
   }
+  const settleTimer = useRef(0)
+  const settleZoom = () => {
+    window.clearTimeout(settleTimer.current)
+    settleTimer.current = 0
+    wrapRef.current?.classList.remove('zooming')
+    setZoom(zoomNow.current)
+  }
+  const zoomTo = (next: number, clientX?: number, clientY?: number) => {
+    if (applyZoom(next, clientX, clientY)) settleZoom()
+  }
+  // the turns of the wheel that came since the last frame, added up
+  const wheel = useRef<{ dy: number; x: number; y: number; frame: number } | null>(null)
   // what floats above the sheet (the status of the tools, the inspector) stays in the visible part, at its usual size
   const syncFloating = () => {
     const wrap = wrapRef.current
@@ -363,30 +390,60 @@ export default function NotebookPage() {
     page.style.setProperty('--sheet-top', wrap.scrollTop / z + 'px')
     page.style.setProperty('--sheet-right', Math.min(0, (wrap.scrollLeft + wrap.clientWidth) / z - page.offsetWidth) + 'px')
   }
-  useLayoutEffect(() => {
-    const wrap = wrapRef.current
-    if (wrap && scrollTo.current) {
-      wrap.scrollLeft = scrollTo.current.x
-      wrap.scrollTop = scrollTo.current.y
-      scrollTo.current = null
-    }
-    syncFloating()
-  }, [zoom, frame])
+  useLayoutEffect(() => syncFloating(), [zoom, frame])
+  // the latest functions, for the listeners added once
+  const zoomFns = useRef({ applyZoom, settleZoom })
+  zoomFns.current = { applyZoom, settleZoom }
   useEffect(() => {
     const wrap = wrapRef.current
     if (!wrap) return
     const onWheel = (e: WheelEvent) => {
       // not passive: it must not scroll the page, nor zoom the whole window with Ctrl
       e.preventDefault()
-      zoomTo(zoomNow.current * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP), e.clientX, e.clientY)
+      // a notch of a mouse wheel is about 100 (3 lines); a touchpad sends many small ones
+      const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
+      if (wheel.current) {
+        wheel.current.dy += dy
+        wheel.current.x = e.clientX
+        wheel.current.y = e.clientY
+        return
+      }
+      wrap.classList.add('zooming')
+      wheel.current = {
+        dy, x: e.clientX, y: e.clientY,
+        // all the turns of one frame make a single change
+        frame: requestAnimationFrame(() => {
+          const w = wheel.current!
+          wheel.current = null
+          // one notch: the old 10%, a touchpad: in proportion; never more than three notches at once
+          const step = Math.max(-300, Math.min(300, w.dy))
+          zoomFns.current.applyZoom(zoomNow.current * Math.pow(ZOOM_STEP, -step / 100), w.x, w.y)
+          window.clearTimeout(settleTimer.current)
+          settleTimer.current = window.setTimeout(() => zoomFns.current.settleZoom(), 180)
+        }),
+      }
+    }
+    // a click or a stroke during the wheel: everything learns the zoom first
+    const onDown = () => {
+      if (settleTimer.current) flushSync(() => zoomFns.current.settleZoom())
     }
     wrap.addEventListener('wheel', onWheel, { passive: false })
-    return () => wrap.removeEventListener('wheel', onWheel)
+    wrap.addEventListener('pointerdown', onDown, { capture: true })
+    return () => {
+      wrap.removeEventListener('wheel', onWheel)
+      wrap.removeEventListener('pointerdown', onDown, { capture: true })
+      if (wheel.current) cancelAnimationFrame(wheel.current.frame)
+      window.clearTimeout(settleTimer.current)
+    }
   }, [])
 
   const strokes = nb.pages[nb.current]
   const scene = nb.scenes[nb.current]
   const blankPage = !strokes.length && !scene.objects.length
+  // the edge of a solid drawn as ink breaks the lines behind it only where it was not rubbed out;
+  // 7 px reaches over the gap between two dashes of a hidden edge
+  const inkNear = useMemo(() => (x: number, y: number) => strokes.some((s) => s.tool !== 'text'
+    && s.points.some((p, i) => i > 0 ? segDist(x, y, s.points[i - 1][0], s.points[i - 1][1], p[0], p[1]) <= 7 : Math.hypot(p[0] - x, p[1] - y) <= 7)), [strokes])
   const size = SIZES[tool][sizeIdx[tool]]
   const drawsOn = tool === 'pen' || tool === 'marker'
   // with a figure or the text tool the compass still draws; the eraser only moves the instruments
@@ -411,13 +468,7 @@ export default function NotebookPage() {
     onShown: () => { if (!drawsOn) setTool('pen') },
   })
 
-  const saveNotebook = (data: Notebook) => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(data))
-    } catch {
-      /* ignore quota / private mode */
-    }
-  }
+  const saveNotebook = (data: Notebook) => writeLocal(KEY, JSON.stringify(data))
 
   useEffect(() => {
     const t = setTimeout(() => saveNotebook(nb), 400)
@@ -551,15 +602,32 @@ export default function NotebookPage() {
 
   const pointAt = (e: { clientX: number; clientY: number; pressure: number; pointerType: string }) => {
     const r = svgRef.current!.getBoundingClientRect()
-    return [round((e.clientX - r.left) / zoom), round((e.clientY - r.top) / zoom), e.pointerType === 'pen' ? round(e.pressure || 0.5, 2) : 0.5]
+    return [round((e.clientX - r.left) / zoomNow.current), round((e.clientY - r.top) / zoomNow.current), e.pointerType === 'pen' ? round(e.pressure || 0.5, 2) : 0.5]
   }
 
-  const eraseAt = (x: number, y: number) =>
+  // where the eraser was at the last event: it erases along the way from there, however fast it moves
+  const eraserWas = useRef<number[] | null>(null)
+  /** The eraser takes away only what it passes over: a line is cut there, a text goes whole. */
+  const eraseAt = (x: number, y: number) => {
+    const from = eraserWas.current ?? [x, y]
+    eraserWas.current = [x, y]
     setNb((n) => {
       const page = n.pages[n.current]
-      const kept = page.filter((s) => !touches(s, x, y, size))
-      return kept.length === page.length ? n : { ...n, pages: n.pages.map((p, i) => (i === n.current ? kept : p)) }
+      let changed = false
+      const kept = page.flatMap((s): Item[] => {
+        if (s.tool === 'text') {
+          if (!touches(s, x, y, size)) return [s]
+          changed = true
+          return []
+        }
+        const pieces = eraseLine(s.points, s.size, from, [x, y], size)
+        if (!pieces) return [s]
+        changed = true
+        return pieces.map((points, i) => ({ ...s, id: i ? uid() : s.id + '-' + uid(), points }))
+      })
+      return changed ? { ...n, pages: n.pages.map((p, i) => (i === n.current ? kept : p)) } : n
     })
+  }
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     toOpen.current = null
@@ -581,6 +649,7 @@ export default function NotebookPage() {
       active.current = { ...base, mode: 'shape' }
     } else if (tool === 'eraser') {
       active.current = { ...base, mode: 'erase' }
+      eraserWas.current = null
       eraseAt(p[0], p[1])
     } else {
       active.current = { ...base, mode: 'draw' }
@@ -637,16 +706,17 @@ export default function NotebookPage() {
       // a click without a drag leaves nothing behind
       if (e.type === 'pointerup' && draft.length && Math.hypot(ux - a.start[0], uy - a.start[1]) >= 4) {
         remember(nb.current, a.before)
-        setPage(nb.current, [...a.before, ...draft])
-        // its corners go on the constructions layer, to build on with Construcții
         const wx = (px: number) => (px - SHEET_ORIGIN.x) / PX_PER_CM
         const wy = (py: number) => (SHEET_ORIGIN.y - py) / PX_PER_CM
-        const extra = { color: colors.shape, group: uid(), locked: true }
         const solid = SOLIDS.find((f) => f.id === shape)
-        const corners = solid
-          ? solidPoints(solid.id, wx(a.start[0]), wy(a.start[1]), wx(ux), wy(uy), scene.objects, extra)
-          : shapePoints(shape as ShapeId, a.start, ux, uy, scene.objects, ([px, py]) => [wx(px), wy(py)], extra)
-        setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? { ...s, objects: [...s.objects, ...corners] } : s)) }))
+        // a solid is not ink: it lives on the constructions layer, as on the board, so that it can be turned in
+        // space, its hidden edges stay right, and lines behind it are broken; Șterge takes it away, not the eraser
+        const added = solid
+          ? solidObjects(solid.id, wx(a.start[0]), wy(a.start[1]), wx(ux), wy(uy), scene.objects, { color: colors.shape, group: uid() })
+          // a figure is ink; its corners go on the constructions layer, to build on with Construcții
+          : shapePoints(shape as ShapeId, a.start, ux, uy, scene.objects, ([px, py]) => [wx(px), wy(py)], { color: colors.shape, group: uid(), locked: true })
+        if (!solid) setPage(nb.current, [...a.before, ...draft])
+        setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? { ...s, objects: [...s.objects, ...added] } : s)) }))
       }
       return
     }
@@ -715,7 +785,7 @@ export default function NotebookPage() {
             <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} title="Pix (P)"><ToolIcon name="pen" />Pix</button>
             <button className={tool === 'marker' ? 'active' : ''} onClick={() => setTool('marker')} title="Evidențiator (M)"><ToolIcon name="marker" />Evidențiator</button>
             <button className={tool === 'text' ? 'active' : ''} onClick={() => setTool('text')} title="Text (T): clic pe foaie și scrii; clic pe un text ca să-l modifici, trage de el ca să-l muți"><ToolIcon name="text" />Text</button>
-            <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge trăsăturile atinse"><ToolIcon name="eraser" />Radieră</button>
+            <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge doar porțiunea pe care treci; un text atins se șterge tot"><ToolIcon name="eraser" />Radieră</button>
           </div>
           {tool !== 'eraser' && tool !== 'geometry' && (
             <div className="swatches">
@@ -811,10 +881,8 @@ export default function NotebookPage() {
         >
           <PaperBackground paper={nb.paper} />
           {strokes.map((s) => s.id !== editing?.id && <PageItem key={s.id} s={s} />)}
-          <InstrumentsLayer tools={nb.tools} bounds={bounds} />
           {drawing && <StrokePath s={drawing} />}
           {draft.map((d) => <StrokePath key={d.id} s={d} />)}
-          {inst.hint && <text className="nb-hint" x={inst.hint.x} y={inst.hint.y}>{inst.hint.text}</text>}
           {tool === 'eraser' && cursor && (
             <circle className="eraser-cursor" cx={cursor.x} cy={cursor.y} r={size} fill="rgba(255,255,255,.6)" stroke="#6b7280" strokeDasharray="3 3" />
           )}
@@ -831,9 +899,15 @@ export default function NotebookPage() {
               onActivate: () => setTool('geometry'),
               onRemember: (before) => remember(nb.current, strokes, before),
               zoom,
+              inkNear,
             }}
           />
         </div>
+        {/* the instruments lie over the constructions too, as they would over the page; they are reached by where the pointer is, not through this layer */}
+        <svg className="sheet-instruments" aria-hidden>
+          <InstrumentsLayer tools={nb.tools} bounds={bounds} />
+          {inst.hint && <text className="nb-hint" x={inst.hint.x} y={inst.hint.y}>{inst.hint.text}</text>}
+        </svg>
         {editing && editBox && (
           <textarea
             ref={noteInput}

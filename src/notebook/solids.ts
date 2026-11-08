@@ -40,8 +40,8 @@ const VIEWS: Record<SolidId, [number, number]> = {
   cylinder: [-20, 20],
   cone: [-20, 20],
   sphere: [-20, 20],
-  tetrahedron: [-10, 30],
-  pyramid3: [-10, 30],
+  tetrahedron: [-10, 16],
+  pyramid3: [-10, 16],
   pyramid4: [-25, 20],
   pyramid6: [-10, 20],
 }

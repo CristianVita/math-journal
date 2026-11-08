@@ -35,6 +35,11 @@ export interface PointObj {
   color: string
   dep: PointDep
   hidden?: boolean
+  /**
+   * a corner of a solid or a figure drawn only as an illustration: neither the point nor its letter is drawn, and
+   * new constructions do not catch on it; the cursor still finds it, to show it again
+   */
+  quiet?: boolean
   /** a corner of a solid: it shares the group of the solid's edges */
   group?: string
   /** stays where it is: on a sheet the solid is ink, and cannot follow its corners */
@@ -70,6 +75,10 @@ export interface LineObj {
   label?: string
   /** not drawn: an edge of a solid, turned into a line for the tools to build on */
   ghost?: boolean
+  /** the polygon this segment is a side of: made from it for a tool, and deleted with it */
+  side?: string
+  /** false: a segment on a solid keeps its own line, instead of turning dashed where the solid hides it */
+  autoDash?: boolean
 }
 
 export interface CircleObj {
@@ -95,6 +104,8 @@ export interface ArcObj {
   sector?: boolean
   filled?: boolean
   showRadius?: boolean
+  /** the measure of the arc stays written, not only while it is drawn */
+  showMeasure?: boolean
 }
 
 export interface PolygonObj {

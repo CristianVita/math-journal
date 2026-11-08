@@ -1,6 +1,6 @@
 [package]
 name = "math-journal"
-version = "0.5.0"
+version = "0.6.0"
 description = "Jurnal pentru meditatii de matematica"
 authors = ["CristianVita"]
 license = ""

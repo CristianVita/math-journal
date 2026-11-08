@@ -11,6 +11,8 @@ import {
   angleAt,
   angleCCW,
   cascade,
+  hiddenOnSolid,
+  labelDirection,
   dependsOn,
   dist,
   distToLine,
@@ -56,12 +58,13 @@ import { createPortal } from 'react-dom'
 import { type Triangle, solveTriangle, triangleExtras, triangleVertices } from '../trig/trigMath'
 import { defaultInstruments, InstrumentsLayer, PX_PER_CM, type Instruments } from '../notebook/instruments'
 import { InstrumentsBar, useInstruments } from '../notebook/useInstruments'
+import { readLocal, writeLocal } from '../db'
 
 const TOOLS_KEY = 'math-journal:board-instruments'
 
 function loadInstruments(): Instruments {
   try {
-    const raw = localStorage.getItem(TOOLS_KEY)
+    const raw = readLocal(TOOLS_KEY)
     if (raw) return { ...defaultInstruments(), ...JSON.parse(raw) }
   } catch {
     /* storage unavailable: start with them put away */
@@ -143,7 +146,7 @@ const TOOLS: { id: Tool; label: string; hint: string[] }[] = [
   { id: 'mediatrix', label: 'Mediatoare', hint: ['Click pe segmentul, latura de poligon sau muchia de corp căreia vrei să-i construiești mediatoarea'] },
   { id: 'parallel', label: 'Paralelă', hint: ['Click pe punct (sau pe un loc liber, pentru un punct nou), apoi pe dreaptă; merge și invers', 'Acum al doilea element (dreapta sau punctul)'] },
   { id: 'bisector', label: 'Bisectoare', hint: ['Click pe arcul unghiului, sau pe prima latură (ori pe 3 puncte: latură, vârf, latură)', 'Acum a doua latură (sau vârful, dacă ai început cu un punct)', 'Un punct de pe a doua latură'] },
-  { id: 'intersection', label: 'Intersecție', hint: ['Prima dreaptă / segment', 'A doua dreaptă / segment'] },
+  { id: 'intersection', label: 'Intersecție', hint: ['Prima linie: dreaptă, segment, latură de poligon sau muchie de corp', 'A doua linie'] },
   { id: 'text', label: 'Text / formulă', hint: ['Click unde vrei textul (LaTeX între $...$)'] },
   { id: 'pen', label: 'Desen liber', hint: ['Desenează liber cu mouse-ul sau stylus-ul'] },
   { id: 'delete', label: 'Șterge', hint: ['Click pe obiectul de șters (se șterge și ce depinde de el)'] },
@@ -175,6 +178,8 @@ interface Props {
     onRemember: (before: Scene) => void
     /** how much larger the page is shown: the pointer comes in screen pixels */
     zoom?: number
+    /** whether there is ink on the page next to this point of the sheet (pixels): the edges of the solids drawn as ink */
+    inkNear?: (x: number, y: number) => boolean
   }
 }
 
@@ -191,7 +196,8 @@ type XformBase = {
 }
 
 // `at`: where on the line the user clicked (the angle-between-lines tool uses it to pick a side)
-type Pick = { kind: 'point' | 'line'; id: string; at?: Vec }
+/** `side`: the segment of a side or an edge picked while the construction is not done yet; it joins the board only when it is. */
+type Pick = { kind: 'point' | 'line'; id: string; at?: Vec; side?: LineObj }
 
 export default function GeometryBoard({ scene, onChange, height = 560, readOnly = false, instruments = false, sheet }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -277,7 +283,18 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     return { ...scene.view, scale: PX_PER_CM, cx: (size.w / 2 - SHEET_ORIGIN.x) / PX_PER_CM, cy: (SHEET_ORIGIN.y - size.h / 2) / PX_PER_CM }
   }, [readOnly, onSheet, scene, resolved, size])
   // half of each break in a line of a solid, a few pixels whatever the zoom
-  const gaps = useMemo(() => solidGaps(scene, resolved, 5 / view.scale), [scene, resolved, view.scale])
+  const inkNear = sheet?.inkNear
+  const gaps = useMemo(() => solidGaps(scene, resolved, 5 / view.scale, inkNear && ((at) => inkNear(SHEET_ORIGIN.x + at.x * PX_PER_CM, SHEET_ORIGIN.y - at.y * PX_PER_CM))), [scene, resolved, view.scale, inkNear])
+  // segments on a solid that it hides: inside it, or on a face turned away; they are drawn dashed, also after a turn
+  const outOfSight = useMemo(() => {
+    const out = new Map<string, boolean>()
+    for (const o of scene.objects) {
+      if (o.type !== 'segment' || o.ghost) continue
+      const h = hiddenOnSolid(scene.objects, resolved, o.id)
+      if (h !== null) out.set(o.id, h)
+    }
+    return out
+  }, [scene, resolved])
   const P = (id: string) => resolved.points.get(id) ?? null
   const L = (id: string) => resolved.lines.get(id) ?? null
   /** Vertex and one point on each side for the angle between two lines (null if they are parallel). */
@@ -430,17 +447,26 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const planeToWorld = ([x, y]: number[]): [number, number] => [x / PX_PER_CM, -y / PX_PER_CM]
   const [instTools, setInstTools] = useState<Instruments>(() => (instruments ? loadInstruments() : defaultInstruments()))
   useEffect(() => {
-    if (!instruments) return
-    try {
-      localStorage.setItem(TOOLS_KEY, JSON.stringify(instTools))
-    } catch {
-      /* ignore quota / private mode */
-    }
+    if (instruments) writeLocal(TOOLS_KEY, JSON.stringify(instTools))
   }, [instruments, instTools])
   const [planeX, planeY] = toPlane({ x: 0, y: 0 })
   const instPath = useRef<string>()
   const instPathObj = ({ points, thin }: { points: number[][]; thin?: boolean }): PathObj =>
     ({ id: uid(), type: 'path', points: points.map(planeToWorld), color, width: thin ? 1.5 : 2.5 })
+  /**
+   * A straight line drawn along the ruler, the set square or the protractor becomes a real segment, for the tools
+   * to build on; its ends are hidden points, as a ruler leaves no dots. Arcs stay drawings.
+   */
+  const asSegment = (p: PathObj): GObj[] => {
+    const pts = p.points
+    if (pts.length < 2) return [p]
+    const [[ax, ay], [bx, by]] = [pts[0], pts[pts.length - 1]]
+    const length = Math.hypot(bx - ax, by - ay)
+    if (length < 1e-6 || !pts.every(([x, y]) => Math.abs((x - ax) * (by - ay) - (y - ay) * (bx - ax)) / length < 1e-6 * Math.max(1, length))) return [p]
+    const end = (x: number, y: number): PointObj => ({ id: uid(), type: 'point', x, y, label: '', color: p.color, dep: { kind: 'free' }, hidden: true })
+    const [a, b] = [end(ax, ay), end(bx, by)]
+    return [a, b, { id: p.id, type: 'segment', dep: { kind: 'twoPoints', a: a.id, b: b.id }, color: p.color, width: p.width >= 2 ? 2 : p.width, showLength: false }]
+  }
   const inst = useInstruments({
     tools: instTools,
     setTools: setInstTools,
@@ -457,7 +483,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         objects: sceneRef.current.objects.map((o) => (o.id === instPath.current && o.type === 'path' ? { ...o, points: world } : o)),
       })
     },
-    onStrokes: (list) => commit([...sceneRef.current.objects, ...list.map(instPathObj)]),
+    onStrokes: (list) => commit([...sceneRef.current.objects, ...list.flatMap((s) => (s.thin ? [instPathObj(s)] : asSegment(instPathObj(s))))]),
     // drawing along an instrument is what the pen does
     onShown: () => changeTool('pen'),
     roams: true,
@@ -515,7 +541,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       if (d <= tol && (!best || d < best.d)) best = { o, d }
     }
     for (const o of objs) {
-      if (o.type === 'point' && !o.hidden) {
+      if (o.type === 'point' && !o.hidden && (!o.quiet || tool === 'move')) {
         const p = P(o.id)
         if (p) consider(o, dist(toScreen(p), s) - 4, 8)
       }
@@ -781,6 +807,53 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     return side && segmentBetween(objs, side.a, side.b, side.extra)
   }
 
+  /**
+   * The line under the cursor, for a construction that needs more clicks: a side or an edge that has no segment
+   * yet comes back as `side`, kept apart, so that nothing is left on the board if the construction is given up.
+   */
+  /**
+   * Deletes `id` with everything built on it. A solid also takes what is drawn wholly inside it (as when it is
+   * moved); the status bar says how much went with it, since Ctrl+Z is the way back.
+   */
+  const removeObj = (id: string) => {
+    const now = sceneRef.current
+    const gone = cascade(now, id)
+    const self = now.objects.find((o) => o.id === id)
+    const solid = (self?.type === 'path' || self?.type === 'point') && self.group
+      && now.objects.some((o) => o.type === 'path' && o.group === self.group && o.depth)
+    let inside = 0
+    if (solid) {
+      for (const c of figureWithContents(now, resolve(now).points, id)) {
+        if (gone.has(c)) continue
+        for (const g of cascade(now, c)) {
+          if (gone.has(g)) continue
+          gone.add(g)
+          const o = now.objects.find((x) => x.id === g)
+          // what the user would count: not the hidden helpers
+          if (o && !(o.type === 'point' && o.hidden) && !(isLinear(o) && o.ghost)) inside++
+        }
+      }
+    }
+    commit(now.objects.filter((o) => !gone.has(o.id)))
+    if (selected && gone.has(selected)) setSelected(null)
+    if (inside) flash(`Am șters corpul și ${inside === 1 ? 'un obiect desenat' : `${inside} obiecte desenate`} în interiorul lui. Ctrl+Z le aduce înapoi.`)
+  }
+
+  const pickLine = (objs: GObj[], s: Vec, lineTol = 6, sideTol = 10): { id: string; side?: LineObj } | null => {
+    const hit = hitTest(s, isLinear, lineTol)
+    if (hit) return { id: hit.id }
+    const kept = pending.flatMap((p) => (p.side ? [p.side] : []))
+    const draft = [...objs, ...kept]
+    const seg = sideAt(draft, s, sideTol)
+    if (!seg) return null
+    return draft.length > objs.length + kept.length || kept.includes(seg) ? { id: seg.id, side: seg } : { id: seg.id }
+  }
+
+  /** The construction is done: the sides picked for it join the board. */
+  const addSides = (objs: GObj[], picks: Pick[]) => {
+    for (const p of picks) if (p.side && !objs.some((o) => o.id === p.side!.id)) objs.push(p.side)
+  }
+
   const sideNear = (objs: GObj[], s: Vec, tolerance: number) => {
     const w = toWorld(s)
     let best: { a: string; b: string; d: number; extra: Partial<LineObj> } | null = null
@@ -793,7 +866,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     }
     for (const o of objs) {
       if (o.type === 'polygon') {
-        o.points.forEach((a, i) => consider(a, o.points[(i + 1) % o.points.length], { color: o.color, width: o.width }))
+        o.points.forEach((a, i) => consider(a, o.points[(i + 1) % o.points.length], { color: o.color, width: o.width, side: o.id }))
       } else if (o.type === 'point' && o.group && o.joins) {
         for (const other of o.joins) {
           if (other < o.corner!) continue
@@ -865,7 +938,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     } else if (chosen) {
       const target = snapTarget(s)
       from = target.pos
-      const line = objs.find((o) => o.id === chosen.id)
+      const line = objs.find((o) => o.id === chosen.id) ?? chosen.side
+      if (chosen.side?.dep.kind === 'twoPoints') {
+        // a side not yet on the board: shown with a halo of its own
+        a = P(chosen.side.dep.a)
+        b = P(chosen.side.dep.b)
+        shown = a && b && [a, b]
+        t = footAlong(objs, resolved, target.existing ?? target.pos, chosen.side.dep.a, chosen.side.dep.b)
+      }
       const l = L(chosen.id)
       if (l && line && isLinear(line)) {
         a = l.a
@@ -1126,13 +1206,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           { label: 'Laturile', value: '3, 4, 6', showIf: { field: 0, value: 'obtuse' }, hint: `Trei numere pozitive. Latura cea mai mare trebuie să fie mai mică decât suma celorlalte două, iar pătratul ei mai mare decât suma pătratelor lor. Exemplu: 3, 4, 6, pentru că 6 < 3 + 4 și 6² = 36 > 3² + 4² = 25. ${NUMBER_FORMAT}` },
           { label: 'Latura', value: '4', showIf: { field: 0, value: 'equi' }, hint: `Un număr pozitiv, oricare. ${NUMBER_FORMAT}` },
           { label: 'Baza, apoi laturile egale', value: '4, 5', showIf: { field: 0, value: 'iso' }, hint: `Două numere pozitive. Baza trebuie să fie mai mică decât dublul laturii egale. Exemplu: 4, 5, pentru că 4 < 2 · 5. ${NUMBER_FORMAT}` },
-        ])
+        ], (values) => {
+          // a wrong triangle is explained in the dialog itself, which keeps what was typed
+          const checked = triangleFromInput(values[0], values)
+          return typeof checked === 'string' ? checked : null
+        })
         if (!vals) break
         const t = triangleFromInput(vals[0], vals)
-        if (typeof t === 'string') {
-          await ask(t, '', true)
-          break
-        }
+        if (typeof t === 'string') break
         // first vertex where the user clicked, first side along the x axis, third vertex above it
         const v = triangleVertices(t)
         const ids = [v.A, v.B, v.C].map((p) => newPoint(objs, { x: at.x + p.x, y: at.y + p.y }).id)
@@ -1149,12 +1230,15 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           const vals = await askForm('Poligon regulat', [
             { label: 'Număr de laturi', value: '6', hint: 'Între 3 și 40.' },
             { label: 'Aria', placeholder: 'gol = mărimea dintre cele două clicuri', hint: 'În cm², de exemplu 12,5. Un cm este o unitate pe axe sau pe riglă. Poligonul pornește din primul click, spre al doilea.' },
-          ])
+          ], ([sides, size]) => {
+            const count = Number(sides)
+            if (!Number.isInteger(count) || count < 3 || count > 40) return 'Numărul de laturi trebuie să fie un număr întreg între 3 și 40.'
+            if (size.trim() && !(Number(size.trim().replace(',', '.')) > 0)) return 'Aria trebuie să fie un număr pozitiv, de exemplu 12,5.'
+            return null
+          })
           if (!vals) return
           const n = Number(vals[0])
           const area = vals[1].trim() ? Number(vals[1].trim().replace(',', '.')) : null
-          if (!Number.isInteger(n) || n < 3 || n > 40) return void (await ask('Numărul de laturi trebuie să fie un număr întreg între 3 și 40.', '', true))
-          if (area !== null && !(area > 0)) return void (await ask('Aria trebuie să fie un număr pozitiv, de exemplu 12,5.', '', true))
           const interior = ((n - 2) * 180) / n
           let second = b
           const pa = objs.find((o): o is PointObj => o.id === a && o.type === 'point')
@@ -1178,15 +1262,15 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         })
         break
       case 'lineAngle': {
-        const lineHit = hitTest(s, isLinear) ?? sideAt(objs, s)
+        const lineHit = pickLine(objs, s)
         if (!lineHit) break
-        const next = [...pending, { kind: 'line' as const, id: lineHit.id, at: w }]
+        const next = [...pending, { kind: 'line' as const, id: lineHit.id, at: w, side: lineHit.side }]
         if (next.length < 2) {
           setPending(next)
-          if (objs.length !== sceneRef.current.objects.length) commit(objs)
           break
         }
         setPending([])
+        addSides(objs, next)
         const [p1, p2] = next
         if (p1.id === p2.id) break
         const now = resolve({ objects: objs, view })
@@ -1228,15 +1312,15 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           }
         }
         if (pts.length) break // three points were started: wait for another existing point
-        const lineHit = hitTest(s, isLinear) ?? sideAt(objs, s)
+        const lineHit = pickLine(objs, s)
         if (!lineHit) break
-        const next = [...pending, { kind: 'line' as const, id: lineHit.id, at: w }]
+        const next = [...pending, { kind: 'line' as const, id: lineHit.id, at: w, side: lineHit.side }]
         if (next.length < 2) {
           setPending(next)
-          if (objs.length !== sceneRef.current.objects.length) commit(objs)
           break
         }
         setPending([])
+        addSides(objs, next)
         const [p1, p2] = next
         if (p1.id === p2.id) break
         const now = resolve({ objects: objs, view })
@@ -1290,20 +1374,36 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           const third = objs.find((o) => o.id === b)
           // only a point placed by this click can move to the exact measure; an existing one stays where it is
           if (third?.type === 'point' && third.dep.kind === 'free' && !sceneRef.current.objects.some((o) => o.id === b)) {
-            const measured = String(Math.round((angleAt(pa, pv, pb) * 180 / Math.PI) * 100) / 100)
-            const vals = await askForm('Construiește un unghi', [
-              { label: 'Măsura unghiului (grade)', value: measured, hint: 'Lasă valoarea ca să păstrezi punctele alese sau scrie alta, între 0 și 180. Al treilea punct se mută pentru măsura exactă.' },
-            ])
+            const round2 = (x: number) => String(Math.round(x * 100) / 100).replace('.', ',')
+            const measured = round2(angleAt(pa, pv, pb) * 180 / Math.PI)
+            const first = objs.find((o): o is PointObj => o.id === a && o.type === 'point')
+            // the first side can be made longer or shorter only if its end is a free point that nothing else uses
+            const firstFree = !!first && first.dep.kind === 'free' && !first.locked && !first.group
+              && !objs.some((o) => o.id !== a && dependsOn(o).includes(a))
+            const name = (id: string) => (objs.find((o) => o.id === id) as PointObj | undefined)?.label ?? ''
+            const lengthA = round2(dist(pv, pa))
+            const lengthB = round2(dist(pv, pb))
+            const num = (s: string) => Number(s.trim().replace(',', '.'))
+            const fields = [
+              { label: 'Măsura unghiului (grade)', value: measured, hint: 'Lasă valorile ca să păstrezi punctele alese sau scrie altele. Măsura este între 0 și 180.' },
+              { label: `Lungimea laturii ${name(v)}${name(b)}`, value: lengthB, hint: `Al treilea punct, ${name(b)}, se mută pentru măsura și lungimea exacte.` },
+              ...(firstFree ? [{ label: `Lungimea laturii ${name(v)}${name(a)}`, value: lengthA, hint: `Punctul ${name(a)} se mută pe aceeași direcție.` }] : []),
+            ]
+            const vals = await askForm('Construiește un unghi', fields, (values) => {
+              if (!(num(values[0]) > 0 && num(values[0]) <= 180)) return 'Măsura trebuie să fie un număr mai mare ca 0, cel mult 180.'
+              if (values.slice(1).some((x) => !(num(x) > 0))) return 'Lungimile trebuie să fie numere pozitive, de exemplu 4 sau 2,5.'
+              return null
+            })
             if (!vals) return
-            if (vals[0].trim() !== measured) {
-              const deg = Number(vals[0].replace(',', '.'))
-              if (!(deg > 0 && deg <= 180)) {
-                await ask('Măsura trebuie să fie un număr mai mare ca 0, cel mult 180.', '', true)
-                return
-              }
+            if (firstFree && vals[2].trim() !== lengthA) {
+              const to = add(pv, mul(norm(sub(pa, pv)), num(vals[2])))
+              objs[objs.indexOf(first!)] = { ...first!, x: to.x, y: to.y }
+            }
+            if (vals[0].trim() !== measured || vals[1].trim() !== lengthB) {
               // keeps the side of the first side on which the third point was clicked
+              const deg = num(vals[0])
               const signed = angleCCW(pa, pv, pb) > Math.PI ? -deg : deg
-              objs[objs.indexOf(third)] = { ...third, dep: { kind: 'polar', center: v, toward: a, deg: signed, dist: dist(pv, pb) } }
+              objs[objs.indexOf(third)] = { ...third, dep: { kind: 'polar', center: v, toward: a, deg: signed, dist: num(vals[1]) } }
             }
           }
           const hasSide = (p: string) => objs.some((o) => o.type === 'segment' && o.dep.kind === 'twoPoints'
@@ -1320,16 +1420,16 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         const havePoint = pending.find((p) => p.kind === 'point')
         // once the point is there, only a line can be meant: it can be missed by a little more
         const reach = havePoint ? PICK_LINE_PX : 10
-        const lineHit = haveLine ? null : hitTest(s, isLinear, reach) ?? sideAt(objs, s, reach)
+        const lineHit = haveLine ? null : pickLine(objs, s, reach, reach)
         let pick: Pick | null = null
         if (!haveLine && !havePoint) {
           // first click: an existing point if one was hit, otherwise a line
           if (hit?.type === 'point') pick = { kind: 'point', id: hit.id }
-          else if (lineHit) pick = { kind: 'line', id: lineHit.id }
+          else if (lineHit) pick = { kind: 'line', id: lineHit.id, side: lineHit.side }
           else pick = { kind: 'point', id: pointAt() }
         } else if (!haveLine) {
           // waiting for the line: look at lines only, even next to a vertex
-          if (lineHit) pick = { kind: 'line', id: lineHit.id }
+          if (lineHit) pick = { kind: 'line', id: lineHit.id, side: lineHit.side }
         } else {
           // waiting for the point: an existing one, or a new one where the user clicked
           pick = { kind: 'point', id: pointAt() }
@@ -1347,6 +1447,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           break
         }
         setPending([])
+        addSides(objs, next)
         const now = resolve({ objects: objs, view })
         const ref = now.lines.get(ln.id)
         const at = now.points.get(pt.id)
@@ -1422,11 +1523,25 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         break
       }
       case 'intersection': {
-        const lineHit = hitTest(s, isLinear)
-        if (!lineHit) break
-        const next = [...pending, { kind: 'line' as const, id: lineHit.id }]
+        // also the sides of polygons and the edges of solids: their segments join the board with the point
+        const lineHit = pickLine(objs, s)
+        if (!lineHit) {
+          flash('Click pe o dreaptă, un segment, o semidreaptă, latura unui poligon sau muchia unui corp.')
+          break
+        }
+        const next = [...pending, { kind: 'line' as const, id: lineHit.id, side: lineHit.side }]
         if (next.length === 2) {
-          if (isSkew(objs, resolved, next[0].id, next[1].id)) flash('Liniile nu sunt în același plan: doar par să se taie.')
+          addSides(objs, next)
+          const now = resolve({ objects: objs, view })
+          const [o1, o2] = next.map((p) => objs.find((o) => o.id === p.id))
+          const ends = (o?: GObj) => (o && isLinear(o) && o.dep.kind === 'twoPoints' ? [o.dep.a, o.dep.b] : [])
+          const shared = ends(o1).find((p) => ends(o2).includes(p))
+          const [r1, r2] = next.map((p) => now.lines.get(p.id))
+          if (isSkew(objs, now, next[0].id, next[1].id)) flash('Liniile nu sunt în același plan: doar par să se taie.')
+          else if (shared && next[0].id !== next[1].id) {
+            // two sides or edges from one corner: the point is already there
+            flash(`Liniile se întâlnesc în ${(objs.find((o) => o.id === shared) as PointObj | undefined)?.label || 'capătul lor comun'}, care există deja.`)
+          } else if (r1 && r2 && !intersectLines(r1, r2)) flash('Liniile sunt paralele: nu se intersectează.')
           else if (next[0].id !== next[1].id) {
             newPoint(objs, { x: 0, y: 0 }, { kind: 'intersection', l1: next[0].id, l2: next[1].id })
             commit(objs)
@@ -1443,11 +1558,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         break
       }
       case 'delete':
-        if (hit) {
-          const gone = cascade(sceneRef.current, hit.id)
-          commit(objs.filter((o) => !gone.has(o.id)))
-          if (selected && gone.has(selected)) setSelected(null)
-        }
+        if (hit) removeObj(hit.id)
         break
     }
   }
@@ -1684,8 +1795,16 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const onPointerUp = (e: React.PointerEvent) => {
     if (drag.current?.mode === 'inst') {
       const marks = inst.up(e.pointerId)
-      // no commit: the undo step taken when the arc began covers these too
-      if (marks.length) onChange({ ...sceneRef.current, objects: [...sceneRef.current.objects, ...marks.map(instPathObj)] })
+      // the line just drawn along an instrument: a segment, if it is straight
+      const live = sceneRef.current.objects.find((o): o is PathObj => o.id === instPath.current && o.type === 'path')
+      instPath.current = undefined
+      const objects = live ? sceneRef.current.objects.flatMap((o) => (o === live ? asSegment(live) : [o])) : sceneRef.current.objects
+      // no commit: the undo step taken when the line or arc began covers these too
+      if (marks.length || objects !== sceneRef.current.objects) {
+        const next = { ...sceneRef.current, objects: [...objects, ...marks.map(instPathObj)] }
+        sceneRef.current = next
+        onChange(next)
+      }
       inst.hoverAt(...toPlane(screenPos(e)), tool === 'pen')
     }
     if (drag.current?.mode === 'solid') {
@@ -1735,8 +1854,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         setTool('move')
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-        const gone = cascade(sceneRef.current, selected)
-        commit(sceneRef.current.objects.filter((o) => !gone.has(o.id)))
+        removeObj(selected)
         setSelected(null)
       }
       if (sheet) return // undo is the page's
@@ -1860,6 +1978,18 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
 
   const isSel = (id: string) => id === selected || id === hover || pending.some((p) => p.id === id)
 
+  /** Dashed by choice, or because the solid it is on hides it (unless that was turned off for it). */
+  const dashedNow = (o: LineObj) => !!o.dashed || (o.autoDash !== false && outOfSight.get(o.id) === true)
+
+  /** The solid or figure whose corner or edge `o` is, and whether its corners are hidden. */
+  const cornersOf = (o: GObj): { group: string; quiet: boolean } | null => {
+    if ((o.type !== 'point' || o.corner == null) && (o.type !== 'path' || o.frame)) return null
+    const group = o.group
+    if (!group) return null
+    const corners = scene.objects.filter((x): x is PointObj => x.type === 'point' && x.group === group && x.corner != null && !x.hidden)
+    return corners.length ? { group, quiet: corners.every((x) => x.quiet) } : null
+  }
+
   /** Between two corners of a solid: the real length, not the one seen on the plane. */
   const segmentLength = (id: string) => {
     const o = scene.objects.find((x) => x.id === id)
@@ -1890,8 +2020,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           <g key={o.id}>
             {hl && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="halo" />}
             {gaps.has(o.id)
-              ? <path d={brokenPath([[l.a.x, l.a.y], [l.b.x, l.b.y]], gaps.get(o.id)!)} stroke={o.color} strokeWidth={o.width} fill="none" strokeDasharray={o.dashed ? '6 5' : undefined} strokeLinecap="round" />
-              : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={o.color} strokeWidth={o.width} strokeDasharray={o.dashed ? '6 5' : undefined} strokeLinecap="round" />}
+              ? <path d={brokenPath([[l.a.x, l.a.y], [l.b.x, l.b.y]], gaps.get(o.id)!)} stroke={o.color} strokeWidth={o.width} fill="none" strokeDasharray={dashedNow(o) ? '6 5' : undefined} strokeLinecap="round" />
+              : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={o.color} strokeWidth={o.width} strokeDasharray={dashedNow(o) ? '6 5' : undefined} strokeLinecap="round" />}
             {o.type === 'segment' && o.showLength && (
               <text x={mid.x + n.x * 14} y={mid.y + n.y * 14} className="measure" fill={o.color} textAnchor="middle">
                 {formatNum(segmentLength(o.id) ?? dist(l.a, l.b))}
@@ -1923,13 +2053,19 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         if (!c || !t || !to) return null
         const d = arcPath(c, t, to)
         const sc = toScreen(c)
-        const mid = toScreen(rotate(t, c, angleCCW(t, c, to) / 2))
+        const sweep = angleCCW(t, c, to)
+        const mid = toScreen(rotate(t, c, sweep / 2))
+        // the measure of the arc: inside, on the line from the center to the middle of the arc
+        const r = dist(sc, mid)
+        const along = r > 0 ? Math.min(Math.max(26, r * 0.45), Math.max(r - 12, r / 2)) / r : 0
+        const deg = { x: sc.x + (mid.x - sc.x) * along, y: sc.y + (mid.y - sc.y) * along }
         return (
           <g key={o.id}>
             {o.filled && <path d={`M ${sc.x} ${sc.y} L ${d.slice(2)} Z`} fill={o.color + '22'} stroke="none" />}
             {hl && <path d={d} className="halo" fill="none" />}
             <path d={d} stroke={o.color} strokeWidth={o.width} fill="none" />
             {o.showRadius && <text x={mid.x + 6} y={mid.y - 6} className="measure" fill={o.color}>r = {formatNum(dist(c, t))}</text>}
+            {o.showMeasure && <text x={deg.x} y={deg.y + 4} textAnchor="middle" className="measure arc-degrees" fill={o.color}>{fmtAngle(sweep)}</text>}
           </g>
         )
       }
@@ -2046,24 +2182,24 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
 
   const renderPoint = (o: PointObj) => {
     if (o.hidden) return null
+    // a hidden corner shows, faintly, only under the cursor or when chosen, and never in an export
+    const quiet = !!o.quiet
+    if (quiet && !isSel(o.id)) return null
     const p = P(o.id)
     if (!p) return null
     const s = toScreen(p)
     // filled = can be dragged (free, or sliding on a line / circle); hollow = fully determined by the construction
     const free = o.dep.kind === 'free' || o.dep.kind === 'onLine' || o.dep.kind === 'onCircle'
-    // the vertex of an angle has its letter outside the angle, opposite to the middle of the opening
-    const angle = scene.objects.find((x): x is AngleObj => x.type === 'angle' && x.v === o.id)
-    const pa = angle && P(angle.a)
-    const pb = angle && P(angle.b)
+    // the vertex of angles has its letter outside all of them, in the widest opening left between their sides
+    const rays = scene.objects.flatMap((x) => (x.type === 'angle' && x.v === o.id ? [P(x.a), P(x.b)] : []))
+      .filter((r): r is Vec => !!r)
+    const away = rays.length ? labelDirection(p, rays) : null
     let out: Vec | null = null
-    if (pa && pb) {
-      const ccw = angleCCW(pa, p, pb)
-      const from = ccw > Math.PI ? pb : pa
-      const mid = Math.atan2(from.y - p.y, from.x - p.x) + Math.min(ccw, Math.PI * 2 - ccw) / 2
-      out = { x: -Math.cos(mid), y: Math.sin(mid) }
-    } else if (o.group && o.corner != null && inLowerHalf(o, p)) out = { x: 0, y: 1 }
+    // on the screen, y points down
+    if (away) out = { x: away.x, y: -away.y }
+    else if (o.group && o.corner != null && inLowerHalf(o, p)) out = { x: 0, y: 1 }
     return (
-      <g key={o.id}>
+      <g key={o.id} {...(quiet ? { 'data-ui': true, opacity: 0.45 } : {})}>
         {isSel(o.id) && <circle cx={s.x} cy={s.y} r={9} className="halo-pt" />}
         <circle cx={s.x} cy={s.y} r={free ? 4.5 : 3.5} fill={free ? o.color : '#fff'} stroke={o.color} strokeWidth={free ? 1 : 2} />
         {out
@@ -2243,6 +2379,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
               />
             ))}
             {ghostEls()}
+            {tool !== 'perpendicular' && tool !== 'parallel' && pending.map((p) => {
+              // a side picked but not yet on the board: it is lit up all the same
+              if (p.side?.dep.kind !== 'twoPoints') return null
+              const [a, b] = [P(p.side.dep.a), P(p.side.dep.b)]
+              if (!a || !b) return null
+              const [sa, sb] = [toScreen(a), toScreen(b)]
+              return <line key={p.side.id} data-ui pointerEvents="none" x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} className="halo" />
+            })}
             {throughGhost && (tool === 'perpendicular' || tool === 'parallel') && pending.length > 0 && (() => {
               const g = throughGhost
               const shown = g.shown?.map(toScreen)
@@ -2331,9 +2475,13 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         } : undefined} resolvedLen={(id) => {
           const l = L(id)
           return l ? segmentLength(id) ?? dist(l.a, l.b) : null
+        }} onSolid={outOfSight.get(sel.id)} corners={cornersOf(sel) && {
+          solid: !!sceneRef.current.objects.find((x) => x.type === 'point' && x.group === cornersOf(sel)!.group && x.at3),
+          quiet: cornersOf(sel)!.quiet,
+          set: (quiet) => commit(sceneRef.current.objects.map((x) =>
+            x.type === 'point' && x.group === cornersOf(sel)!.group && x.corner != null && !x.hidden ? { ...x, quiet: quiet || undefined } : x)),
         }} onPatch={(p) => updateObj(sel.id, p)} onDelete={() => {
-          const gone = cascade(sceneRef.current, sel.id)
-          commit(sceneRef.current.objects.filter((o) => !gone.has(o.id)))
+          removeObj(sel.id)
           setSelected(null)
         }} />}
       </div>
@@ -2501,13 +2649,17 @@ function FigurePanel({ t }: { t: FigureTools }) {
   )
 }
 
-function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
+function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools, corners, onSolid }: {
+  /** for a segment on a solid: whether the solid hides it now; undefined elsewhere */
+  onSolid?: boolean
   o: GObj
   scene: Scene
   onPatch: (p: Partial<GObj>) => void
   onDelete: () => void
   resolvedLen: (id: string) => number | null
   figureTools?: FigureTools
+  /** the corners of the solid or figure that `o` belongs to: shown, or hidden for a drawing that is only an illustration */
+  corners?: { solid: boolean; quiet: boolean; set: (quiet: boolean) => void } | null
 }) {
   const names: Record<GObj['type'], string> = {
     point: 'Punct', segment: 'Segment', line: 'Dreaptă', ray: 'Semidreaptă', circle: 'Cerc', arc: 'Arc de cerc',
@@ -2526,6 +2678,12 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
     <div className="inspector">
       {figureTools && <FigurePanel t={figureTools} />}
       <div className="insp-title">{title}</div>
+      {corners && (
+        <label className="insp-row chk" title="Pentru un desen făcut doar ca ilustrație. Punctele ascunse se văd din nou sub cursor, ca să poți debifa.">
+          <input type="checkbox" checked={corners.quiet} onChange={(e) => corners.set(e.target.checked)} />
+          Ascunde punctele și literele {corners.solid ? 'corpului' : 'figurii'}
+        </label>
+      )}
       <div className="insp-row">
         <span>Culoare</span>
         <div className="insp-colors">
@@ -2589,7 +2747,13 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
             <label className="insp-row chk"><input type="checkbox" checked={!!o.showLength} onChange={(e) => onPatch({ showLength: e.target.checked })} /> Arată lungimea
               {resolvedLen(o.id) != null && <b> ({formatNum(resolvedLen(o.id)!, 3)})</b>}</label>
           )}
-          <label className="insp-row chk"><input type="checkbox" checked={!!o.dashed} onChange={(e) => onPatch({ dashed: e.target.checked })} /> Punctat</label>
+          {onSolid !== undefined && o.type === 'segment' && (
+            <label className="insp-row chk" title="Punctat cât timp trece prin interiorul corpului sau stă pe o față din spate; se schimbă la rotire.">
+              <input type="checkbox" checked={o.autoDash !== false} onChange={(e) => onPatch({ autoDash: e.target.checked ? undefined : false })} />
+              Punctat automat{o.autoDash !== false ? (onSolid ? ' (acum ascuns)' : ' (acum la vedere)') : ''}
+            </label>
+          )}
+          <label className="insp-row chk"><input type="checkbox" checked={!!o.dashed} onChange={(e) => onPatch({ dashed: e.target.checked })} /> {onSolid !== undefined && o.type === 'segment' ? 'Mereu punctat' : 'Punctat'}</label>
           <label className="insp-row">Grosime <input type="range" min={1} max={6} step={0.5} value={o.width} onChange={(e) => onPatch({ width: Number(e.target.value) })} /></label>
         </>
       )}
@@ -2597,6 +2761,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools }: {
         <>
           {o.sector && <label className="insp-row chk"><input type="checkbox" checked={!!o.filled} onChange={(e) => onPatch({ filled: e.target.checked })} /> Colorează interiorul</label>}
           <label className="insp-row chk"><input type="checkbox" checked={!!o.showRadius} onChange={(e) => onPatch({ showRadius: e.target.checked })} /> Arată raza</label>
+          <label className="insp-row chk"><input type="checkbox" checked={!!o.showMeasure} onChange={(e) => onPatch({ showMeasure: e.target.checked })} /> Arată măsura</label>
           <label className="insp-row">Grosime <input type="range" min={1} max={6} step={0.5} value={o.width} onChange={(e) => onPatch({ width: Number(e.target.value) })} /></label>
         </>
       )}
