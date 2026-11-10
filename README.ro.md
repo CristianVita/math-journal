@@ -64,6 +64,15 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - **Zoom fluid** între 50% și 300%: rotița mouse-ului sau touchpad-ul, Ctrl cu + sau -, Ctrl+0 pentru revenire, sau butoanele
 - Export în PDF, Word sau PNG
 
+**Fișe de lucru** (clasele V–VIII, până la Evaluarea Națională)
+- Exerciții generate de aplicație, pe clasă, tip și nivel (ușor, mediu, greu), fiecare cu rezolvarea scrisă în română: ordinea operațiilor, puteri, fracții, zecimale, procente, proporții, numere întregi, radicali, ecuații și inecuații de gradul I, sisteme, descompuneri în factori, ecuații de gradul II prin descompunere; unghiuri, dreptunghiul, Pitagora, arii de patrulatere, Thales și asemănarea, rapoarte trigonometrice în triunghiul dreptunghic, arii și volume ale corpurilor, distanțe și unghiuri în spațiu (teorema celor trei perpendiculare, unghiul diedru), trunchiuri, sfera și secțiuni paralele cu baza
+- Mai multe tipare la fiecare nivel; nivelul greu de la clasele VII–VIII urmează Evaluarea Națională (probleme în mai mulți pași, după teste recapitulative și simulări reale)
+- Un nivel **concurs** la fiecare clasă, după probleme de la olimpiada locală și județeană: sume Gauss, resturi, divizibilitate, sume telescopice, fracții ireductibile, radicali dubli, ecuații în numere întregi, minime prin pătrate, inegalități, funcția liniară
+- Până la 100 de exerciții odată, **fără niciun exercițiu repetat pe fișă**; un tipar revine abia după ce au fost folosite toate celelalte ale clasei și nivelului
+- O bancă cu exercițiile tale, cu formule, pe care le refolosești la orice elev
+- Un exercițiu se poate înlocui cu altul de același fel, muta sau păstra în bancă
+- Tipărire în PDF sau Word, pe pagini A4: titlu, numele elevului (sau o linie liberă) și data, spațiu de lucru sub fiecare exercițiu, rezolvările pe pagini separate
+
 **Trigonometrie**
 - Cercul trigonometric interactiv: sin, cos, tg, ctg cu valori exacte la unghiurile remarcabile
 - Grafice `A·f(Bx + C) + D` pentru sin, cos, tg, ctg, funcțiile **trigonometrice inverse** (arcsin, arccos, arctg, arcctg) și **hiperbolice** (sh, ch, th, cth), cu perioadă / domeniu și imagine și asimptotele lor

@@ -86,7 +86,8 @@ export function newSession(studentId: number): Session {
 //   and whatever it saves there cannot overwrite the newer data in the database.
 // - under `SPILL`, what a page closed in the middle of a write could not finish (see `spillLocal`): the newest
 //   there is, so it is taken back into the database and then deleted.
-export const LOCAL_KEYS = ['math-journal:notebook', 'math-journal:board', 'math-journal:board-instruments']
+// the worksheet being made and the bank of exercises (the Fișe page) are kept the same way, and go into the backup too
+export const LOCAL_KEYS = ['math-journal:notebook', 'math-journal:board', 'math-journal:board-instruments', 'math-journal:worksheet', 'math-journal:exercises']
 const SPILL = 'math-journal:unsaved:'
 
 const cache = new Map<string, string>()

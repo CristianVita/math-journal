@@ -133,16 +133,20 @@ export async function savePdf(pages: PageImage[], fileName: string) {
   return false
 }
 
-/** A Word document: a title, then each page as a picture (with its own heading when there are several). */
-export async function saveDocx(pages: PageImage[], fileName: string, heading: string) {
+/**
+ * A Word document: a title, then each page as a picture (with its own heading when there are several).
+ * `pagesOnly`: the pictures are whole pages with their own title already (a worksheet): one per page, nothing else.
+ */
+export async function saveDocx(pages: PageImage[], fileName: string, heading: string, pagesOnly = false) {
   const { Document, HeadingLevel, ImageRun, Packer, Paragraph } = await import('docx')
   // the text area of an A4 page with Word's default margins, in pixels at 96 dpi
   const maxW = 600, maxH = 840
-  const children = [new Paragraph({ text: heading, heading: HeadingLevel.HEADING_1 })]
+  const children = pagesOnly ? [] : [new Paragraph({ text: heading, heading: HeadingLevel.HEADING_1 })]
   pages.forEach((p, i) => {
-    if (pages.length > 1) children.push(new Paragraph({ text: p.title, heading: HeadingLevel.HEADING_2, pageBreakBefore: i > 0 }))
+    if (pages.length > 1 && !pagesOnly) children.push(new Paragraph({ text: p.title, heading: HeadingLevel.HEADING_2, pageBreakBefore: i > 0 }))
     const k = Math.min(maxW / p.width, maxH / p.height, 1)
     children.push(new Paragraph({
+      pageBreakBefore: pagesOnly && i > 0,
       children: [new ImageRun({ type: 'png', data: p.png, transformation: { width: Math.round(p.width * k), height: Math.round(p.height * k) } })],
     }))
   })

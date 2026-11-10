@@ -7,13 +7,14 @@ import SymbolsPage from './pages/SymbolsPage'
 import TrigPage from './trig/TrigPage'
 import CalculusPage from './calculus/CalculusPage'
 import NotebookPage from './notebook/NotebookPage'
+import WorksheetsPage from './worksheets/WorksheetsPage'
 import { emptyScene, type Scene } from './geometry/types'
 import { db, flushLocal, localSaveFailed, readLocal, writeLocal } from './db'
 import './symbols/insert'
 import { usePrompt } from './components/PromptDialog'
 import { isDesktop } from './platform'
 
-type Page = 'journal' | 'board' | 'notebook' | 'trig' | 'calculus' | 'symbols'
+type Page = 'journal' | 'board' | 'notebook' | 'worksheets' | 'trig' | 'calculus' | 'symbols'
 
 const BOARD_KEY = 'math-journal:board'
 
@@ -90,6 +91,7 @@ export default function App() {
     { id: 'journal', label: 'Jurnal', icon: '📓' },
     { id: 'board', label: 'Tablă', icon: '📐' },
     { id: 'notebook', label: 'Caiet', icon: '✍️' },
+    { id: 'worksheets', label: 'Fișe', icon: '📝' },
     { id: 'trig', label: 'Trigonometrie', icon: '◔' },
     { id: 'calculus', label: 'Calculator', icon: '∂' },
     { id: 'symbols', label: 'Simboluri', icon: '∑' },
@@ -123,6 +125,7 @@ export default function App() {
                   <ul>
                     <li><b>Tablă</b> — puncte, drepte, segmente, cercuri, poligoane, unghiuri de orice măsură, perpendiculare, paralele, bisectoare, grafice.</li>
                     <li><b>Caiet</b> — scrii liber cu mouse-ul sau cu creionul, ca pe o foaie de matematică sau dictando.</li>
+                    <li><b>Fișe</b> — fișe de lucru pentru clasele V–VIII, cu exerciții generate sau scrise de tine, tipărite cu rezolvările separat.</li>
                     <li><b>Trigonometrie</b> — cercul trigonometric interactiv, grafice sin/cos/tg/ctg, rezolvarea oricărui triunghi, formule.</li>
                     <li><b>Calculator</b> — derivate și integrale pas cu pas, integrale definite și improprii, verificarea răspunsului elevului.</li>
                     <li><b>Simboluri</b> — alfabetul grecesc, toate tipurile de integrale și sute de simboluri LaTeX.</li>
@@ -140,6 +143,7 @@ export default function App() {
         )}
         {page === 'calculus' && <main className="content full"><CalculusPage /></main>}
         {page === 'notebook' && <main className="content full"><NotebookPage /></main>}
+        {page === 'worksheets' && <main className="content full"><WorksheetsPage /></main>}
         {page === 'symbols' && <main className="content full"><SymbolsPage /></main>}
       </div>
       {dialog}

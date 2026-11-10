@@ -70,6 +70,15 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - **Smooth zoom** from 50% to 300%: mouse wheel or touchpad, Ctrl with + or -, Ctrl+0 to reset, or the buttons
 - Export to PDF, Word or PNG
 
+**Worksheets** (grades V–VIII, up to the national exam)
+- Exercises made by the app, by grade, type and level (easy, medium, hard), each with its worked solution in Romanian: order of operations, powers, fractions, decimals, percentages, proportions, integers, radicals, linear equations and inequalities, systems, factoring, quadratic equations by factoring; angles, rectangles, Pythagoras, areas of quadrilaterals, Thales and similarity, trigonometric ratios in a right triangle, areas and volumes of solids, distances and angles in space (the theorem of the three perpendiculars, dihedral angles), frustums, the sphere and sections parallel to the base
+- Several patterns at every level; the hard level of grades VII–VIII follows the national exam (multi-step problems, after real recap tests and mock exams)
+- A **contest** level for every grade, after local and county olympiad problems: Gauss sums, remainders, divisibility, telescoping sums, irreducible fractions, double radicals, equations in whole numbers, minimums by squares, inequalities, the linear function
+- Up to 100 exercises at once, with **none repeated on a sheet**; a pattern comes back only after all the others of the grade and level have been used
+- A bank of your own exercises, with formulas, to reuse with any student
+- Swap an exercise for another of the same kind, reorder, keep it in the bank
+- Printed as PDF or Word on A4 pages: title, the student's name (or a blank line) and the date, room to work under each exercise, and the solutions on separate pages
+
 **Trigonometry**
 - Interactive unit circle: sin, cos, tan, cot with exact values at the special angles
 - Plots of `A·f(Bx + C) + D` for sin, cos, tan, cot, **inverse trigonometric** (arcsin, arccos, arctan, arccot) and **hyperbolic** functions (sinh, cosh, tanh, coth), with period / domain and range and their asymptotes
