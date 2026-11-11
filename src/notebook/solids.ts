@@ -41,8 +41,8 @@ const VIEWS: Record<SolidId, [number, number]> = {
   prism3: [-5, 30],
   prism4: [-20, 30],
   prism6: [-10, 20],
-  cylinder: [-20, 20],
-  cone: [-20, 20],
+  cylinder: [0, 20],
+  cone: [0, 20],
   sphere: [-20, 20],
   tetrahedron: [-10, 16],
   pyramid3: [-10, 16],
@@ -51,7 +51,7 @@ const VIEWS: Record<SolidId, [number, number]> = {
   frustum3: [-10, 20],
   frustum4: [-25, 20],
   frustum6: [-10, 20],
-  frustumCone: [-20, 20],
+  frustumCone: [0, 20],
 }
 export const defaultView = (id: SolidId) => VIEWS[id]
 
@@ -169,6 +169,11 @@ function rimLines(r: number, y: number, seen: (t: number) => boolean) {
     if (last && last.hidden === hidden) last.points.push(circle(r, y, t))
     else out.push({ points: i ? [circle(r, y, rimAngles[i - 1]), circle(r, y, t)] : [circle(r, y, t)], hidden })
   })
+  // the circle starts at angle 0: a part that runs across it is one line, not two
+  if (out.length > 2 && out[0].hidden === out[out.length - 1].hidden) {
+    const last = out.pop()!
+    out[0] = { ...out[0], points: [...last.points, ...out[0].points.slice(1)] }
+  }
   return out
 }
 
