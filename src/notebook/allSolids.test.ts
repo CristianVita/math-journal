@@ -7,7 +7,7 @@ import { defaultView, setSolidView, SOLIDS, solidObjects, solidPoints, solidStro
 
 const view = emptyScene().view
 const ALL = SOLIDS.map((s) => s.id)
-const ROUND: SolidId[] = ['cylinder', 'cone', 'sphere']
+const ROUND: SolidId[] = ['cylinder', 'cone', 'sphere', 'frustumCone']
 const FLAT = ALL.filter((id) => !ROUND.includes(id))
 const PYRAMIDS: SolidId[] = ['tetrahedron', 'pyramid3', 'pyramid4', 'pyramid6']
 
@@ -35,16 +35,18 @@ const VIEWS: [number, number][] = [[-20, 30], [0, 0], [45, -35], [130, 70], [-16
 /** Edges of each body with flat faces, by Euler: corners − edges + faces = 2. */
 const EDGES: Partial<Record<SolidId, number>> = {
   cube: 12, cuboid: 12, prism3: 9, prism4: 12, prism6: 18, tetrahedron: 6, pyramid3: 6, pyramid4: 8, pyramid6: 12,
+  frustum3: 9, frustum4: 12, frustum6: 18,
 }
 /** Hidden edges as first drawn: the corner at the back and its edges, or the back of the base. */
 const HIDDEN: Record<SolidId, number> = {
   cube: 3, cuboid: 3, prism3: 3, prism4: 3, prism6: 5, tetrahedron: 3, pyramid3: 3, pyramid4: 3, pyramid6: 5,
-  cylinder: 1, cone: 1, sphere: 1,
+  cylinder: 1, cone: 1, sphere: 1, frustum3: 3, frustum4: 3, frustum6: 5, frustumCone: 1,
 }
 const BASE: Record<SolidId, string[]> = {
   cube: ['A', 'B', 'C', 'D'], cuboid: ['A', 'B', 'C', 'D'], prism3: ['A', 'B', 'C'], prism4: ['A', 'B', 'C', 'D'],
   prism6: ['A', 'B', 'C', 'D', 'E', 'F'], tetrahedron: ['A', 'B', 'C'], pyramid3: ['A', 'B', 'C'],
   pyramid4: ['A', 'B', 'C', 'D'], pyramid6: ['A', 'B', 'C', 'D', 'E', 'F'], cylinder: [], cone: [], sphere: [],
+  frustum3: ['A', 'B', 'C'], frustum4: ['A', 'B', 'C', 'D'], frustum6: ['A', 'B', 'C', 'D', 'E', 'F'], frustumCone: [],
 }
 
 describe('shape', () => {

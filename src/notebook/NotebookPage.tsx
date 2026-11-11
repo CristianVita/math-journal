@@ -307,6 +307,13 @@ export default function NotebookPage() {
   const [geometryBar, setGeometryBar] = useState<HTMLElement | null>(null)
   const [shape, setShape] = useState<ShapeId | SolidId>('rectangle')
   const [draft, setDraft] = useState<Stroke[]>([])
+  // the Segment figure also goes with two clicks, as Segment does on the board: where the first click was
+  const segFrom = useRef<number[] | null>(null)
+  useEffect(() => {
+    // another tool or figure: a segment begun with one click is dropped
+    segFrom.current = null
+    setDraft([])
+  }, [tool, shape])
   const [editing, setEditing] = useState<NoteEdit | null>(null)
   const [overNote, setOverNote] = useState(false)
   const noteInput = useRef<HTMLTextAreaElement>(null)
@@ -646,7 +653,9 @@ export default function NotebookPage() {
     } else if (tool === 'text') {
       active.current = { ...base, mode: 'note', note: noteAt(strokes, p[0], p[1]) ?? undefined }
     } else if (tool === 'shape') {
-      active.current = { ...base, mode: 'shape' }
+      // the second click of a segment: it ends where this press lets go
+      active.current = { ...base, start: (shape === 'segment' && segFrom.current) || p, mode: 'shape' }
+      segFrom.current = null
     } else if (tool === 'eraser') {
       active.current = { ...base, mode: 'erase' }
       eraserWas.current = null
@@ -661,6 +670,10 @@ export default function NotebookPage() {
     const [px, py] = pointAt(e)
     const a = active.current
     if (!a) inst.hoverAt(px, py, instDraw)
+    if (!a && segFrom.current && tool === 'shape' && shape === 'segment') {
+      return setDraft(shapeStrokes('segment', segFrom.current, px, py).map((points) =>
+        ({ id: uid(), tool: 'pen', color: colors.shape, size, points, pressure: true })))
+    }
     if (tool === 'text') setOverNote(!!noteAt(strokes, px, py))
     // over an instrument the eraser moves it, so it does not show the eraser circle
     if (tool === 'eraser') setCursor(!a && inst.hover ? null : { x: px, y: py })
@@ -702,9 +715,14 @@ export default function NotebookPage() {
     const [ux, uy] = pointAt(e)
     inst.hoverAt(ux, uy, instDraw)
     if (a.mode === 'shape') {
+      // a click without a drag on Segment is its first point: the segment follows the mouse until the next click
+      if (shape === 'segment' && e.type === 'pointerup' && Math.hypot(ux - a.start[0], uy - a.start[1]) < 4) {
+        segFrom.current = a.start
+        return
+      }
       setDraft([])
       // a click without a drag leaves nothing behind
-      if (e.type === 'pointerup' && draft.length && Math.hypot(ux - a.start[0], uy - a.start[1]) >= 4) {
+      if (e.type === 'pointerup' && Math.hypot(ux - a.start[0], uy - a.start[1]) >= 4) {
         remember(nb.current, a.before)
         const wx = (px: number) => (px - SHEET_ORIGIN.x) / PX_PER_CM
         const wy = (py: number) => (SHEET_ORIGIN.y - py) / PX_PER_CM
@@ -715,7 +733,9 @@ export default function NotebookPage() {
           ? solidObjects(solid.id, wx(a.start[0]), wy(a.start[1]), wx(ux), wy(uy), scene.objects, { color: colors.shape, group: uid() })
           // a figure is ink; its corners go on the constructions layer, to build on with Construcții
           : shapePoints(shape as ShapeId, a.start, ux, uy, scene.objects, ([px, py]) => [wx(px), wy(py)], { color: colors.shape, group: uid(), locked: true })
-        if (!solid) setPage(nb.current, [...a.before, ...draft])
+        // drawn to where the pointer let go, not to where the last move left the preview
+        if (!solid) setPage(nb.current, [...a.before, ...shapeStrokes(shape as ShapeId, a.start, ux, uy).map((points): Stroke =>
+          ({ id: uid(), tool: 'pen', color: colors.shape, size, points, pressure: true }))])
         setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? { ...s, objects: [...s.objects, ...added] } : s)) }))
       }
       return

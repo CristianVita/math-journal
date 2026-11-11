@@ -9,11 +9,15 @@ import * as F from './forms'
 import * as H from './hard'
 import * as E from './en'
 import * as E2 from './en2'
+import * as E3 from './en3'
 import * as C from './contest'
 import * as C2 from './contest2'
 import * as C3 from './contest3'
 import * as C4 from './contest4'
 import * as G8 from './geometry8'
+import * as G8b from './geometry8b'
+import * as G8c from './geometry8c'
+import * as G8d from './geometry8d'
 
 export type Level = 1 | 2 | 3 | 4
 export type Grade = 5 | 6 | 7 | 8
@@ -905,30 +909,66 @@ export const GENERATORS: Generator[] = [
   withForms(trigRight, { 1: [F.trig45] }, [H.trigHard, F.trigTangent]),
 
   withForms(inequality, { 1: [F.inequalityNatural], 2: [F.inequalityParens] }, [H.inequalityHard, F.inequalityExtreme, E.absoluteInequality]),
-  withForms(system, { 1: [F.systemSum], 2: [F.systemSubstitution, F.systemProblem] }, [H.systemHard, F.systemParens], false),
+  withForms(system, { 1: [F.systemSum], 2: [F.systemSubstitution, F.systemProblem, E3.squaresSystem] }, [H.systemHard, F.systemParens], false),
   withForms(factoring, { 1: [F.factoringCommonNumber], 2: [F.factoringGrouping] }, [(rng) => H.factoringHard(rng, 0), (rng) => H.factoringHard(rng, 1), (rng) => H.factoringHard(rng, 2), E2.factoringCubeSquare]),
   withForms(quadratic, { 1: [F.quadraticRadical], 2: [F.quadraticSquare] }, [H.quadraticHard, F.quadraticCommon]),
-  withForms(expressions, { 1: [F.expressionProduct], 2: [F.expressionDivisible, E.reciprocalIdentity], 3: [F.expressionMinimum, E.rationalToX, E2.absoluteConstant] }),
-  withForms(solidsVIII, { 1: [F.cuboidEasy, F.cubeFromVolume], 2: [F.prismTriangle, F.cylinder, F.cone, E2.cubeAngles] }, [H.pyramidHard, F.cubeHard, F.cuboidHard, F.coneHard]),
+  withForms(expressions, { 1: [F.expressionProduct, E3.squareEquationLinear], 2: [F.expressionDivisible, E.reciprocalIdentity], 3: [F.expressionMinimum, E.rationalToX, E2.absoluteConstant] }),
+  withForms(solidsVIII, { 1: [F.cuboidEasy, F.cubeFromVolume, E3.cubeFromEdgesSum, E3.tetrahedronFromArea, E3.cuboidIntegerDiagonal, E3.pyramidEqualEdgesLateral, G8c.prismEdgesSum], 2: [F.prismTriangle, F.cylinder, F.cone, E2.cubeAngles, E3.prismFromDiagonal, G8b.cubeFromFaceDiagonal, G8b.cuboidFromFaceDiagonals, G8b.prismSquareAreas, G8b.prismFromAngle, G8b.coneFromAngle, G8c.prismHeightFromBase, G8c.squarePrismFromDiagonals, G8c.cylinderFromLateral] }, [H.pyramidHard, F.cubeHard, F.cuboidHard, F.coneHard, E3.coneRatioVolume, E3.trirectangularPyramid]),
   // the chapters of geometry in space beyond areas and volumes, asked for on 10 November 2026
   fromForms('viii-space', 'Distanțe și unghiuri în spațiu (perpendicularitate)', 'Geometrie', {
-    1: [G8.perpendicularPlane, G8.cubeDistances], 2: [G8.threePerpendiculars, G8.lateralEdgeAngle], 3: [G8.dihedralPyramid, G8.distanceToFace, G8.cubeToPlane],
+    1: [G8.perpendicularPlane, G8.cubeDistances, G8b.perpendicularOnSquare, G8b.perpendicularAtCircumcenter, G8c.projectionRatio, G8c.squareDistancesToLines, G8c.rectangleDistancesToLines], 2: [G8.threePerpendiculars, G8.lateralEdgeAngle, G8b.perpendicularOnEquilateral, G8b.pyramidFromHeight, G8b.regularTriangularFromAreas, G8b.pyramidAngles, G8c.projectionParallelSide, G8c.projectedTriangleArea, G8c.heronThreePerp, G8c.prismEdgeDistance, G8c.cubeDistanceTable, G8c.rectangleBecomesSquare, G8c.rhombusPerpendicular, G8c.squareFromDistances, G8c.squareDistanceToPlane], 3: [G8.dihedralPyramid, G8.distanceToFace, G8.cubeToPlane, G8b.equidistantPoint, G8c.twoPerpendicularsSegment, G8c.parallelogramFootAtC],
   }),
   fromForms('viii-frustums', 'Trunchiuri, sfera, secțiuni paralele cu baza', 'Geometrie', {
-    1: [G8.sphereFromRadius, G8.sectionArea], 2: [G8.frustumCone, G8.frustumPyramid, G8.sphereFromArea], 3: [G8.coneLiquid, G8.sphereInCylinder, G8.frustumFromCut],
+    1: [G8.sphereFromRadius, G8.sectionArea, G8b.sectionRatio, G8b.frustumConeGeneratrix, G8b.frustumTrapezoid, G8d.quadFrustumTable, G8d.coneFrustumTable, G8d.sphereFromVolume, G8d.hexFrustum], 2: [G8.frustumCone, G8.frustumPyramid, G8.sphereFromArea, G8c.cuboidProportionalSection, G8c.frustumOriginalApothem, G8c.frustumTriangularBase, G8d.pyramidCutFrustum, G8d.coneCut, G8d.sphereSection, G8d.sphereZone, G8d.hexPyrMidCut], 3: [G8.coneLiquid, G8.sphereInCylinder, G8.frustumFromCut, G8d.frustumSphere, G8d.coneCutRatio],
+  }),
+  // after chapter 6 of the same workbook, areas and volumes (11 November 2026); levels by the stars of the book
+  fromForms('viii-cuboid', 'Paralelipipedul dreptunghic și cubul', 'Geometrie', {
+    1: [G8d.cuboidBasic, G8d.cubeTable],
+    2: [G8d.cuboidFromSection, G8d.cuboidProportional, G8d.cuboidFromDiagonal, G8d.cubeFromSectionArea, G8d.cubeMidpointEdge, G8d.cubeEquivalent, G8d.waterCubeToCuboid],
+    3: [G8d.cuboidDiag45, G8d.cuboidDihedral60, G8d.aquariumCubes, G8d.cubeFromDistance, G8d.boxFlip, G8d.poolTiles],
+  }),
+  fromForms('viii-prisms', 'Prisme regulate: patrulateră, triunghiulară, hexagonală', 'Geometrie', {
+    1: [G8d.squarePrismBasic, G8d.triPrismBasic, G8d.hexPrismBasic, G8d.triPrismBaseHeight],
+    2: [G8d.squarePrismFromV, G8d.squarePrismFromAt, G8d.squarePrismAbAl, G8d.squarePrism60, G8d.triPrism30, G8d.triPrismCircumradius, G8d.hexPrismFromAl, G8d.hexPrismAD, G8d.waterPrisms],
+    3: [G8d.squarePrism30Plane, G8d.squarePrismSectionDist, G8d.triPrismAlV, G8d.triPrismM45, G8d.hexPrismAE, G8d.hexPrismAD45, G8d.cheese, G8d.trailer],
+  }),
+  fromForms('viii-pyramids', 'Piramide regulate și tetraedrul', 'Geometrie', {
+    1: [G8d.quadPyrTable, G8d.triPyrBasic, G8d.hexPyrBasic],
+    2: [G8d.quadPyrFromEdgeAp, G8d.quadPyrRightApex, G8d.quadPyrAlAb, G8d.quadPyr60, G8d.quadPyrAngle30, G8d.triPyrAlAb, G8d.triPyrFace60, G8d.triPyrRightFaces, G8d.tetraFromV, G8d.hexPyrVAh, G8d.hexPyr60],
+    3: [G8d.quadPyrDihedral45, G8d.tetraDistances, G8d.triPyr30edge, G8d.hexPyr45, G8d.pyramidWaterToPrism, G8d.tent],
+  }),
+  fromForms('viii-round', 'Cilindrul și conul', 'Geometrie', {
+    1: [G8d.cylinderFromV, G8d.cylinderBasic, G8d.cylinderFromAl, G8d.coneTable, G8d.coneFromAt],
+    2: [G8d.cylinderVAl, G8d.cylinderSectionV, G8d.cylinderSquareSection, G8d.cylinderProportional, G8d.coneFromAbV, G8d.coneFromAlAt, G8d.cone45, G8d.coneEquilateral, G8d.cylConeEquivalent, G8d.coneIntoCylinder],
+    3: [G8d.cylinderDevelopment45, G8d.cylinder45Diag, G8d.cylinderPerimeter, G8d.cone90, G8d.coneSemicircle],
+  }),
+  // after lessons 5.14–5.17 photographed by the user (11 November 2026); the level follows the stars of the book:
+  // one star easy, two medium, three hard (the tests after the lessons, which have no stars, are hard)
+  fromForms('viii-dihedral', 'Unghiul dreptei cu planul, unghiul diedru, plane perpendiculare', 'Geometrie', {
+    1: [G8c.perpendicularIsoscelesSine, G8c.dihedralEquilateral, G8c.prismDihedral, G8c.footAtVertex, G8c.dihedralIsosceles, G8c.dihedralTriangularPyramid, G8c.cubeDihedral, G8c.isoscelesVertexPerp, G8c.circumcenterDihedral, G8c.rectCenterDihedral, G8c.squareCornerPerpendicular],
+    2: [G8c.prismMedianAngle, G8c.prismSideAngle, G8c.cubeLinePlane, G8c.cuboidDiagonalAngles, G8c.pyramidLineAngles, G8c.equilateralTilted, G8c.equilateralLineThenDihedral, G8c.foldedSquare],
+    3: [G8c.triangularPyramidAll, G8c.trapezoid60],
+  }),
+  // after lesson pages on geometry in space photographed by the user (10 November 2026); levels by the stars of the book
+  fromForms('viii-elements', 'Corpuri: elemente, desfășurări, drumul cel mai scurt', 'Geometrie', {
+    1: [G8b.elementsPyramid, G8b.cylinderAxialSection], 2: [G8b.coneDevelopment, G8b.shortestPathCuboid], 3: [G8b.elementsPrism, G8b.shortestPathPyramid],
   }),
   // after the recap tests for the national exam photographed by the user
+  // after the recap tests of a workbook the user photographed (10 November 2026)
+  fromForms('viii-data', 'Organizarea datelor: medii, procente, diagrame', 'Algebră', {
+    1: [E3.meanFromTable, E3.countAtLeast], 2: [E3.percentFromPie, E3.meanOfSubset], 3: [E3.promotionPercent, E3.meanAfterNew],
+  }),
   fromForms('viii-numbers', 'Puteri, divizibilitate, numere scrise cu cifre', 'Algebră', {
-    1: [E.digitDivisible, F.powersLastDigit], 2: [E.powerSumThree, E.powerSumFour, E2.periodicDecimals], 3: [E.digitsDifferenceRoot, E.digitsSumRoot, E2.divisorSet],
+    1: [E.digitDivisible, F.powersLastDigit], 2: [E.powerSumThree, E.powerSumFour, E2.periodicDecimals, E3.powerProductSquare], 3: [E.digitsDifferenceRoot, E.digitsSumRoot, E2.divisorSet, E3.gcdDifferenceSquares, E3.geometricSumDivisible],
   }),
   fromForms('viii-problems', 'Probleme (procente, părți din rest, sisteme)', 'Algebră', {
-    1: [E.percentGroup, F.linearProblem], 2: [E.threeDays, E.averageProblem, E2.classSwap, E2.clothSystem], 3: [E.candies, E.journeyDifference, E2.tickets, E2.percentPossible],
+    1: [E.percentGroup, F.linearProblem], 2: [E.threeDays, E.averageProblem, E2.classSwap, E2.clothSystem, E3.meanArithGeom, E3.contestPoints], 3: [E.candies, E.journeyDifference, E2.tickets, E2.percentPossible, E3.candiesShortfall],
   }),
   fromForms('viii-function', 'Funcția liniară', 'Algebră', {
-    1: [E.pointOnGraph, E.valuesSum], 2: [E.axesTriangle, E.throughTwoPoints], 3: [E.circumRadius, E.distanceFromOrigin],
+    1: [E.pointOnGraph, E.valuesSum, E3.pointWithRatio], 2: [E.axesTriangle, E.throughTwoPoints, E3.parameterOnGraph, E3.sumOfValuesSquare, E3.shiftEquation], 3: [E.circumRadius, E.distanceFromOrigin, E3.distancePointToLine],
   }),
   fromForms('viii-radicals', 'Radicali: raționalizare, conjugată, medii', 'Algebră', {
-    1: [E.rationalizeSimple, E.squareOfSum], 2: [E.telescoping, E.conjugateNatural], 3: [E.conjugateMeans, E.rationalEquality],
+    1: [E.rationalizeSimple, E.squareOfSum, E3.conjugateProportion], 2: [E.telescoping, E.conjugateNatural, E3.geometricMeanConjugates], 3: [E.conjugateMeans, E.rationalEquality, E3.nestedRadicalMean],
   }),
 ]
 

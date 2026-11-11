@@ -48,13 +48,16 @@ function shapeGeometry(shape: ShapeId, a: number[], x: number, y: number) {
   const corners: Record<Exclude<ShapeId, 'segment' | 'circle' | 'ellipse'>, number[][]> = {
     triangle: [[mx, t], [r, b], [l, b]],
     equilateral: [[mx, t], [r, b], [l, b]],
-    right: [[l, t], [l, b], [r, b]],
+    // the right angle follows the drag: the vertical leg stays where the drag started, the other leg goes towards the
+    // mouse, to the left or to the right, up or down (asked for on 11 November 2026)
+    right: [[ax, ay], [ax, ay + h], [ax + w, ay + h]],
     square: [[l, t], [r, t], [r, b], [l, b]],
     rectangle: [[l, t], [r, t], [r, b], [l, b]],
     parallelogram: [[l + k, t], [r, t], [r - k, b], [l, b]],
     rhombus: [[mx, t], [r, my], [mx, b], [l, my]],
     trapezoid: [[l + k, t], [r - k, t], [r, b], [l, b]],
-    rightTrapezoid: [[l, t], [r - k, t], [r, b], [l, b]],
+    // the same for the right trapezoid: its right angles stay on the side where the drag started
+    rightTrapezoid: x < ax ? [[r, t], [l + k, t], [l, b], [r, b]] : [[l, t], [r - k, t], [r, b], [l, b]],
     kite: [[mx, t], [r, t + (b - t) * 0.3], [mx, b], [l, t + (b - t) * 0.3]],
   }
   return { corners: corners[shape] }
@@ -96,11 +99,16 @@ export function shapePoints(
   }
   if (g.center) {
     const [mx, my] = g.center
+    const center = point([mx, my], primed('O'), 0, { joins: [], rim: [1, 2] })
+    // asked for on 11 November 2026: the circle has a point A for its radius, the ellipse the ends A and B of an axis
+    const left = shape === 'ellipse' ? letter() : ''
+    const right = letter()
     return [
-      point([mx, my], primed('O'), 0, { joins: [], rim: [1, 2] }),
-      // not shown: they only give the axes of the circle
-      point([mx + g.rx, my], '', 1, { hidden: true, joins: [] }),
+      center,
+      point([mx + g.rx, my], right, 1, { joins: [] }),
+      // not shown: it only gives the second axis
       point([mx, my + g.ry], '', 2, { hidden: true, joins: [] }),
+      ...(shape === 'ellipse' ? [point([mx - g.rx, my], left, 3, { joins: [] })] : []),
     ]
   }
   const c = g.corners

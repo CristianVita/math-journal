@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core APIs, closing the window after the in-app confirmation, save dialog and writing the file the user picked",
+  "description": "Main window: core APIs, closing the window after the in-app confirmation, save and folder dialogs, writing the file the user picked, and the automatic backup into the folder the user chose (written, listed, old copies removed)",
   "windows": [
     "main"
   ],
@@ -11,6 +11,16 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "fs:allow-write-file",
-    "fs:allow-write-text-file"
+    "fs:allow-write-text-file",
+    "fs:allow-read-dir",
+    "fs:allow-remove",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
+    }
   ]
 }

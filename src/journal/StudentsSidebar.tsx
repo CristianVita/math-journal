@@ -4,6 +4,8 @@ import { db, exportBackup, importBackup } from '../db'
 import StudentForm from './StudentForm'
 import { saveFile } from '../platform'
 import { usePrompt } from '../components/PromptDialog'
+import { noteBackup } from '../backup'
+import BackupPanel, { BackupStatus } from './BackupPanel'
 
 export default function StudentsSidebar({ selected, onSelect }: { selected?: number; onSelect: (id: number) => void }) {
   const students = useLiveQuery(() => db.students.orderBy('name').toArray(), []) ?? []
@@ -14,13 +16,14 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
   }, []) ?? new Map()
   const [query, setQuery] = useState('')
   const [adding, setAdding] = useState(false)
+  const [backups, setBackups] = useState(false)
   const { ask, confirm, dialog } = usePrompt()
   const fileRef = useRef<HTMLInputElement>(null)
 
   const filtered = students.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
 
   const doExport = async () => {
-    await saveFile(`jurnal-meditatii-${new Date().toISOString().slice(0, 10)}.json`, await exportBackup())
+    if (await saveFile(`jurnal-meditatii-${new Date().toISOString().slice(0, 10)}.json`, await exportBackup())) noteBackup()
   }
 
   const doImport = async (f: File) => {
@@ -54,6 +57,7 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
         ))}
         {!students.length && <div className="empty muted">Niciun elev încă. Adaugă primul elev ca să începi jurnalul.</div>}
       </div>
+      <BackupStatus onOpen={() => setBackups(true)} />
       <div className="sidebar-foot">
         <button className="btn small" onClick={doExport} title="Salvează toate datele într-un fișier JSON">Backup</button>
         <button className="btn small" onClick={() => fileRef.current?.click()} title="Restaurează dintr-un fișier JSON">Restaurare</button>
@@ -68,6 +72,7 @@ export default function StudentsSidebar({ selected, onSelect }: { selected?: num
           }}
         />
       )}
+      {backups && <BackupPanel onClose={() => setBackups(false)} onBackupNow={doExport} />}
       {dialog}
     </aside>
   )

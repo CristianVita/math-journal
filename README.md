@@ -32,6 +32,7 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - Markdown notes with formulas: `$...$` inline and `$$...$$` on their own line, rendered with KaTeX, with a live preview
 - Per-student stats: number of sessions, hours, homework completion rate, average rating; filter sessions by topic
 - Local autosave (IndexedDB) plus JSON backup and restore
+- **Automatic backup** in the desktop app: choose a folder once (one synced with Google Drive or OneDrive, say) and the app puts a copy there by itself, daily, weekly or monthly, keeping the latest ones; in the browser, a reminder when the last backup is too old
 
 **Geometry board**
 - Point, segment (with length), line, ray, circle, polygon, regular polygon with n sides
@@ -52,7 +53,7 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - Deleting a polygon also deletes the segments made from its sides; a vertex shared by several angles keeps its letter outside all of them
 
 **3D solids** (on the board and in the notebook)
-- Cube, cuboid, triangular, square and hexagonal prisms, cylinder, cone, sphere, regular tetrahedron, triangular, square and hexagonal pyramids, with their hidden edges dashed
+- Cube, cuboid, triangular, square and hexagonal prisms, cylinder, cone, sphere, regular tetrahedron, triangular, square and hexagonal pyramids, frustums of the three pyramids and of the cone, with their hidden edges dashed
 - Real 3D models: on the board, **turn a solid in space** with the 3D handle or the sliders, and the hidden edges are worked out again
 - **Lettered corners** (ABCDA′B′C′D′, V, O, O′) to draw diagonals, radii and heights; new points snap onto edges and circles, and stay there when the solid moves or turns
 - Midpoint, perpendicular, perpendicular bisector, parallel, angle bisector and angle between two lines work directly on edges, and are **computed on the body, not on the screen**: a right angle of a cube reads 90° from any direction, and lengths are the real ones
@@ -60,6 +61,7 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - **Segments dash themselves:** a diagonal, height or radius drawn on a solid is dashed while it runs through the inside or lies on a face turned away, and changes when the solid turns
 - Hide the corners and letters of a solid or a figure drawn only as an illustration
 - Deleting a solid also deletes what is drawn inside it (Ctrl+Z brings it back)
+- **Cut any solid with a plane parallel to its base**: a slider or the buttons 1/2, 1/3, 2/3, 1/4, 3/4 choose the height, and the corners of the section get letters (A′B′C′… or A″B″C″…, O′) to build on; the cut stays when the solid turns
 
 **Notebook**
 - Free writing with a pen, highlighter or eraser, using a mouse, a stylus or a finger; typed text; pages and several kinds of paper

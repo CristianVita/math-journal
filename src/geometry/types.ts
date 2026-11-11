@@ -54,6 +54,9 @@ export interface PointObj {
   rim?: [number, number]
   /** the center of a sphere: which three corners, from here, are its three axes */
   ball?: [number, number, number]
+  /** a corner of the section of a solid: the holder of the solid's frame, and which edge it sits on */
+  cutOf?: string
+  cutKey?: string
 }
 
 export type LineKind = 'segment' | 'line' | 'ray'
@@ -162,6 +165,8 @@ export interface SolidFrame {
   h: number
   yaw: number
   pitch: number
+  /** a plane parallel to the base cuts the body here: 0 at the base, 1 at the top */
+  cut?: number
 }
 
 export interface PathObj {

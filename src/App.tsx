@@ -10,6 +10,7 @@ import NotebookPage from './notebook/NotebookPage'
 import WorksheetsPage from './worksheets/WorksheetsPage'
 import { emptyScene, type Scene } from './geometry/types'
 import { db, flushLocal, localSaveFailed, readLocal, writeLocal } from './db'
+import { autoBackup } from './backup'
 import './symbols/insert'
 import { usePrompt } from './components/PromptDialog'
 import { isDesktop } from './platform'
@@ -41,6 +42,16 @@ export default function App() {
   const { confirm, dialog } = usePrompt()
   const confirmRef = useRef(confirm)
   confirmRef.current = confirm
+  // the automatic backup on the desktop: at the start, then checked every half hour
+  useEffect(() => {
+    if (!isDesktop()) return
+    const first = setTimeout(autoBackup, 5000)
+    const every = setInterval(autoBackup, 30 * 60 * 1000)
+    return () => {
+      clearTimeout(first)
+      clearInterval(every)
+    }
+  }, [])
   useEffect(() => {
     if (!isDesktop()) return
     let unlisten: (() => void) | undefined
@@ -60,6 +71,8 @@ export default function App() {
         // the notebook saves a moment after the last change: let it, then wait for the database
         await new Promise((r) => setTimeout(r, 500))
         await flushLocal()
+        // a copy of today's work, if one is due, before the app goes
+        await autoBackup()
         if (localSaveFailed()) {
           asking = true
           const anyway = await confirmRef.current('Ultimele modificări din Caiet sau de pe Tablă nu au putut fi salvate.', 'Închide oricum', true, {

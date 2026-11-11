@@ -52,7 +52,7 @@ import {
 } from './engine'
 import { usePrompt } from '../components/PromptDialog'
 import { SolidIcon, ToolIcon } from '../components/ToolIcon'
-import { defaultView, frameIn, setSolidView, solidLines, solidObjects, SOLIDS, type SolidId } from '../notebook/solids'
+import { defaultView, frameIn, setSolidCut, setSolidView, solidLines, solidObjects, SOLIDS, type SolidId } from '../notebook/solids'
 import { saveFile } from '../platform'
 import { createPortal } from 'react-dom'
 import { type Triangle, solveTriangle, triangleExtras, triangleVertices } from '../trig/trigMath'
@@ -392,6 +392,17 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   /** Turns the selected solid in space. A curved body can end up with fewer edges: the selection moves to one that is left. */
   const orbitSolid = (holder: string, yaw: number, pitch: number) => {
     const objects = setSolidView(sceneRef.current.objects, holder, yaw, pitch)
+    const next = { ...sceneRef.current, objects }
+    sceneRef.current = next
+    onChange(next)
+    if (selected && !objects.some((o) => o.id === selected)) {
+      const group = objects.find((o) => o.id === holder)
+      setSelected(objects.find((o) => o.type === 'path' && !o.frame && group?.type === 'path' && o.group === group.group)?.id ?? null)
+    }
+  }
+  /** Cuts the selected solid with a plane parallel to its base, moves the plane, or takes it away (null). */
+  const cutSolid = (holder: string, cut: number | null) => {
+    const objects = setSolidCut(sceneRef.current.objects, holder, cut)
     const next = { ...sceneRef.current, objects }
     sceneRef.current = next
     onChange(next)
@@ -2004,6 +2015,72 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   // where the measures of angles have gone so far, in this drawing of the board
   const angleLabels: Vec[] = []
 
+  /**
+   * A segment split into parts that show their lengths too (BD and DC on BC, after a perpendicular): as on paper, its
+   * own length goes at the tip of a brace drawn over the whole of it, and the lengths of the parts sit between the
+   * segment and the brace. Both on the side away from the rest of the figure. Asked for on 11 November 2026, when the
+   * lengths fell on one another.
+   */
+  const measureSides = (() => {
+    const brace = new Map<string, Vec>()
+    const side = new Map<string, Vec>()
+    const shown = scene.objects.flatMap((o) => {
+      if (o.type !== 'segment' || !o.showLength || o.ghost || o.dep.kind !== 'twoPoints') return []
+      const l = L(o.id)
+      return l ? [{ o, l, ends: [o.dep.a, o.dep.b] }] : []
+    })
+    const along = (p: Vec, a: Vec, b: Vec) => {
+      const ab = sub(b, a)
+      const n2 = dot(ab, ab)
+      if (n2 < 1e-12) return false
+      const t = dot(sub(p, a), ab) / n2
+      const off = Math.abs(ab.x * (p.y - a.y) - ab.y * (p.x - a.x)) / Math.sqrt(n2)
+      return t > -1e-6 && t < 1 + 1e-6 && off < 1e-6 * Math.sqrt(n2) + 1e-9
+    }
+    for (const s of shown) {
+      const parts = shown.filter((t) => t.o.id !== s.o.id && along(t.l.a, s.l.a, s.l.b) && along(t.l.b, s.l.a, s.l.b) && dist(t.l.a, t.l.b) < dist(s.l.a, s.l.b) - 1e-9)
+      if (!parts.length) continue
+      const [a, b] = [toScreen(s.l.a), toScreen(s.l.b)]
+      let n = norm({ x: -(b.y - a.y), y: b.x - a.x })
+      // the rest of the figure: points joined by a line to the segment or to its parts, off the segment
+      const ends = new Set([...s.ends, ...parts.flatMap((t) => t.ends)])
+      const others: Vec[] = []
+      for (const o of scene.objects) {
+        if (!isLinear(o) || o.dep.kind !== 'twoPoints') continue
+        const [p, q] = [o.dep.a, o.dep.b]
+        for (const [x, y] of [[p, q], [q, p]]) {
+          const at = ends.has(x) ? P(y) : null
+          if (at && !along(at, s.l.a, s.l.b)) others.push(toScreen(at))
+        }
+      }
+      if (others.length) {
+        const c = mul(others.reduce((m, v) => add(m, v), { x: 0, y: 0 }), 1 / others.length)
+        if (dot(n, sub(c, a)) > 0) n = mul(n, -1)
+      }
+      brace.set(s.o.id, n)
+      for (const t of parts) side.set(t.o.id, n)
+    }
+    return { brace, side }
+  })()
+
+  /** A curly brace over the segment from a to b (on the screen), on the side n; its tip is where the length goes. */
+  const bracePath = (a: Vec, b: Vec, n: Vec, from: number, depth: number) => {
+    const t = norm(sub(b, a))
+    const q = depth / 2
+    const m = mul(add(a, b), 0.5)
+    const at = (p: Vec, up: number, on: number) => add(add(p, mul(n, from + up)), mul(t, on))
+    const pt = (v: Vec) => `${v.x},${v.y}`
+    return [
+      `M${pt(at(a, 0, 0))}`,
+      `Q${pt(at(a, q, 0))} ${pt(at(a, q, q))}`,
+      `L${pt(at(m, q, -q))}`,
+      `Q${pt(at(m, q, 0))} ${pt(at(m, depth, 0))}`,
+      `Q${pt(at(m, q, 0))} ${pt(at(m, q, q))}`,
+      `L${pt(at(b, q, -q))}`,
+      `Q${pt(at(b, q, 0))} ${pt(at(b, 0, 0))}`,
+    ].join(' ')
+  }
+
   const renderObj = (o: GObj): JSX.Element | null => {
     const hl = isSel(o.id)
     switch (o.type) {
@@ -2022,11 +2099,23 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             {gaps.has(o.id)
               ? <path d={brokenPath([[l.a.x, l.a.y], [l.b.x, l.b.y]], gaps.get(o.id)!)} stroke={o.color} strokeWidth={o.width} fill="none" strokeDasharray={dashedNow(o) ? '6 5' : undefined} strokeLinecap="round" />
               : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={o.color} strokeWidth={o.width} strokeDasharray={dashedNow(o) ? '6 5' : undefined} strokeLinecap="round" />}
-            {o.type === 'segment' && o.showLength && (
-              <text x={mid.x + n.x * 14} y={mid.y + n.y * 14} className="measure" fill={o.color} textAnchor="middle">
-                {formatNum(segmentLength(o.id) ?? dist(l.a, l.b))}
-              </text>
-            )}
+            {o.type === 'segment' && o.showLength && (() => {
+              const value = formatNum(segmentLength(o.id) ?? dist(l.a, l.b))
+              const up = measureSides.brace.get(o.id)
+              // a brace needs room: on a very short segment the length just goes further out
+              if (up && dist(a, b) > 30) {
+                const tip = add(mid, mul(up, 26 + 10 + 13))
+                return (
+                  <>
+                    <path d={bracePath(a, b, up, 26, 10)} stroke={o.color} strokeWidth={1.2} fill="none" />
+                    <text x={tip.x} y={tip.y + 4} className="measure" fill={o.color} textAnchor="middle">{value}</text>
+                  </>
+                )
+              }
+              const side = up ?? measureSides.side.get(o.id) ?? n
+              const k = up ? 40 : 14
+              return <text x={mid.x + side.x * k} y={mid.y + side.y * k + (measureSides.side.has(o.id) ? 4 : 0)} className="measure" fill={o.color} textAnchor="middle">{value}</text>
+            })()}
           </g>
         )
       }
@@ -2180,6 +2269,15 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     return p.y < (Math.min(...ys) + Math.max(...ys)) / 2 - 1e-9
   }
 
+  /** A corner on the left edge of its figure or solid, below its top: a letter up and to the right would sit on a side. */
+  const onLeftEdge = (o: PointObj, p: Vec) => {
+    const pts = scene.objects.flatMap((x) => (x.type === 'point' && x.group === o.group && !x.hidden ? [P(x.id) ?? x] : []))
+    const xs = pts.map((q) => q.x)
+    const ys = pts.map((q) => q.y)
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+    return x1 - x0 > 1e-9 && p.x < x0 + 0.2 * (x1 - x0) && p.y <= y1 - 0.2 * (y1 - y0) + 1e-9
+  }
+
   const renderPoint = (o: PointObj) => {
     if (o.hidden) return null
     // a hidden corner shows, faintly, only under the cursor or when chosen, and never in an export
@@ -2198,6 +2296,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     // on the screen, y points down
     if (away) out = { x: away.x, y: -away.y }
     else if (o.group && o.corner != null && inLowerHalf(o, p)) out = { x: 0, y: 1 }
+    else if (o.group && o.corner != null && !o.rim && !o.ball && onLeftEdge(o, p)) out = { x: -1.1, y: 0 }
     return (
       <g key={o.id} {...(quiet ? { 'data-ui': true, opacity: 0.45 } : {})}>
         {isSel(o.id) && <circle cx={s.x} cy={s.y} r={9} className="halo-pt" />}
@@ -2471,6 +2570,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
               remember()
               orbitSolid(figure.holder!.id, ...defaultView(figure.holder!.frame!.solid))
             },
+            cut: figure.holder.frame.cut,
+            setCut: (cut) => cutSolid(figure.holder!.id, cut),
           },
         } : undefined} resolvedLen={(id) => {
           const l = L(id)
@@ -2607,7 +2708,12 @@ interface FigureTools {
   rotate: (deg: number) => void
   scale: (k: number) => void
   /** only for a solid: how it is seen */
-  solid?: { yaw: number; pitch: number; begin: () => void; turn: (yaw: number, pitch: number) => void; reset: () => void }
+  solid?: {
+    yaw: number; pitch: number; begin: () => void; turn: (yaw: number, pitch: number) => void; reset: () => void
+    /** the plane parallel to the base, from 0 (base) to 1 (top), if the body is cut */
+    cut?: number
+    setCut: (cut: number | null) => void
+  }
 }
 
 /** Exact rotation / scaling of the whole selected figure, around the chosen pivot. */
@@ -2643,6 +2749,20 @@ function FigurePanel({ t }: { t: FigureTools }) {
             <input type="range" min={-90} max={90} value={t.solid.pitch} onPointerDown={t.solid.begin} onChange={(e) => t.solid!.turn(t.solid!.yaw, Number(e.target.value))} />
           </label>
           <button className="btn small" onClick={t.solid.reset}>Vederea inițială</button>
+          <div className="insp-sub">Secțiune paralelă cu baza</div>
+          {t.solid.cut == null
+            ? <button className="btn small" onClick={() => { t.solid!.begin(); t.solid!.setCut(0.5) }} title="Taie corpul cu un plan paralel cu baza; colțurile secțiunii primesc litere">Secționează</button>
+            : <>
+              <label className="insp-row">La {Math.round(t.solid.cut * 100)}% din înălțime, de la bază
+                <input type="range" min={1} max={99} value={Math.round(t.solid.cut * 100)} onPointerDown={t.solid.begin} onChange={(e) => t.solid!.setCut(Number(e.target.value) / 100)} />
+              </label>
+              <div className="insp-row">
+                {[[1, 2], [1, 3], [2, 3], [1, 4], [3, 4]].map(([p, q]) => (
+                  <button key={p + '/' + q} className="btn small" onClick={() => { t.solid!.begin(); t.solid!.setCut(p / q) }} title={`La ${p}/${q} din înălțime, de la bază`}>{p}/{q}</button>
+                ))}
+              </div>
+              <button className="btn small" onClick={() => { t.solid!.begin(); t.solid!.setCut(null) }} title="Scoate secțiunea, cu punctele ei și ce e construit pe ele">Scoate secțiunea</button>
+            </>}
         </>
       )}
     </div>

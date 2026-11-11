@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolve } from '../geometry/engine'
 import { emptyScene, type GObj, type PathObj, type PointObj } from '../geometry/types'
-import { defaultView, setSolidView, SOLIDS, solidObjects, type SolidId } from './solids'
+import { defaultView, setSolidCut, setSolidView, SOLIDS, solidObjects, type SolidId } from './solids'
 
 const make = (id: SolidId, objects: GObj[] = [], group = 'g') =>
   [...objects, ...solidObjects(id, 0, 0, 6, 6, objects, { color: '#000', group })]
@@ -32,6 +32,10 @@ const LETTERS: Record<SolidId, string> = {
   pyramid3: 'A B C V O',
   pyramid4: 'A B C D V O',
   pyramid6: 'A B C D E F V O',
+  frustum3: 'A B C A′ B′ C′ O O′',
+  frustum4: 'A B C D A′ B′ C′ D′ O O′',
+  frustum6: 'A B C D E F A′ B′ C′ D′ E′ F′ O O′',
+  frustumCone: 'A B A′ B′ O O′',
 }
 
 describe('the corners of a solid', () => {
@@ -47,7 +51,7 @@ describe('the corners of a solid', () => {
   })
 
   // the bug of November 2026: the points were put next to the corners, not on them
-  const corners = SOLIDS.map((s) => s.id).filter((id) => !['cylinder', 'cone', 'sphere'].includes(id))
+  const corners = SOLIDS.map((s) => s.id).filter((id) => !['cylinder', 'cone', 'sphere', 'frustumCone'].includes(id))
   it.each(corners)('the corners of %s lie on the ends of its edges, whichever way it is seen', (id) => {
     let objects = make(id)
     for (const [yaw, pitch] of [defaultView(id), ...VIEWS]) {
@@ -94,7 +98,7 @@ describe('the outline of a sphere', () => {
 })
 
 describe('how each solid is first seen', () => {
-  const corners = SOLIDS.map((s) => s.id).filter((id) => !['cylinder', 'cone', 'sphere'].includes(id))
+  const corners = SOLIDS.map((s) => s.id).filter((id) => !['cylinder', 'cone', 'sphere', 'frustumCone'].includes(id))
   // the complaint of November 2026: the back face of a pyramid could hardly be told from the rest.
   // Only bodies with flat faces: on a cylinder or a cone the corners on the circle are, rightly, next to the outline.
   it.each(corners)('no corner of %s falls next to an edge it is not on', (id) => {
@@ -130,5 +134,57 @@ describe('how each solid is first seen', () => {
     const dy = c2.y - a.y
     const off = Math.abs((d.x - a.x) * dy - (d.y - a.y) * dx) / Math.hypot(dx, dy)
     expect(off / Math.hypot(dx, dy)).toBeGreaterThan(0.05)
+  })
+})
+
+// asked for on 11 November 2026: cut any solid with a plane parallel to its base
+describe('a section parallel to the base', () => {
+  const holderOf = (objs: GObj[]) => objs.find((o) => o.type === 'path' && !!o.frame)!.id
+  const cutPoints = (objs: GObj[]) => objs.filter((o): o is PointObj => o.type === 'point' && !!o.cutOf)
+
+  it('cuts the pyramid VABCD halfway in A′B′C′D′, with O′ in the middle', () => {
+    const body = make('pyramid4')
+    const cut = setSolidCut(body, holderOf(body), 0.5)
+    expect(cutPoints(cut).map((p) => p.label).sort()).toEqual(['A′', 'B′', 'C′', 'D′', 'O′'])
+    const V = body.find((o): o is PointObj => o.type === 'point' && o.label === 'V')!
+    const A = body.find((o): o is PointObj => o.type === 'point' && o.label === 'A')!
+    const A1 = cutPoints(cut).find((p) => p.label === 'A′')!
+    expect(A1.x).toBeCloseTo((A.x + V.x) / 2, 6)
+    expect(A1.y).toBeCloseTo((A.y + V.y) / 2, 6)
+    // four sides of the section among the edges
+    const edges = (objs: GObj[]) => objs.filter((o) => o.type === 'path' && !o.frame).length
+    expect(edges(cut) - edges(body)).toBe(4)
+  })
+
+  it('names the section of a prism A″B″C″, since A′B′C′ is the top', () => {
+    const body = make('prism3')
+    const labels = cutPoints(setSolidCut(body, holderOf(body), 0.3)).map((p) => p.label)
+    expect(labels).toHaveLength(3)
+    expect(labels.every((l) => /^[ABC]′′$/.test(l))).toBe(true)
+  })
+
+  it('keeps the same points when the plane moves, and takes them away with what is built on them', () => {
+    const body = make('cube')
+    const h = holderOf(body)
+    const once = setSolidCut(body, h, 0.25)
+    const ids = cutPoints(once).map((p) => p.id).sort()
+    const [p, q] = cutPoints(once)
+    const seg: GObj = { id: 'seg', type: 'segment', dep: { kind: 'twoPoints', a: p.id, b: q.id }, color: '#000', width: 2 } as unknown as GObj
+    const moved = setSolidCut([...once, seg], h, 0.75)
+    expect(cutPoints(moved).map((x) => x.id).sort()).toEqual(ids)
+    expect(moved.some((o) => o.id === 'seg')).toBe(true)
+    const gone = setSolidCut(moved, h, null)
+    expect(cutPoints(gone)).toHaveLength(0)
+    expect(gone.some((o) => o.id === 'seg')).toBe(false)
+    expect(gone.filter((o) => o.type === 'path' && !o.frame)).toHaveLength(12)
+  })
+
+  it.each(SOLIDS.map((s) => s.id))('%s can be cut and still turned', (id) => {
+    const body = make(id)
+    const h = holderOf(body)
+    const cut = setSolidCut(body, h, 0.4)
+    expect(cut.filter((o) => o.type === 'path' && !o.frame).length).toBeGreaterThan(body.filter((o) => o.type === 'path' && !o.frame).length)
+    const turned = setSolidView(cut, h, 40, -25)
+    expect((turned.find((o) => o.id === h) as { frame: { cut: number } }).frame.cut).toBe(0.4)
   })
 })

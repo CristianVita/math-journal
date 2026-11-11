@@ -18,6 +18,10 @@ export const SOLIDS = [
   { id: 'pyramid3', label: 'Piramidă triunghiulară' },
   { id: 'pyramid4', label: 'Piramidă patrulateră' },
   { id: 'pyramid6', label: 'Piramidă hexagonală' },
+  { id: 'frustum3', label: 'Trunchi de piramidă triunghiulară' },
+  { id: 'frustum4', label: 'Trunchi de piramidă patrulateră' },
+  { id: 'frustum6', label: 'Trunchi de piramidă hexagonală' },
+  { id: 'frustumCone', label: 'Trunchi de con' },
 ] as const
 
 export type SolidId = (typeof SOLIDS)[number]['id']
@@ -44,6 +48,10 @@ const VIEWS: Record<SolidId, [number, number]> = {
   pyramid3: [-10, 16],
   pyramid4: [-25, 20],
   pyramid6: [-10, 20],
+  frustum3: [-10, 20],
+  frustum4: [-25, 20],
+  frustum6: [-10, 20],
+  frustumCone: [-20, 20],
 }
 export const defaultView = (id: SolidId) => VIEWS[id]
 
@@ -75,6 +83,8 @@ interface Model {
   ball?: [number, number, number, number]
   /** the edges, as seen from the direction `v` (in model coordinates) */
   edges: (v: V3) => { points: V3[]; hidden: boolean }[]
+  /** where the body cuts the plane at height `y`, parallel to the base, as seen from `v` */
+  section: (y: number, v: V3) => { points: V3[]; hidden: boolean }[]
 }
 
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -104,6 +114,18 @@ function polyhedron(verts: V3[], faces: number[][], corners: Corners): Model {
       points: [verts[a], verts[b]],
       hidden: !own.some((k) => dot(normals[k], v) > 1e-9),
     })),
+    // each face crossed by the plane gives one side of the section, seen when the face is
+    section: (y, v) => faces.flatMap((f, k) => {
+      const cut: V3[] = []
+      f.forEach((a, i) => {
+        const [p, q] = [verts[a], verts[f[(i + 1) % f.length]]]
+        if ((p[1] - y) * (q[1] - y) < 0) {
+          const t = (y - p[1]) / (q[1] - p[1])
+          cut.push([p[0] + t * (q[0] - p[0]), y, p[2] + t * (q[2] - p[2])])
+        }
+      })
+      return cut.length === 2 ? [{ points: cut, hidden: dot(normals[k], v) <= 1e-9 }] : []
+    }),
   }
 }
 
@@ -125,6 +147,15 @@ function pyramidOf(base: Pt[], w: number, h: number, d: number): Model {
   return polyhedron([...bottom, apex], faces, { base: bottom, apex, center })
 }
 
+/** A frustum of a pyramid: the top is the base made `k` times smaller, right above its center. */
+function frustumOf(base: Pt[], w: number, h: number, d: number, k: number): Model {
+  const bottom = base.map(([x, z]): V3 => [x * w, -h / 2, z * d])
+  const top = base.map(([x, z]): V3 => [x * w * k, h / 2, z * d * k])
+  const n = base.length
+  const faces = [bottom.map((_, i) => i), top.map((_, i) => n + i), ...base.map((_, i) => [i, (i + 1) % n, n + ((i + 1) % n), n + i])]
+  return polyhedron([...bottom, ...top], faces, { base: bottom, top, center: [0, -h / 2, 0], topCenter: [0, h / 2, 0] })
+}
+
 const RIM = 72
 const circle = (r: number, y: number, t: number): V3 => [r * Math.cos(t), y, r * Math.sin(t)]
 const rimAngles = Array.from({ length: RIM + 1 }, (_, i) => (i * 2 * Math.PI) / RIM)
@@ -140,6 +171,9 @@ function rimLines(r: number, y: number, seen: (t: number) => boolean) {
   })
   return out
 }
+
+/** A circle of the side of a round body, cut where the side turns away. */
+const sideCircle = (r: number, y: number, seen: (t: number) => boolean) => (r > 1e-9 ? rimLines(r, y, seen) : [])
 
 function cylinderOf(r: number, h: number): Model {
   const rims = [...rimAngles.map((t) => circle(r, -h / 2, t)), ...rimAngles.map((t) => circle(r, h / 2, t))]
@@ -164,6 +198,38 @@ function cylinderOf(r: number, h: number): Model {
       }
       return lines
     },
+    section: (y, v) => sideCircle(r, y, (t) => Math.cos(t) * v[0] + Math.sin(t) * v[2] > 1e-9),
+  }
+}
+
+/** A frustum of a cone, with the radius R below and r above. */
+function coneFrustumOf(R: number, r: number, h: number): Model {
+  const rims = [...rimAngles.map((t) => circle(R, -h / 2, t)), ...rimAngles.map((t) => circle(r, h / 2, t))]
+  const side = (v: V3) => (t: number) => h * (Math.cos(t) * v[0] + Math.sin(t) * v[2]) + (R - r) * v[1] > 1e-9
+  const at = (y: number) => R + ((r - R) * (y + h / 2)) / h
+  return {
+    corners: {
+      base: [[-R, -h / 2, 0], [R, -h / 2, 0]],
+      top: [[-r, h / 2, 0], [r, h / 2, 0]],
+      center: [0, -h / 2, 0],
+      topCenter: [0, h / 2, 0],
+      aux: [[0, -h / 2, R], [0, h / 2, r]],
+    },
+    rims: [[4, 0, 6], [5, 2, 7]],
+    outline: rims,
+    cornerEdges: [[0, 2], [1, 3]],
+    edges: (v) => {
+      const lines = [...rimLines(R, -h / 2, (t) => v[1] < -1e-9 || side(v)(t)), ...rimLines(r, h / 2, (t) => v[1] > 1e-9 || side(v)(t))]
+      // the two generatrices where the side turns away, as for the cone
+      const m = Math.hypot(v[0], v[2])
+      const c = m > 1e-6 ? (-(R - r) * v[1]) / (h * m) : 2
+      if (Math.abs(c) <= 1) {
+        const phi = Math.atan2(v[2], v[0])
+        for (const t of [phi + Math.acos(c), phi - Math.acos(c)]) lines.push({ points: [circle(R, -h / 2, t), circle(r, h / 2, t)], hidden: false })
+      }
+      return lines
+    },
+    section: (y, v) => sideCircle(at(y), y, side(v)),
   }
 }
 
@@ -186,6 +252,7 @@ function coneOf(r: number, h: number): Model {
       }
       return lines
     },
+    section: (y, v) => sideCircle((r * (h / 2 - y)) / h, y, (t) => h * (Math.cos(t) * v[0] + Math.sin(t) * v[2]) + r * v[1] > 1e-9),
   }
 }
 
@@ -208,6 +275,10 @@ function sphereOf(r: number): Model {
       { points: outlineSeenFrom(v), hidden: false },
       ...rimLines(r, 0, (t) => dot(circle(r, 0, t), v) > 1e-9),
     ],
+    section: (y, v) => {
+      const s = Math.sqrt(Math.max(0, r * r - y * y))
+      return sideCircle(s, y, (t) => dot(circle(s, y, t), v) > 1e-9)
+    },
   }
 }
 
@@ -230,6 +301,10 @@ const MODELS: Record<SolidId, (w: number, h: number) => Model> = {
   pyramid3: (w, h) => pyramidOf(TRIANGLE, w, h, w),
   pyramid4: (w, h) => pyramidOf(SQUARE, w, h, w),
   pyramid6: (w, h) => pyramidOf(HEXAGON, w, h, w),
+  frustum3: (w, h) => frustumOf(TRIANGLE, w, h, w, 0.5),
+  frustum4: (w, h) => frustumOf(SQUARE, w, h, w, 0.5),
+  frustum6: (w, h) => frustumOf(HEXAGON, w, h, w, 0.5),
+  frustumCone: (w, h) => coneFrustumOf(w / 2, w / 4, h),
 }
 
 /** These keep their proportions: the height follows from the width. */
@@ -361,7 +436,9 @@ function edgeObjects(frame: SolidFrame, points: [number, number][], old: PathObj
   const place = framePlace(points)
   const seen = viewOf(frame.yaw, frame.pitch)
   const model = MODELS[frame.solid](frame.w, frame.h)
-  return model.edges(viewerOf(frame.yaw, frame.pitch)).map((l, i) => {
+  const v = viewerOf(frame.yaw, frame.pitch)
+  const lines = [...model.edges(v), ...(frame.cut != null ? model.section(heightOf(model, frame.cut), v) : [])]
+  return lines.map((l, i) => {
     const dense = resample(l.points.map((p) => {
       const [u, v, depth] = seen(p)
       return [...place(u, v), depth]
@@ -392,6 +469,103 @@ export function solidObjects(id: SolidId, ax: number, ay: number, x: number, y: 
   const edges = edgeObjects(frame, points, [], extra.color, extra.group)
   const place = framePlace(points)
   return [holder, ...edges, ...cornerPoints(MODELS[id](w, h), viewOf(frame.yaw, frame.pitch), place, [...objects, ...edges], extra)]
+}
+
+/** The height in the model of the plane that cuts the body at `cut` (0 at the base, 1 at the top). */
+function heightOf(model: Model, cut: number) {
+  const ys = model.outline.map((p) => p[1])
+  const [lo, hi] = [Math.min(...ys), Math.max(...ys)]
+  return lo + cut * (hi - lo)
+}
+
+/**
+ * The corners of the section at `cut`: where it crosses the edges between corners, and its center on the axis.
+ * Each is a weighted sum of two corners (`a`, `b`, with the weight `s` on `b`), so it follows the body when it turns.
+ */
+function sectionCorners(model: Model, cut: number) {
+  const corners = allCorners(model.corners)
+  const y = heightOf(model, cut)
+  const out: { key: string; a: number; b: number; s: number; named: number | 'center' }[] = []
+  for (const [i, j] of model.cornerEdges) {
+    const [a, b] = corners[i][1] <= corners[j][1] ? [i, j] : [j, i]
+    const [ya, yb] = [corners[a][1], corners[b][1]]
+    if (ya < y && y < yb) out.push({ key: a + ':' + b, a, b, s: (y - ya) / (yb - ya), named: a })
+  }
+  const { center, topCenter, apex, base, top, aux } = model.corners
+  if (center) {
+    const c = base.length + (top?.length ?? 0) + (apex ? 1 : 0)
+    // the other end of the axis: the top center, the apex, or for the sphere its upper pole
+    const upper = topCenter ? c + 1 : apex ? c - 1 : aux?.findIndex((p) => p[1] > center[1] + 1e-9)
+    if (upper != null && upper >= 0) {
+      const u = topCenter || apex ? upper : c + 1 + upper
+      const [y0, y1] = [corners[c][1], corners[u][1]]
+      out.push({ key: 'axis', a: c, b: u, s: (y - y0) / (y1 - y0), named: 'center' })
+    }
+  }
+  return out
+}
+
+/**
+ * Cuts a solid with a plane parallel to its base at `cut` (0 at the base, 1 at the top), or takes the cut away with null.
+ * The section is drawn on the body, and its corners become points with letters: A′, B′… under the letters of the base
+ * (or A″… when those are taken), and O′ or O″ in the middle. Moving the plane moves the same points, so what was built
+ * on them stays; taking the cut away removes them and whatever was built on them.
+ */
+export function setSolidCut(objects: GObj[], holderId: string, cut: number | null): GObj[] {
+  const holder = objects.find((o) => o.id === holderId)
+  if (holder?.type !== 'path' || !holder.frame) return objects
+  const frame: SolidFrame = { ...holder.frame, cut: cut ?? undefined }
+  const group = holder.group!
+  const model = MODELS[frame.solid](frame.w, frame.h)
+  const old = objects.filter((o): o is PathObj => o.type === 'path' && o.group === group && !o.frame)
+  const edges = edgeObjects(frame, holder.points, old, holder.color, group)
+  const byCorner = new Map(objects.flatMap((o) => (o.type === 'point' && o.group === group && o.corner != null ? [[o.corner, o] as const] : [])))
+  const wanted = cut == null ? [] : sectionCorners(model, cut)
+  const keep = new Set(wanted.map((w) => w.key))
+  // points of an earlier cut that the new one no longer has go, with what was built on them
+  const gone = new Set(objects.filter((o) => o.type === 'point' && o.cutOf === holderId && !keep.has(o.cutKey ?? '')).map((o) => o.id))
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const o of objects) if (!gone.has(o.id) && dependsOn(o).some((id) => gone.has(id))) { gone.add(o.id); grew = true }
+  }
+  const corners = allCorners(model.corners)
+  const seen = viewOf(frame.yaw, frame.pitch)
+  const place = framePlace(holder.points)
+  const { primed } = labelMaker(objects.filter((o) => !gone.has(o.id)))
+  const made = new Map<string, PointObj>()
+  for (const w of wanted) {
+    const pa = byCorner.get(w.a)
+    const pb = byCorner.get(w.b)
+    if (!pa || !pb) continue
+    const p3 = corners[w.a].map((c, k) => c + w.s * (corners[w.b][k] - c)) as V3
+    const [u, v, depth] = seen(p3)
+    const [x, y] = place(u, v)
+    const dep = { kind: 'combo' as const, parts: [[pa.id, 1 - w.s], [pb.id, w.s]] as [string, number][] }
+    const was = objects.find((o): o is PointObj => o.type === 'point' && o.cutOf === holderId && o.cutKey === w.key)
+    made.set(w.key, was
+      ? { ...was, x, y, depth, dep }
+      : { id: uid(), type: 'point', x, y, depth, dep, color: holder.color, cutOf: holderId, cutKey: w.key, label: primed((w.named === 'center' ? 'O' : byCorner.get(w.named)?.label ?? 'M').replace(/′+$/, '') + '′') })
+  }
+  const fresh = [...made.values()].filter((p) => !objects.some((o) => o.id === p.id))
+  return objects.flatMap((o): GObj[] => {
+    if (gone.has(o.id)) return []
+    if (o.id === holderId) return [{ ...holder, frame }, ...edges, ...fresh]
+    if (o.type === 'path' && o.group === group) return []
+    if (o.type === 'point' && o.cutOf === holderId) return [made.get(o.cutKey ?? '') ?? o]
+    return [o]
+  })
+}
+
+/** The ids an object is built on. */
+function dependsOn(o: GObj): string[] {
+  if (o.type === 'point') {
+    const d = o.dep as Record<string, unknown> & { kind: string }
+    if (d.kind === 'combo') return (d.parts as [string, number][]).map(([p]) => p)
+    return Object.values(d).filter((x): x is string => typeof x === 'string' && x !== d.kind)
+  }
+  if ('dep' in o && o.dep && typeof o.dep === 'object') return Object.values(o.dep as Record<string, unknown>).filter((x): x is string => typeof x === 'string')
+  return Object.values(o).filter((x): x is string => typeof x === 'string' && x.length > 6 && x !== o.id)
 }
 
 /** The holder of the frame of the solid that `ids` belong to, if there is one. */
