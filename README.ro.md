@@ -55,6 +55,8 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - **Segmentele se punctează singure:** o diagonală, o înălțime sau o rază trasată pe corp e punctată cât timp trece prin interior sau stă pe o față din spate, și se schimbă la rotire
 - Punctele și literele unui corp sau ale unei figuri se pot ascunde, când desenul e doar o ilustrație
 - Ștergerea unui corp ia și ce e desenat în interiorul lui (Ctrl+Z le aduce înapoi)
+- **Corpuri lipite**, ca rigla de echer: tragi un corp cu baza lângă o față de aceeași formă a altuia (o piramidă pe o prismă, un con pe un cilindru, un cub lângă alt cub) și se așază singur, la mărimea feței; apoi se mută și se rotesc împreună, iar muchiile ascunse se calculează pentru tot corpul
+- **Corp în corp**, din panou: sfera înscrisă sau circumscrisă, conul în cilindru, piramida în prismă, cilindrul în cub, prisma în cilindru, pe aceeași axă
 - **Secțiune paralelă cu baza**, la orice corp: un glisor sau butoanele 1/2, 1/3, 2/3, 1/4, 3/4 aleg înălțimea, iar colțurile secțiunii primesc litere (A′B′C′… sau A″B″C″…, O′), pe care se poate construi; secțiunea rămâne la rotire
 
 **Caiet**
@@ -68,6 +70,7 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 
 **Fișe de lucru** (clasele V–VIII, până la Evaluarea Națională)
 - Exerciții generate de aplicație, pe clasă, tip și nivel (ușor, mediu, greu), fiecare cu rezolvarea scrisă în română: ordinea operațiilor, puteri, fracții, zecimale, procente, proporții, numere întregi, radicali, ecuații și inecuații de gradul I, sisteme, descompuneri în factori, ecuații de gradul II prin descompunere; unghiuri, dreptunghiul, Pitagora, arii de patrulatere, Thales și asemănarea, rapoarte trigonometrice în triunghiul dreptunghic, arii și volume ale corpurilor, distanțe și unghiuri în spațiu (teorema celor trei perpendiculare, unghiul diedru), trunchiuri, sfera și secțiuni paralele cu baza
+- **Clasele V–VII în întregime:** împărțirea cu rest, divizibilitate, bazele 10 și 2, pătrate perfecte, compararea puterilor, metodele de rezolvare a problemelor de clasa a V-a (reducerea la unitate, comparația, metoda figurativă, mersul invers, falsa ipoteză); mulțimi, c.m.m.d.c. și c.m.m.m.c., rapoarte și probabilități, ecuații în ℤ și ℚ, triunghiul, drepte paralele și cercul; numere reale, formule de calcul prescurtat, patrulatere, cercul și poligoanele regulate, relații metrice în triunghiul dreptunghic. Clasa a V-a urmează și o culegere, capitol cu capitol, cu nivelurile după stelele ei
 - Mai multe tipare la fiecare nivel; nivelul greu de la clasele VII–VIII urmează Evaluarea Națională (probleme în mai mulți pași, după teste recapitulative și simulări reale)
 - Un nivel **concurs** la fiecare clasă, după probleme de la olimpiada locală și județeană: sume Gauss, resturi, divizibilitate, sume telescopice, fracții ireductibile, radicali dubli, ecuații în numere întregi, minime prin pătrate, inegalități, funcția liniară
 - Până la 100 de exerciții odată, **fără niciun exercițiu repetat pe fișă**; un tipar revine abia după ce au fost folosite toate celelalte ale clasei și nivelului

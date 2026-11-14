@@ -87,7 +87,8 @@ export function newSession(studentId: number): Session {
 // - under `SPILL`, what a page closed in the middle of a write could not finish (see `spillLocal`): the newest
 //   there is, so it is taken back into the database and then deleted.
 // the worksheet being made and the bank of exercises (the Fișe page) are kept the same way, and go into the backup too
-export const LOCAL_KEYS = ['math-journal:notebook', 'math-journal:board', 'math-journal:board-instruments', 'math-journal:worksheet', 'math-journal:exercises']
+// the national evaluation models added by the user, and which model each student did (12 November 2026)
+export const LOCAL_KEYS = ['math-journal:notebook', 'math-journal:board', 'math-journal:board-instruments', 'math-journal:worksheet', 'math-journal:exercises', 'math-journal:en-models', 'math-journal:en-results']
 const SPILL = 'math-journal:unsaved:'
 
 const cache = new Map<string, string>()

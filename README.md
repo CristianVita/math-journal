@@ -61,6 +61,8 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - **Segments dash themselves:** a diagonal, height or radius drawn on a solid is dashed while it runs through the inside or lies on a face turned away, and changes when the solid turns
 - Hide the corners and letters of a solid or a figure drawn only as an illustration
 - Deleting a solid also deletes what is drawn inside it (Ctrl+Z brings it back)
+- **Glued solids**, like the ruler and the set square: drag a solid with its base next to a face of the same shape on another (a pyramid on a prism, a cone on a cylinder, a cube next to a cube) and it settles there by itself, sized to the face; then they move and turn together, and the hidden edges are worked out for the whole body
+- **A solid inside another**, from the panel: the inscribed or circumscribed sphere, a cone in a cylinder, a pyramid in a prism, a cylinder in a cube, a prism in a cylinder, on the same axis
 - **Cut any solid with a plane parallel to its base**: a slider or the buttons 1/2, 1/3, 2/3, 1/4, 3/4 choose the height, and the corners of the section get letters (A′B′C′… or A″B″C″…, O′) to build on; the cut stays when the solid turns
 
 **Notebook**
@@ -74,6 +76,7 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 
 **Worksheets** (grades V–VIII, up to the national exam)
 - Exercises made by the app, by grade, type and level (easy, medium, hard), each with its worked solution in Romanian: order of operations, powers, fractions, decimals, percentages, proportions, integers, radicals, linear equations and inequalities, systems, factoring, quadratic equations by factoring; angles, rectangles, Pythagoras, areas of quadrilaterals, Thales and similarity, trigonometric ratios in a right triangle, areas and volumes of solids, distances and angles in space (the theorem of the three perpendiculars, dihedral angles), frustums, the sphere and sections parallel to the base
+- **Grades V–VII in full:** division with remainder, divisibility, the bases 10 and 2, perfect squares, comparing powers, the methods of grade V word problems (reduction to the unit, comparison, the figurative method, working backwards, the false hypothesis); sets, gcd and lcm, ratios and probabilities, equations in ℤ and ℚ, the triangle, parallel lines and the circle; real numbers, short multiplication formulas, quadrilaterals, the circle and regular polygons, metric relations in the right triangle. Grade V also follows a workbook chapter by chapter, its levels by the workbook's stars
 - Several patterns at every level; the hard level of grades VII–VIII follows the national exam (multi-step problems, after real recap tests and mock exams)
 - A **contest** level for every grade, after local and county olympiad problems: Gauss sums, remainders, divisibility, telescoping sums, irreducible fractions, double radicals, equations in whole numbers, minimums by squares, inequalities, the linear function
 - Up to 100 exercises at once, with **none repeated on a sheet**; a pattern comes back only after all the others of the grade and level have been used

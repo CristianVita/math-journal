@@ -7,7 +7,7 @@ import { saveFile } from '../platform'
 import { rasterize, saveDocx, savePdf, svgElementPicture, today } from '../export/exportDoc'
 import GeometryBoard, { SHEET_ORIGIN } from '../geometry/GeometryBoard'
 import { dist, resolve } from '../geometry/engine'
-import { emptyScene, type Scene } from '../geometry/types'
+import { emptyScene, type GObj, type Scene } from '../geometry/types'
 import { usePrompt } from '../components/PromptDialog'
 import { readLocal, writeLocal } from '../db'
 import { eraseLine } from './erase'
@@ -54,7 +54,7 @@ interface Notebook {
 }
 
 /** What the pointer is doing between pointerdown and pointerup; 'inst' = an instrument has it. */
-interface Active { pointerId: number; start: number[]; before: Item[]; mode: 'draw' | 'erase' | 'inst' | 'note' | 'shape'; note?: Note }
+interface Active { pointerId: number; start: number[]; before: Item[]; sceneBefore?: Scene; mode: 'draw' | 'erase' | 'inst' | 'note' | 'shape'; note?: Note }
 
 /** The text being typed; id is null for a new one. */
 interface NoteEdit { page: number; id: string | null; color: string; size: number; x: number; y: number; text: string }
@@ -632,7 +632,25 @@ export default function NotebookPage() {
         changed = true
         return pieces.map((points, i) => ({ ...s, id: i ? uid() : s.id + '-' + uid(), points }))
       })
-      return changed ? { ...n, pages: n.pages.map((p, i) => (i === n.current ? kept : p)) } : n
+      // the free drawing of the Constructions row (12 November 2026: the user wrote a whole page with it, and the
+      // eraser could not touch it): cut the same way; edges of solids (group) and views (frame) stay
+      const scene = n.scenes[n.current]
+      let sceneChanged = false
+      const toPx = ([wx, wy]: [number, number]) => [SHEET_ORIGIN.x + wx * PX_PER_CM, SHEET_ORIGIN.y - wy * PX_PER_CM]
+      const toWorld = (p: number[]): [number, number] => [(p[0] - SHEET_ORIGIN.x) / PX_PER_CM, (SHEET_ORIGIN.y - p[1]) / PX_PER_CM]
+      const objects = scene.objects.flatMap((o): GObj[] => {
+        if (o.type !== 'path' || o.group || o.frame) return [o]
+        const pieces = eraseLine(o.points.map(toPx), o.width, from, [x, y], size)
+        if (!pieces) return [o]
+        sceneChanged = true
+        return pieces.map((pts, i) => ({ ...o, id: i ? uid() : o.id + '-' + uid(), points: pts.map(toWorld) }))
+      })
+      if (!changed && !sceneChanged) return n
+      return {
+        ...n,
+        pages: changed ? n.pages.map((p, i) => (i === n.current ? kept : p)) : n.pages,
+        scenes: sceneChanged ? n.scenes.map((sc, i) => (i === n.current ? { ...sc, objects } : sc)) : n.scenes,
+      }
     })
   }
 
@@ -657,7 +675,7 @@ export default function NotebookPage() {
       active.current = { ...base, start: (shape === 'segment' && segFrom.current) || p, mode: 'shape' }
       segFrom.current = null
     } else if (tool === 'eraser') {
-      active.current = { ...base, mode: 'erase' }
+      active.current = { ...base, sceneBefore: nb.scenes[nb.current], mode: 'erase' }
       eraserWas.current = null
       eraseAt(p[0], p[1])
     } else {
@@ -751,7 +769,8 @@ export default function NotebookPage() {
       return
     }
     if (a.mode === 'erase') {
-      if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before)
+      // one undo step brings back what the eraser took, from the page and from the constructions
+      if (nb.pages[nb.current] !== a.before || nb.scenes[nb.current] !== a.sceneBefore) remember(nb.current, a.before, a.sceneBefore)
       return
     }
     if (drawing) {
@@ -805,7 +824,7 @@ export default function NotebookPage() {
             <button className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')} title="Pix (P)"><ToolIcon name="pen" />Pix</button>
             <button className={tool === 'marker' ? 'active' : ''} onClick={() => setTool('marker')} title="Evidențiator (M)"><ToolIcon name="marker" />Evidențiator</button>
             <button className={tool === 'text' ? 'active' : ''} onClick={() => setTool('text')} title="Text (T): clic pe foaie și scrii; clic pe un text ca să-l modifici, trage de el ca să-l muți"><ToolIcon name="text" />Text</button>
-            <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge doar porțiunea pe care treci; un text atins se șterge tot"><ToolIcon name="eraser" />Radieră</button>
+            <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge doar porțiunea pe care treci, și din desenul liber de la Construcții; un text atins se șterge tot"><ToolIcon name="eraser" />Radieră</button>
           </div>
           {tool !== 'eraser' && tool !== 'geometry' && (
             <div className="swatches">
