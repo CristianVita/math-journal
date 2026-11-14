@@ -1,4 +1,4 @@
-// Worksheets for the students: exercises made by the app (grades V–VIII) or kept in one's own bank, put together on a
+// Worksheets for the students: exercises made by the app (grades V–VIII, and IX–XII by baccalaureate profile) or kept in one's own bank, put together on a
 // sheet with a title, the student and the date, and printed as PDF or Word, with the solutions on separate pages.
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -6,17 +6,26 @@ import { db, readLocal, writeLocal } from '../db'
 import MathText from '../components/MathText'
 import { usePrompt } from '../components/PromptDialog'
 import { saveDocx, savePdf, today } from '../export/exportDoc'
-import { GENERATORS, LEVELS, type Grade, type Level } from './generators'
+import { GENERATORS, LEVELS, PROFILES, type Grade, type Level, type Profile } from './generators'
 import { seeded } from './tex'
 import { sheetPictures } from './worksheetExport'
+import { PHOTO_PROMPT, brokenFormulas, spacedLines, splitExercises } from './fromPhoto'
+import { figureFor } from './figures'
+import { CHAPTERS, bookExercises, type BookExercise } from './chapters'
+import { figureSvg } from '../models/figure'
+import { isDesktop } from '../platform'
+import katex from 'katex'
+
+const katexCheck = (tex: string, display: boolean) => { katex.renderToString(tex, { throwOnError: true, displayMode: display }) }
 
 export const SHEET_KEY = 'math-journal:worksheet'
 export const BANK_KEY = 'math-journal:exercises'
 
 /** Where an exercise on the sheet came from: made by a generator (and can be made again), or taken from the bank. */
-type Source = { gen: string; level: Level; seed: number; form?: number } | { bank: string } | { own: true }
+type Source = { gen: string; level: Level; seed: number; form?: number } | { bank: string } | { own: true } | { model: string; n: number }
 
-interface SheetItem { id: string; text: string; solution: string; source: Source; grade?: Grade }
+/** `figure`: the SVG beside the statement: from a national evaluation model, or drawn from the statement (`figures.ts`) */
+export interface SheetItem { id: string; text: string; solution: string; source: Source; grade?: Grade; figure?: string }
 interface Sheet {
   title: string; studentId: number | null; date: string; items: SheetItem[]; space: 0 | 1 | 2; solutions: boolean
   /** fingerprints of the last RECENT exercises made for this sheet, removed ones included, so that none comes again */
@@ -29,7 +38,9 @@ const SPACE: Record<Sheet['space'], { label: string; px: number }> = {
   1: { label: 'puțin', px: 90 },
   2: { label: 'mult', px: 200 },
 }
-const GRADE_NAMES: Record<Grade, string> = { 5: 'a V-a', 6: 'a VI-a', 7: 'a VII-a', 8: 'a VIII-a' }
+const GRADE_NAMES: Record<Grade, string> = { 5: 'a V-a', 6: 'a VI-a', 7: 'a VII-a', 8: 'a VIII-a', 9: 'a IX-a', 10: 'a X-a', 11: 'a XI-a', 12: 'a XII-a' }
+const GRADES: Grade[] = [5, 6, 7, 8, 9, 10, 11, 12]
+const TOPICS = ['Algebră', 'Geometrie', 'Analiză'] as const
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 const newSeed = () => Math.floor(Math.random() * 2 ** 31)
@@ -50,8 +61,20 @@ const make = (genId: string, level: Level, seed: number, form: number): SheetIte
   const g = GENERATORS.find((x) => x.id === genId)
   if (!g) return null
   const m = g.make(seeded(seed), level, form)
-  return { id: uid(), text: m.text, solution: m.solution, source: { gen: genId, level, seed, form }, grade: g.grade }
+  // geometry comes with its figure, read from the statement (13 November 2026)
+  const fig = g.topic === 'Geometrie' ? figureFor(m.text) : undefined
+  return { id: uid(), text: m.text, solution: m.solution, source: { gen: genId, level, seed, form }, grade: g.grade, figure: fig ? figureSvg(fig) : undefined }
 }
+
+/** A new exercise of this kind and form, for "Încă unul la fel" on the Modele E.N. page. */
+export const newExercise = (genId: string, level: Level, form: number) => make(genId, level, newSeed(), form)
+
+/** The figure of a statement as SVG, for any exercise on the sheet (from the bank or a photo too). */
+const drawFor = (text: string) => {
+  const fig = figureFor(text)
+  return fig ? figureSvg(fig) : undefined
+}
+const canDraw = (text: string) => !!figureFor(text)
 
 /** How many of the last exercises made for a sheet are never repeated (asked for by the user on 10 November 2026). */
 const RECENT = 100
@@ -108,8 +131,15 @@ export default function WorksheetsPage() {
   // ---------- making exercises ----------
   const [grade, setGrade] = useState<Grade>(8)
   const [level, setLevel] = useState<Level>(1)
+  // in high school, the kinds of the chosen baccalaureate profile (from 12 November 2026)
+  const [profile, setProfile] = useState<Profile>('M1')
+  const highSchool = grade >= 9
+  const ofClass = useMemo(() => GENERATORS.filter((g) => g.grade === grade && (!highSchool || g.profiles?.includes(profile))), [grade, highSchool, profile])
+  // the levels that have exercises here: the contest level only in middle school
+  const levels = ([1, 2, 3, 4] as Level[]).filter((l) => ofClass.some((g) => g.forms(l) > 0))
+  useEffect(() => { if (levels.length && !levels.includes(level)) setLevel(levels[levels.length - 1]) }, [levels, level])
   // only the kinds that have exercises at this level: the contest level has kinds of its own
-  const ofGrade = useMemo(() => GENERATORS.filter((g) => g.grade === grade && g.forms(level) > 0), [grade, level])
+  const ofGrade = useMemo(() => ofClass.filter((g) => g.forms(level) > 0), [ofClass, level])
   const [genId, setGenId] = useState<string>('mix')
   const [count, setCount] = useState(5)
   useEffect(() => setGenId((id) => (ofGrade.some((g) => g.id === id) ? id : 'mix')), [ofGrade])
@@ -150,6 +180,41 @@ export default function WorksheetsPage() {
       await ask(`Am adăugat ${made.length} din ${count}: ${genId === 'mix' ? 'tipurile clasei nu mai au' : 'tipul ales nu mai are'}, la acest nivel, alte exerciții diferite de cele de pe fișă, iar exercițiile nu se repetă. Alege alt tip sau alt nivel pentru restul.`, '', true)
     }
   }
+  // ---------- a sheet on one chapter, from the books and the generators (13 November 2026) ----------
+  const [chapter, setChapter] = useState(CHAPTERS[0].id)
+  const [chLevel, setChLevel] = useState<Level>(2)
+  const [chCount, setChCount] = useState(6)
+  const [chBook, setChBook] = useState(true)
+  const [chGen, setChGen] = useState(true)
+  const fillChapter = async () => {
+    const ch = CHAPTERS.find((c) => c.id === chapter)
+    if (!ch) return
+    const onSheet = new Set(sheet.items.flatMap((x) => ('model' in x.source ? [`${x.source.model}#${x.source.n}`] : [])))
+    const avoid = new Set([...(sheet.recent ?? []), ...sheet.items.map((x) => fingerprint(x.text))])
+    const fromBook = chBook
+      ? bookExercises().filter((b) => b.chapters.includes(ch.id) && !onSheet.has(`${b.source.model}#${b.source.n}`)).sort(() => Math.random() - 0.5)
+      : []
+    const gens = chGen ? GENERATORS.filter((g) => ch.gens.includes(g.id) && g.forms(chLevel) > 0) : []
+    const fromBookItem = (b: BookExercise): SheetItem => ({ id: uid(), text: b.text, solution: b.solution, source: b.source, grade: 8, figure: b.fig ? figureSvg(b.fig) : undefined })
+    // half from the book and half generated, when both are wanted
+    const nBook = gens.length ? (chBook ? Math.ceil(chCount / 2) : 0) : chCount
+    const made: SheetItem[] = fromBook.slice(0, nBook).map(fromBookItem)
+    let tries = 0
+    while (made.length < chCount && gens.length && tries < chCount * 4) {
+      const g = gens[tries++ % gens.length]
+      const item = makeFresh(g.id, chLevel, Math.floor(Math.random() * g.forms(chLevel)), avoid)
+      if (!item) continue
+      made.push(item)
+      avoid.add(fingerprint(item.text))
+    }
+    // when the generated ones run out, more from the book
+    for (const b of fromBook.slice(nBook)) if (made.length < chCount) made.push(fromBookItem(b))
+    setSheet((s) => ({ ...s, items: [...s.items, ...made], recent: remember(s.recent, made.filter((x) => 'gen' in x.source)) }))
+    if (made.length < chCount) {
+      await ask(`Am adăugat ${made.length} din ${chCount}: pentru capitolul „${ch.title}” nu mai sunt alte exerciții${chBook && chGen ? '' : chBook ? ' în culegere' : ' generate'} diferite de cele de pe fișă.${!ch.gens.length ? ' Capitolul acesta are exerciții doar în culegere.' : ''}`, '', true)
+    }
+  }
+
   /** The fingerprints of the last RECENT exercises, after adding `made`. */
   const remember = (recent: string[] | undefined, made: SheetItem[]) => [...(recent ?? []), ...made.map((x) => fingerprint(x.text))].slice(-RECENT)
 
@@ -204,6 +269,31 @@ export default function WorksheetsPage() {
   }
   const fromBank = (b: BankItem) => patchItems((items) => [...items, { id: uid(), text: b.text, solution: b.solution, source: { bank: b.id }, grade: b.grade ?? undefined }])
 
+  // ---------- from a photo of a workbook, through a free chat (12 November 2026) ----------
+  const [photo, setPhoto] = useState<{ raw: string; items: string[] } | null>(null)
+  const [copied, setCopied] = useState<'yes' | 'no' | null>(null)
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(PHOTO_PROMPT)
+      setCopied('yes')
+    } catch {
+      // no clipboard here: the instructions are shown, to be selected and copied by hand
+      setCopied('no')
+    }
+  }
+  const photoToSheet = () => {
+    if (!photo?.items.length) return
+    const made: SheetItem[] = photo.items.map((text) => ({ id: uid(), text, solution: '', source: { own: true }, grade }))
+    setSheet((s) => ({ ...s, items: [...s.items, ...made] }))
+    setPhoto(null)
+    setCopied(null)
+  }
+  const photoToBank = () => {
+    if (!photo?.items.length) return
+    const now = Date.now()
+    setBank((b) => [...photo.items.map((text, i) => ({ id: uid(), grade, text, solution: '', createdAt: now + i })), ...b])
+  }
+
   // ---------- printing ----------
   const [busy, setBusy] = useState(false)
   const exportAs = async (kind: 'pdf' | 'docx') => {
@@ -229,7 +319,7 @@ export default function WorksheetsPage() {
       <div className="page-head">
         <div>
           <h1>Fișe de lucru</h1>
-          <p className="muted">Exerciții generate pentru clasele V–VIII sau scrise de tine, puse pe o fișă și tipărite, cu rezolvările separat.</p>
+          <p className="muted">Exerciții generate pentru clasele V–XII (la liceu, pe profilurile de Bacalaureat) sau scrise de tine, puse pe o fișă și tipărite, cu rezolvările separat.</p>
         </div>
         <div className="ws-actions">
           <button className="btn" disabled={busy} onClick={() => exportAs('pdf')}>📄 PDF</button>
@@ -248,13 +338,26 @@ export default function WorksheetsPage() {
             <div className="ws-form">
               <label className="field">Clasa
                 <select value={grade} onChange={(e) => setGrade(Number(e.target.value) as Grade)}>
-                  {([5, 6, 7, 8] as Grade[]).map((g) => <option key={g} value={g}>{GRADE_NAMES[g]}{g === 8 ? ' (Evaluare Națională)' : ''}</option>)}
+                  <optgroup label="Gimnaziu">
+                    {GRADES.filter((g) => g <= 8).map((g) => <option key={g} value={g}>{GRADE_NAMES[g]}{g === 8 ? ' (Evaluare Națională)' : ''}</option>)}
+                  </optgroup>
+                  <optgroup label="Liceu (Bacalaureat)">
+                    {GRADES.filter((g) => g >= 9).map((g) => <option key={g} value={g}>{GRADE_NAMES[g]}</option>)}
+                  </optgroup>
                 </select>
               </label>
+              {highSchool && (
+                <label className="field">Profilul
+                  <select value={profile} onChange={(e) => setProfile(e.target.value as Profile)}>
+                    {(Object.keys(PROFILES) as Profile[]).map((p) => <option key={p} value={p}>{PROFILES[p]}</option>)}
+                  </select>
+                </label>
+              )}
+              {!ofClass.length && <p className="muted small">Încă nu sunt exerciții pentru clasa {GRADE_NAMES[grade]}{highSchool ? `, profilul ${PROFILES[profile]}` : ''}. Deocamdată sunt doar la M1, clasele a IX-a și a X-a (Subiectul I).</p>}
               <label className="field">Tipul
                 <select value={genId} onChange={(e) => setGenId(e.target.value)}>
                   <option value="mix">Amestec din toată clasa</option>
-                  {(['Algebră', 'Geometrie'] as const).map((t) => (
+                  {TOPICS.filter((t) => ofGrade.some((g) => g.topic === t)).map((t) => (
                     <optgroup key={t} label={t}>
                       {ofGrade.filter((g) => g.topic === t).map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
                     </optgroup>
@@ -264,15 +367,80 @@ export default function WorksheetsPage() {
               <div className="field-row">
                 <label className="field">Nivelul
                   <select value={level} onChange={(e) => setLevel(Number(e.target.value) as Level)}>
-                    {([1, 2, 3, 4] as Level[]).map((l) => <option key={l} value={l}>{LEVELS[l]}</option>)}
+                    {(levels.length ? levels : [1, 2, 3] as Level[]).map((l) => <option key={l} value={l}>{LEVELS[l]}</option>)}
                   </select>
                 </label>
                 <label className="field">Câte
                   <input type="number" min={1} max={RECENT} value={count} onChange={(e) => setCount(Math.max(1, Math.min(RECENT, Number(e.target.value) || 1)))} />
                 </label>
               </div>
-              <button className="btn primary" onClick={generate}>Adaugă pe fișă</button>
+              <button className="btn primary" disabled={!ofGrade.length} onClick={generate}>Adaugă pe fișă</button>
             </div>
+          </section>
+
+          <section className="card">
+            <div className="card-title">Fișă pe un capitol</div>
+            <div className="ws-form">
+              <label className="field">Capitolul (clasele V–VIII)
+                <select value={chapter} onChange={(e) => setChapter(e.target.value)}>
+                  {CHAPTERS.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </select>
+              </label>
+              <div className="field-row">
+                <label className="field">Nivelul (generate)
+                  <select value={chLevel} onChange={(e) => setChLevel(Number(e.target.value) as Level)}>
+                    {([1, 2, 3] as Level[]).map((l) => <option key={l} value={l}>{LEVELS[l]}</option>)}
+                  </select>
+                </label>
+                <label className="field">Câte
+                  <input type="number" min={1} max={30} value={chCount} onChange={(e) => setChCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))} />
+                </label>
+              </div>
+              <label className="ws-check"><input type="checkbox" checked={chBook} onChange={(e) => setChBook(e.target.checked)} /> Din culegere (modele E.N., teste, recapitulare)</label>
+              <label className="ws-check"><input type="checkbox" checked={chGen} onChange={(e) => setChGen(e.target.checked)} /> Generate de aplicație</label>
+              <button className="btn primary" disabled={!chBook && !chGen} onClick={fillChapter}>Adaugă pe fișă</button>
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="ws-bank-head">
+              <div className="card-title">Din poză (culegere)</div>
+              {!photo && <button className="btn small" onClick={() => setPhoto({ raw: '', items: [] })}>Începe</button>}
+            </div>
+            {!photo && <p className="muted small">O poză cu exerciții din culegere devine o fișă scrisă clar, cu formule, prin chatul gratuit claude.ai.</p>}
+            {photo && (
+              <div className="ws-form ws-photo">
+                <ol className="ws-steps">
+                  <li>
+                    <button className="btn small" onClick={copyPrompt}>{copied === 'yes' ? '✓ Instrucțiuni copiate' : 'Copiază instrucțiunile'}</button>
+                    {copied === 'no' && <textarea readOnly rows={4} value={PHOTO_PROMPT} onFocus={(e) => e.target.select()} title="Selectează și copiază (Ctrl+C)" />}
+                  </li>
+                  <li>Deschide {isDesktop() ? <b>claude.ai</b> : <a href="https://claude.ai/new" target="_blank" rel="noreferrer">claude.ai</a>} în browser sau pe telefon, atașează poza și lipește instrucțiunile.</li>
+                  <li>Copiază răspunsul (butonul de copiere al blocului de cod) și lipește-l aici:</li>
+                </ol>
+                <textarea rows={4} value={photo.raw} placeholder="Răspunsul din chat…" onChange={(e) => setPhoto({ raw: e.target.value, items: splitExercises(e.target.value) })} />
+                {photo.items.length > 0 && <p className="muted small">{photo.items.length === 1 ? 'Un exercițiu găsit' : `${photo.items.length} exerciții găsite`}. Verifică-le cu poza; ce e greșit se corectează în căsuța de sub el.</p>}
+                {photo.items.map((t, i) => {
+                  const bad = brokenFormulas(t, katexCheck)
+                  return (
+                    <div key={i} className="ws-photo-item">
+                      <div className="ws-row">
+                        <span className="ws-num">{i + 1}.</span>
+                        <MathText text={spacedLines(t)} className="ws-preview ws-spaced" />
+                        <button className="btn small danger" title="Scoate exercițiul" onClick={() => setPhoto({ ...photo, items: photo.items.filter((_, j) => j !== i) })}>✕</button>
+                      </div>
+                      {bad.length > 0 && <div className="ws-photo-warn">O formulă nu se poate afișa: <code>{bad[0]}</code></div>}
+                      <textarea rows={Math.min(6, t.split('\n').length + 1)} value={t} onChange={(e) => setPhoto({ ...photo, items: photo.items.map((x, j) => (j === i ? e.target.value : x)) })} />
+                    </div>
+                  )
+                })}
+                <div className="ws-row">
+                  <button className="btn primary small" disabled={!photo.items.length} onClick={photoToSheet}>Pune pe fișă{photo.items.length ? ` (${photo.items.length})` : ''}</button>
+                  <button className="btn small" disabled={!photo.items.length} onClick={photoToBank} title="Le păstrezi și în bancă, pentru alți elevi">Și în bancă</button>
+                  <button className="btn small" onClick={() => { setPhoto(null); setCopied(null) }}>Închide</button>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="card">
@@ -285,7 +453,7 @@ export default function WorksheetsPage() {
                 <label className="field">Clasa
                   <select value={draft.grade ?? ''} onChange={(e) => setDraft({ ...draft, grade: e.target.value ? (Number(e.target.value) as Grade) : null })}>
                     <option value="">oricare</option>
-                    {([5, 6, 7, 8] as Grade[]).map((g) => <option key={g} value={g}>{GRADE_NAMES[g]}</option>)}
+                    {GRADES.map((g) => <option key={g} value={g}>{GRADE_NAMES[g]}</option>)}
                   </select>
                 </label>
                 <label className="field">Enunțul (formule între $…$)
@@ -306,7 +474,7 @@ export default function WorksheetsPage() {
               <label className="field ws-filter">Arată
                 <select value={bankGrade} onChange={(e) => setBankGrade(e.target.value === 'all' ? 'all' : (Number(e.target.value) as Grade))}>
                   <option value="all">toate ({bank.length})</option>
-                  {([5, 6, 7, 8] as Grade[]).map((g) => <option key={g} value={g}>clasa {GRADE_NAMES[g]}</option>)}
+                  {GRADES.map((g) => <option key={g} value={g}>clasa {GRADE_NAMES[g]}</option>)}
                 </select>
               </label>
             )}
@@ -365,17 +533,21 @@ export default function WorksheetsPage() {
                 <li key={item.id} className="ws-item">
                   <div className="ws-item-body">
                     <span className="ws-num">{i + 1}.</span>
-                    <MathText text={item.text} />
+                    <MathText text={spacedLines(item.text)} className="ws-spaced" />
+                    {item.figure && <div className="ws-fig" dangerouslySetInnerHTML={{ __html: item.figure }} />}
                   </div>
                   <div className="ws-item-tools">
                     {'gen' in item.source && <button className="btn small" onClick={() => another(item)} title="Un alt exercițiu de același fel">↻ Altul</button>}
+                    {item.figure
+                      ? <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: undefined } : x)))} title="Scoate figura: elevul o desenează singur">Fără figură</button>
+                      : canDraw(item.text) && <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: drawFor(x.text) } : x)))} title="Desenează figura după enunț">Figură</button>}
                     <button className="btn small" onClick={() => toggle(item.id)}>{open.has(item.id) ? 'Ascunde rezolvarea' : 'Rezolvarea'}</button>
                     <button className="btn small" disabled={i === 0} onClick={() => move(i, -1)} title="Mută mai sus" aria-label="Mută mai sus">↑</button>
                     <button className="btn small" disabled={i === sheet.items.length - 1} onClick={() => move(i, 1)} title="Mută mai jos" aria-label="Mută mai jos">↓</button>
                     {!('bank' in item.source) && <button className="btn small" onClick={() => toBank(item)} title="Păstrează exercițiul în banca ta, ca să-l folosești și la alți elevi">În bancă</button>}
                     <button className="btn small danger" onClick={() => patchItems((items) => items.filter((x) => x.id !== item.id))} title="Scoate exercițiul de pe fișă">✕ Scoate</button>
                   </div>
-                  {open.has(item.id) && <MathText text={item.solution || '*Fără rezolvare.*'} className="ws-solution" />}
+                  {open.has(item.id) && <MathText text={spacedLines(item.solution || '*Fără rezolvare.*')} className="ws-solution ws-spaced" />}
                 </li>
               ))}
             </ol>

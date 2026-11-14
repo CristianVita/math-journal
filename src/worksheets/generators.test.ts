@@ -14,7 +14,7 @@ describe('each generator, at each level, in each of its forms', () => {
   for (const g of GENERATORS) {
     for (const level of LEVELS) {
       for (let form = 0; form < g.forms(level); form++) {
-        it(`${g.id} (clasa a ${['V', 'VI', 'VII', 'VIII'][g.grade - 5]}-a), nivel ${level}, forma ${form + 1}`, () => {
+        it(`${g.id} (clasa a ${['V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'][g.grade - 5]}-a), nivel ${level}, forma ${form + 1}`, () => {
           const texts = new Set<string>()
           for (const seed of SEEDS) {
             const m = g.make(seeded(seed), level, form)
@@ -76,8 +76,15 @@ describe('each generator, at each level, in each of its forms', () => {
   })
 
   it('there are generators for every grade from V to VIII', () => {
-    expect(new Set(GENERATORS.map((g) => g.grade))).toEqual(new Set([5, 6, 7, 8]))
+    for (const grade of [5, 6, 7, 8]) expect(GENERATORS.some((g) => g.grade === grade), `clasa ${grade}`).toBe(true)
     expect(new Set(GENERATORS.map((g) => g.id)).size).toBe(GENERATORS.length)
+  })
+
+  // the baccalaureate, from 12 November 2026: high-school kinds name their profiles, middle-school ones none
+  it('high-school kinds have profiles, and subject I of M1 has all six of its topics', () => {
+    for (const g of GENERATORS) expect(!!g.profiles?.length, g.id).toBe(g.grade >= 9)
+    const m1 = GENERATORS.filter((g) => g.profiles?.includes('M1')).map((g) => g.id)
+    for (const id of ['ix-progressions', 'ix-quadratic', 'ix-trig', 'x-numbers', 'x-equations', 'x-combinatorics', 'x-analytic']) expect(m1).toContain(id)
   })
 })
 

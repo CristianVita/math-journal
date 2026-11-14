@@ -1,4 +1,5 @@
-// Exercises made by the app, for middle school (grades V–VIII, up to the national exam), each with its worked
+// Exercises made by the app, for middle school (grades V–VIII, up to the national exam) and high school (grades IX–XII,
+// up to the baccalaureate, by profile), each with its worked
 // solution in Romanian, written as in Romanian textbooks. Every generator takes a seeded random source and a level
 // (1 easy, 2 medium, 3 hard, 4 contest), so the same seed always gives the same exercise.
 import {
@@ -18,9 +19,19 @@ import * as G8 from './geometry8'
 import * as G8b from './geometry8b'
 import * as G8c from './geometry8c'
 import * as G8d from './geometry8d'
+import * as B1 from './bac1'
+import { KINDS as K5 } from './grade5'
+import { KINDS as K6 } from './grade6'
+import { KINDS as K7 } from './grade7'
+import { KINDS as KB1 } from './grade5book1'
+import { KINDS as KB2 } from './grade5book2'
+import { KINDS as KB3 } from './grade5book3'
 
 export type Level = 1 | 2 | 3 | 4
-export type Grade = 5 | 6 | 7 | 8
+export type Grade = 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
+/** The baccalaureate profiles: mate-info, științele naturii, tehnologic, pedagogic. */
+export type Profile = 'M1' | 'M2' | 'tehn' | 'ped'
+export const PROFILES: Record<Profile, string> = { M1: 'M1 (mate-info)', M2: 'M2 (științele naturii)', tehn: 'tehnologic', ped: 'pedagogic' }
 
 export interface Made {
   /** the statement, markdown with $…$ */
@@ -35,8 +46,10 @@ export interface Made {
 interface Kind {
   id: string
   grade: Grade
-  topic: 'Algebră' | 'Geometrie'
+  topic: 'Algebră' | 'Geometrie' | 'Analiză'
   label: string
+  /** in high school, the baccalaureate profiles whose syllabus has this kind */
+  profiles?: Profile[]
   make: (rng: Rng, level: Level) => Made
 }
 
@@ -65,7 +78,7 @@ function withForms(kind: Kind, more: Partial<Record<Level, Form[]>> = {}, hard?:
     return [...own, ...(more[level] ?? [])]
   }
   return {
-    id: kind.id, grade: kind.grade, topic: kind.topic, label: kind.label,
+    id: kind.id, grade: kind.grade, topic: kind.topic, label: kind.label, profiles: kind.profiles,
     forms: (level) => at(level).length,
     make(rng, level, form) {
       const list = at(level)
@@ -1008,6 +1021,38 @@ GENERATORS.push(
   contest('viii-contest-algebra', 8, 'Pătrate, identități, inegalități, radicali', [C.squaresZero, C.cubesFromSumProduct, C.productOfFour, C2.radicalsRational, C2.productInequality, C2.squaresWithCoefficients, C3.reciprocalPowers, C4.absEquationFraction, C4.minimumXplusK, C4.maxProduct, C4.absMinimum, C4.cubesSumZero, C4.productFourPlusOne]),
   contest('viii-contest-function', 8, 'Funcția liniară', [C4.composeLinear, C4.functionalLinear, C4.twoLinesTriangle, C4.collinearPoints]),
   contest('viii-contest-numbers', 8, 'Ecuații în numere întregi, pătrate perfecte, numere prime', [C.differenceOfSquares, C.squareQuadratic, C.primeSquare, C4.integerPartRoot, C4.symmetricSystem]),
+)
+
+// grades V–VII after the syllabus (13 November 2026): kinds made only of forms, from grade5.ts, grade6.ts, grade7.ts
+type GradeKinds = { id: string; label: string; topic: Kind['topic']; forms: Record<1 | 2 | 3, Form[]> }[]
+const fromKinds = (grade: Grade, kinds: GradeKinds) => kinds.map((k) => withForms(
+  { id: k.id, grade, topic: k.topic, label: k.label, make: (rng, level) => k.forms[level as 1 | 2 | 3][0](rng) },
+  { 1: k.forms[1].slice(1), 2: k.forms[2].slice(1), 3: k.forms[3].slice(1) },
+))
+GENERATORS.push(...fromKinds(5, K5), ...fromKinds(6, K6), ...fromKinds(7, K7))
+// grade V after the Mate 2000+ Consolidare workbook, part I, photographed by the user (13 November 2026);
+// levels by the stars of its sections (Supermate counted as hard)
+GENERATORS.push(...fromKinds(5, KB1), ...fromKinds(5, KB2), ...fromKinds(5, KB3))
+
+// ---------- high school, for the baccalaureate (from 12 November 2026) ----------
+
+/** A high-school kind made only of forms, at least two at each level, for the given profiles. */
+function bac(id: string, grade: Grade, profiles: Profile[], topic: Kind['topic'], label: string, forms: Record<1 | 2 | 3, Form[]>): Generator {
+  return withForms(
+    { id, grade, topic, label, profiles, make: (rng, level) => forms[level as 1 | 2 | 3][0](rng) },
+    { 1: forms[1].slice(1), 2: forms[2].slice(1), 3: forms[3].slice(1) },
+  )
+}
+
+// subject I of the M1 exam: six short exercises, from the syllabus of grades IX and X
+GENERATORS.push(
+  bac('ix-progressions', 9, ['M1'], 'Algebră', 'Progresii aritmetice și geometrice', B1.progressions),
+  bac('ix-quadratic', 9, ['M1'], 'Algebră', 'Funcția de gradul al II-lea', B1.quadratic),
+  bac('ix-trig', 9, ['M1'], 'Geometrie', 'Trigonometrie și aplicații în geometrie', B1.trig),
+  bac('x-numbers', 10, ['M1'], 'Algebră', 'Puteri, radicali, logaritmi, numere complexe', B1.numbers),
+  bac('x-equations', 10, ['M1'], 'Algebră', 'Ecuații exponențiale, logaritmice, iraționale', B1.equations),
+  bac('x-combinatorics', 10, ['M1'], 'Algebră', 'Combinatorică și probabilități', B1.combinatorics),
+  bac('x-analytic', 10, ['M1'], 'Geometrie', 'Vectori și geometrie analitică', B1.analytic),
 )
 
 export const LEVELS: Record<Level, string> = { 1: 'ușor', 2: 'mediu', 3: 'greu', 4: 'concurs' }

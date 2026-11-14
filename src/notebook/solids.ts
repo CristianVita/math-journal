@@ -3,7 +3,7 @@
 // What stays behind is worked out from the faces, so that it stays right whichever way the body is turned.
 
 import { uid } from '../geometry/engine'
-import type { GObj, PathObj, PointObj, SolidFrame } from '../geometry/types'
+import type { GObj, PathObj, PointObj, SolidFrame, SolidPart } from '../geometry/types'
 
 export const SOLIDS = [
   { id: 'cube', label: 'Cub' },
@@ -85,6 +85,12 @@ interface Model {
   edges: (v: V3) => { points: V3[]; hidden: boolean }[]
   /** where the body cuts the plane at height `y`, parallel to the base, as seen from `v` */
   section: (y: number, v: V3) => { points: V3[]; hidden: boolean }[]
+  /** a body with flat faces: its vertices and faces, with the outward normals, to glue it to another */
+  poly?: { verts: V3[]; faces: number[][]; normals: V3[] }
+  /** a round body around the y axis: its side goes from radius r0 at y0 to radius r1 at y1 */
+  surface?: { y0: number; y1: number; r0: number; r1: number }
+  /** the flat round faces of a body made of round parts, to glue another to them */
+  disks?: { y: number; r: number; up: boolean }[]
 }
 
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -92,9 +98,10 @@ const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[
 const minus = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 
 /** A convex body with flat faces: an edge stays behind when both its faces look away. */
-function polyhedron(verts: V3[], faces: number[][], corners: Corners): Model {
+function polyhedron(verts: V3[], faces: number[][], corners: Corners, given?: V3[]): Model {
   const mid = verts.reduce<V3>((s, p) => [s[0] + p[0] / verts.length, s[1] + p[1] / verts.length, s[2] + p[2] / verts.length], [0, 0, 0])
-  const normals = faces.map((f) => {
+  // a body glued from several brings the normals of its parts: it need not be convex
+  const normals = given ?? faces.map((f) => {
     const n = cross(minus(verts[f[1]], verts[f[0]]), minus(verts[f[2]], verts[f[0]]))
     return dot(n, minus(verts[f[0]], mid)) < 0 ? ([-n[0], -n[1], -n[2]] as V3) : n
   })
@@ -108,6 +115,7 @@ function polyhedron(verts: V3[], faces: number[][], corners: Corners): Model {
   return {
     corners,
     outline: verts,
+    poly: { verts, faces, normals },
     // the corners start with the vertices, in the same order
     cornerEdges: [...owners.values()].map(({ a, b }): [number, number] => [a, b]),
     edges: (v) => [...owners.values()].map(({ a, b, faces: own }) => ({
@@ -192,6 +200,7 @@ function cylinderOf(r: number, h: number): Model {
     },
     rims: [[4, 0, 6], [5, 2, 7]],
     outline: rims,
+    surface: { y0: -h / 2, y1: h / 2, r0: r, r1: r },
     cornerEdges: [[0, 2], [1, 3]],
     edges: (v) => {
       const side = (t: number) => Math.cos(t) * v[0] + Math.sin(t) * v[2] > 1e-9
@@ -222,6 +231,7 @@ function coneFrustumOf(R: number, r: number, h: number): Model {
     },
     rims: [[4, 0, 6], [5, 2, 7]],
     outline: rims,
+    surface: { y0: -h / 2, y1: h / 2, r0: R, r1: r },
     cornerEdges: [[0, 2], [1, 3]],
     edges: (v) => {
       const lines = [...rimLines(R, -h / 2, (t) => v[1] < -1e-9 || side(v)(t)), ...rimLines(r, h / 2, (t) => v[1] > 1e-9 || side(v)(t))]
@@ -244,6 +254,7 @@ function coneOf(r: number, h: number): Model {
     corners: { base: [[-r, -h / 2, 0], [r, -h / 2, 0]], apex, center: [0, -h / 2, 0], aux: [[0, -h / 2, r]] },
     rims: [[3, 0, 4]],
     outline: [apex, ...rimAngles.map((t) => circle(r, -h / 2, t))],
+    surface: { y0: -h / 2, y1: h / 2, r0: r, r1: 0 },
     cornerEdges: [[2, 0], [2, 1]],
     edges: (v) => {
       const side = (t: number) => h * (Math.cos(t) * v[0] + Math.sin(t) * v[2]) + r * v[1] > 1e-9
@@ -440,7 +451,7 @@ function framePlace(points: [number, number][]) {
 function edgeObjects(frame: SolidFrame, points: [number, number][], old: PathObj[], color: string, group: string): PathObj[] {
   const place = framePlace(points)
   const seen = viewOf(frame.yaw, frame.pitch)
-  const model = MODELS[frame.solid](frame.w, frame.h)
+  const model = modelOf(frame)
   const v = viewerOf(frame.yaw, frame.pitch)
   const lines = [...model.edges(v), ...(frame.cut != null ? model.section(heightOf(model, frame.cut), v) : [])]
   return lines.map((l, i) => {
@@ -521,7 +532,7 @@ export function setSolidCut(objects: GObj[], holderId: string, cut: number | nul
   if (holder?.type !== 'path' || !holder.frame) return objects
   const frame: SolidFrame = { ...holder.frame, cut: cut ?? undefined }
   const group = holder.group!
-  const model = MODELS[frame.solid](frame.w, frame.h)
+  const model = modelOf(frame)
   const old = objects.filter((o): o is PathObj => o.type === 'path' && o.group === group && !o.frame)
   const edges = edgeObjects(frame, holder.points, old, holder.color, group)
   const byCorner = new Map(objects.flatMap((o) => (o.type === 'point' && o.group === group && o.corner != null ? [[o.corner, o] as const] : [])))
@@ -586,7 +597,7 @@ export function setSolidView(objects: GObj[], holderId: string, yaw: number, pit
   const group = holder.group!
   const old = objects.filter((o): o is PathObj => o.type === 'path' && o.group === group && !o.frame)
   const edges = edgeObjects(frame, holder.points, old, holder.color, group)
-  const corners = allCorners(MODELS[frame.solid](frame.w, frame.h).corners)
+  const corners = allCorners(modelOf(frame).corners)
   const seen = viewOf(yaw, pitch)
   const place = framePlace(holder.points)
   return objects.flatMap((o): GObj[] => {
@@ -637,4 +648,441 @@ export function solidStrokes(id: SolidId, ax: number, ay: number, x: number, y: 
     if (run.length > 1) out.push(run)
     return out
   })
+}
+
+// ================= bodies made of several (asked for on 11 November 2026) =================
+// A pyramid glued on a prism, two cubes side by side, a sphere inside a cube: the other bodies are parts of the first
+// one's frame, placed in its model coordinates, so they turn, move and go away together with it. Glued bodies with flat
+// faces become one body: the faces they share go, and what is behind is worked out for the whole of it. Round bodies
+// glued along their axis share their circle, seen where either side is. A body inside is seen through the other.
+
+type M3 = number[]
+const ID: M3 = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+const mulM = (m: M3, p: V3): V3 => [m[0] * p[0] + m[1] * p[1] + m[2] * p[2], m[3] * p[0] + m[4] * p[1] + m[5] * p[2], m[6] * p[0] + m[7] * p[1] + m[8] * p[2]]
+const add3 = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+const times3 = (a: V3, k: number): V3 => [a[0] * k, a[1] * k, a[2] * k]
+const len3 = (a: V3) => Math.hypot(a[0], a[1], a[2])
+const unit3 = (a: V3): V3 => times3(a, 1 / (len3(a) || 1))
+const lastOf = <T,>(a: T[]) => a[a.length - 1]
+
+interface Placed { model: Model; rot: M3; at: V3; inside: boolean }
+function placedParts(frame: SolidFrame): Placed[] {
+  return [
+    { model: MODELS[frame.solid](frame.w, frame.h), rot: ID, at: [0, 0, 0], inside: false },
+    ...(frame.parts ?? []).map((p) => ({ model: MODELS[p.solid](p.w, p.h), rot: p.rot, at: p.at as V3, inside: !!p.inside })),
+  ]
+}
+const put = (pl: Placed, p: V3) => add3(mulM(pl.rot, p), pl.at)
+/** The direction of the viewer in a part's own coordinates: the inverse of a rotation is its transpose. */
+const viewIn = (pl: Placed, v: V3): V3 => {
+  const m = pl.rot
+  return [m[0] * v[0] + m[3] * v[1] + m[6] * v[2], m[1] * v[0] + m[4] * v[1] + m[7] * v[2], m[2] * v[0] + m[5] * v[1] + m[8] * v[2]]
+}
+const drawn = (pl: Placed, lines: { points: V3[]; hidden: boolean }[]) => lines.map((l) => ({ ...l, points: l.points.map((p) => put(pl, p)) }))
+
+type CornerKind = 'base' | 'top' | 'apex' | 'center' | 'topCenter' | 'aux'
+function cornerKinds({ base, top, apex, center, topCenter, aux }: Corners): { p: V3; kind: CornerKind; i: number }[] {
+  return [
+    ...base.map((p, i) => ({ p, kind: 'base' as const, i })),
+    ...(top ?? []).map((p, i) => ({ p, kind: 'top' as const, i })),
+    ...(apex ? [{ p: apex, kind: 'apex' as const, i: 0 }] : []),
+    ...(center ? [{ p: center, kind: 'center' as const, i: 0 }] : []),
+    ...(topCenter ? [{ p: topCenter, kind: 'topCenter' as const, i: 0 }] : []),
+    ...(aux ?? []).map((p, i) => ({ p, kind: 'aux' as const, i })),
+  ]
+}
+
+/**
+ * All the corners of a body and its parts, in one list: first those of the body itself, in their usual order (so the
+ * points already on it keep their place), then the new ones of each part. A corner that falls on one already there is
+ * the same corner.
+ */
+function flatCorners(frame: SolidFrame) {
+  const parts = placedParts(frame)
+  const eps = 1e-6 * (frame.w + frame.h)
+  const corners: { p: V3; kind: CornerKind; i: number; part: number }[] = []
+  const maps: number[][] = []
+  parts.forEach((pl, k) => {
+    maps.push(cornerKinds(pl.model.corners).map((c) => {
+      const p = put(pl, c.p)
+      // the hidden ends of axes stay apart: they belong to their own circle
+      const same = c.kind === 'aux' ? -1 : corners.findIndex((x) => x.kind !== 'aux' && len3(minus(x.p, p)) < eps)
+      if (same >= 0) return same
+      corners.push({ p, kind: c.kind, i: c.i, part: k })
+      return corners.length - 1
+    }))
+  })
+  const key = new Set<string>()
+  const edges: [number, number][] = []
+  parts.forEach((pl, k) => {
+    for (const [a, b] of pl.model.cornerEdges) {
+      const [x, y] = [maps[k][a], maps[k][b]]
+      const id = Math.min(x, y) + ':' + Math.max(x, y)
+      if (x !== y && !key.has(id)) {
+        key.add(id)
+        edges.push([x, y])
+      }
+    }
+  })
+  const rims = parts.flatMap((pl, k) => (pl.model.rims ?? []).map((t) => t.map((i) => maps[k][i]) as [number, number, number]))
+  const ball = parts.map((pl, k) => pl.model.ball?.map((i) => maps[k][i]) as [number, number, number, number] | undefined).find(Boolean)
+  return { corners, maps, edges, rims, ball, parts, eps }
+}
+
+/** The rounds of a stack of round bodies on one axis, each from (y0, r0) up to (y1, r1), from the bottom up. */
+function roundStack(glued: Placed[]) {
+  return glued.map((pl) => {
+    const { y0, y1, r0, r1 } = pl.model.surface!
+    const a = { y: pl.at[1] + pl.rot[4] * y0, r: r0 }
+    const b = { y: pl.at[1] + pl.rot[4] * y1, r: r1 }
+    return a.y <= b.y ? { y0: a.y, r0: a.r, y1: b.y, r1: b.r } : { y0: b.y, r0: b.r, y1: a.y, r1: a.r }
+  }).sort((p, q) => p.y0 - q.y0)
+}
+
+/** The model of a body with its parts; for a body alone, its own model. */
+export function modelOf(frame: SolidFrame): Model {
+  if (!frame.parts?.length) return MODELS[frame.solid](frame.w, frame.h)
+  const flat = flatCorners(frame)
+  const glued = flat.parts.filter((p) => !p.inside)
+  const inside = flat.parts.filter((p) => p.inside)
+  const outline = flat.parts.flatMap((pl) => pl.model.outline.map((p) => put(pl, p)))
+  let body: Pick<Model, 'edges' | 'section' | 'poly' | 'disks'>
+  if (glued.every((p) => p.model.poly)) {
+    // one body with flat faces: vertices that meet are one, and the faces two parts share are inside it
+    const verts: V3[] = []
+    const at = (p: V3) => {
+      const i = verts.findIndex((q) => len3(minus(q, p)) < flat.eps)
+      if (i >= 0) return i
+      verts.push(p)
+      return verts.length - 1
+    }
+    const faces: number[][] = []
+    const normals: V3[] = []
+    for (const pl of glued) {
+      const poly = pl.model.poly!
+      poly.faces.forEach((f, k) => {
+        faces.push(f.map((i) => at(put(pl, poly.verts[i]))))
+        normals.push(mulM(pl.rot, poly.normals[k]))
+      })
+    }
+    const sig = faces.map((f) => [...f].sort((a, b) => a - b).join(','))
+    const keep = faces.map((_, k) => sig.filter((x) => x === sig[k]).length === 1)
+    const m = polyhedron(verts, faces.filter((_, k) => keep[k]), { base: verts }, normals.filter((_, k) => keep[k]))
+    body = { edges: m.edges, section: m.section, poly: m.poly }
+  } else if (glued.every((p) => p.model.surface)) {
+    const stack = roundStack(glued)
+    const side = (s: (typeof stack)[number], v: V3) => (t: number) => (s.y1 - s.y0) * (Math.cos(t) * v[0] + Math.sin(t) * v[2]) + (s.r0 - s.r1) * v[1] > 1e-9
+    const top = lastOf(stack)
+    body = {
+      edges: (v) => {
+        const lines: { points: V3[]; hidden: boolean }[] = []
+        stack.forEach((s, k) => {
+          // the circle at the bottom of this round: seen from below, or where a side next to it is seen
+          const below = stack[k - 1]
+          if (s.r0 > 1e-9) lines.push(...rimLines(s.r0, s.y0, (t) => (below ? side(below, v)(t) : v[1] < -1e-9) || side(s, v)(t)))
+          const m = Math.hypot(v[0], v[2])
+          const c = m > 1e-6 ? (-(s.r0 - s.r1) * v[1]) / ((s.y1 - s.y0) * m) : 2
+          if (Math.abs(c) <= 1) {
+            const phi = Math.atan2(v[2], v[0])
+            for (const t of [phi + Math.acos(c), phi - Math.acos(c)]) lines.push({ points: [circle(s.r0, s.y0, t), circle(s.r1, s.y1, t)], hidden: false })
+          }
+        })
+        if (top.r1 > 1e-9) lines.push(...rimLines(top.r1, top.y1, (t) => v[1] > 1e-9 || side(top, v)(t)))
+        return lines
+      },
+      section: (y, v) => {
+        const s = stack.find((x) => x.y0 <= y && y <= x.y1)
+        return s ? sideCircle(s.r0 + ((s.r1 - s.r0) * (y - s.y0)) / (s.y1 - s.y0), y, side(s, v)) : []
+      },
+      disks: [
+        ...(stack[0].r0 > 1e-9 ? [{ y: stack[0].y0, r: stack[0].r0, up: false }] : []),
+        ...(top.r1 > 1e-9 ? [{ y: top.y1, r: top.r1, up: true }] : []),
+      ],
+    }
+  } else {
+    // parts we do not know how to join: each is drawn on its own
+    body = {
+      edges: (v) => glued.flatMap((pl) => drawn(pl, pl.model.edges(viewIn(pl, v)))),
+      section: () => [],
+    }
+  }
+  return {
+    corners: { base: flat.corners.map((c) => c.p) },
+    outline,
+    cornerEdges: flat.edges,
+    rims: flat.rims,
+    ball: flat.ball,
+    edges: (v) => [...body.edges(v), ...inside.flatMap((pl) => drawn(pl, pl.model.edges(viewIn(pl, v))))],
+    section: body.section,
+    poly: body.poly,
+    disks: body.disks,
+  }
+}
+
+/** The flat faces a body can be glued on: regular polygons (n sides) and circles, with their center and outward normal. */
+function glueFaces(model: Model) {
+  const out: { center: V3; normal: V3; kind: number | 'circle'; size: number; v0: V3 }[] = []
+  if (model.poly) {
+    const { verts, faces, normals } = model.poly
+    faces.forEach((f, k) => {
+      const ps = f.map((i) => verts[i])
+      const center = times3(ps.reduce<V3>((s, p) => add3(s, p), [0, 0, 0]), 1 / ps.length)
+      const sides = ps.map((p, i) => len3(minus(ps[(i + 1) % ps.length], p)))
+      const radii = ps.map((p) => len3(minus(p, center)))
+      // regular: equal sides and every corner as far from the middle
+      const regular = sides.every((x) => Math.abs(x - sides[0]) < 1e-6 * sides[0]) && radii.every((x) => Math.abs(x - radii[0]) < 1e-6 * radii[0])
+      if (regular) out.push({ center, normal: unit3(normals[k]), kind: ps.length, size: sides[0], v0: ps[0] })
+    })
+  }
+  const s = model.surface
+  const disks = model.disks ?? (s
+    ? [...(s.r0 > 1e-9 ? [{ y: s.y0, r: s.r0, up: false }] : []), ...(s.r1 > 1e-9 ? [{ y: s.y1, r: s.r1, up: true }] : [])]
+    : [])
+  for (const d of disks) out.push({ center: [0, d.y, 0], normal: [0, d.up ? 1 : -1, 0], kind: 'circle', size: d.r, v0: [d.r, d.y, 0] })
+  return out
+}
+
+/** The rotation that takes the pair (f, u) to (g, w): both are perpendicular unit vectors. */
+function rotationTaking(f: V3, u: V3, g: V3, w: V3): M3 {
+  const a = [f, u, cross(f, u)]
+  const b = [g, w, cross(g, w)]
+  // R = B · Aᵀ, with the vectors as columns
+  const m: M3 = []
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m.push(b[0][i] * a[0][j] + b[1][i] * a[1][j] + b[2][i] * a[2][j])
+  return m
+}
+
+/** A unit vector at right angles to n. */
+const across = (n: V3): V3 => unit3(Math.abs(n[1]) < 0.9 ? cross(n, [0, 1, 0]) : cross(n, [1, 0, 0]))
+
+/**
+ * Rebuilds a body after its parts changed: its edges, and its corners. Each point already on it, or brought by a body
+ * glued to it (`adopt`, with its place in this body's coordinates), keeps its letter if its corner is still there;
+ * two points on the same corner become one, the first; points left without a corner go, with what is built on them.
+ * New corners get new points: letters for the corners of a base, the same with a prime for those above them, V for an
+ * apex, O for a center.
+ */
+function rebuild(objects: GObj[], holderId: string, frame: SolidFrame, adopt: { point: PointObj; at: V3 }[] = []): GObj[] {
+  const holder = objects.find((o): o is PathObj => o.id === holderId && o.type === 'path')!
+  const group = holder.group!
+  const flat = flatCorners(frame)
+  const old = objects.filter((o): o is PathObj => o.type === 'path' && o.group === group && !o.frame)
+  const edges = edgeObjects(frame, holder.points, old, holder.color, group)
+  const seen = viewOf(frame.yaw, frame.pitch)
+  const place = framePlace(holder.points)
+  const adopted = new Map(adopt.map((a) => [a.point.id, a.at]))
+  const mine = [
+    ...objects.filter((o): o is PointObj => o.type === 'point' && o.group === group && o.corner != null && !!o.at3),
+    ...adopt.map((a) => a.point),
+  ]
+  const owner = new Map<number, PointObj>()
+  const gone = new Set<string>()
+  for (const p of mine) {
+    const at = adopted.get(p.id) ?? (p.at3 as V3)
+    const j = flat.corners.findIndex((c, i) => !owner.has(i) && (c.kind === 'aux') === !!p.hidden && len3(minus(c.p, at)) < flat.eps)
+    if (j < 0) gone.add(p.id)
+    else owner.set(j, p)
+  }
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const o of objects) if (!gone.has(o.id) && dependsOn(o).some((id) => gone.has(id))) { gone.add(o.id); grew = true }
+  }
+  const { primed, letter } = labelMaker([...objects.filter((o) => !gone.has(o.id) && !adopted.has(o.id)), ...adopt.map((a) => a.point)])
+  const baseLabel = new Map<string, string>()
+  flat.corners.forEach((c, j) => {
+    if (c.kind === 'base' && owner.has(j)) baseLabel.set(c.part + ':' + c.i, owner.get(j)!.label)
+  })
+  const made = flat.corners.map((c, j): PointObj => {
+    const [u, v, depth] = seen(c.p)
+    const [x, y] = place(u, v)
+    const more = {
+      x, y, depth, at3: c.p, corner: j, group,
+      joins: flat.edges.flatMap(([a, b]) => (a === j ? [b] : b === j ? [a] : [])),
+      rim: flat.rims.find((t) => t[0] === j)?.slice(1) as [number, number] | undefined,
+      ball: flat.ball?.[0] === j ? ([flat.ball[1], flat.ball[2], flat.ball[3]] as [number, number, number]) : undefined,
+    }
+    const had = owner.get(j)
+    if (had) return { ...had, ...more, dep: { kind: 'free' } }
+    let label = ''
+    if (c.kind === 'base') {
+      label = letter()
+      baseLabel.set(c.part + ':' + c.i, label)
+    } else if (c.kind === 'top') label = primed((baseLabel.get(c.part + ':' + c.i) ?? letter()) + '′')
+    else if (c.kind === 'apex') label = primed('V')
+    else if (c.kind === 'center' || c.kind === 'topCenter') label = primed('O')
+    return { id: uid(), type: 'point', label, hidden: c.kind === 'aux', dep: { kind: 'free' }, color: holder.color, ...more }
+  })
+  const byId = new Map(made.map((p) => [p.id, p]))
+  const fresh = made.filter((p) => !objects.some((o) => o.id === p.id) || adopted.has(p.id))
+  return objects.flatMap((o): GObj[] => {
+    if (gone.has(o.id) || adopted.has(o.id)) return []
+    if (o.id === holderId) return [{ ...holder, frame }, ...edges, ...fresh]
+    if (o.type === 'path' && o.group === group) return []
+    return [byId.get(o.id) ?? o]
+  })
+}
+
+/**
+ * Glues the body `draggedId` to a face of the body `targetId`, if one of its two flat ends (the base, or the top) was
+ * dropped close to a face of the same shape: a regular polygon with as many sides, or a circle. It is made the size of
+ * that face, turned to lie on it, and becomes a part of the target. Returns null when no face is close enough;
+ * `gap` says how close the two were, to choose among several bodies.
+ */
+export function glueSolid(objects: GObj[], targetId: string, draggedId: string): { objects: GObj[]; gap: number } | null {
+  const target = objects.find((o) => o.id === targetId)
+  const dragged = objects.find((o) => o.id === draggedId)
+  if (target?.type !== 'path' || !target.frame || dragged?.type !== 'path' || !dragged.frame || dragged.frame.parts?.length) return null
+  if (target.frame.parts?.some((p) => p.inside)) return null
+  const ft = target.frame
+  const fd = dragged.frame
+  const onPlane = (holder: PathObj, f: SolidFrame) => {
+    const seen = viewOf(f.yaw, f.pitch)
+    const place = framePlace(holder.points)
+    return (p: V3) => {
+      const [u, v] = seen(p)
+      return place(u, v)
+    }
+  }
+  const pt = onPlane(target, ft)
+  const pd = onPlane(dragged, fd)
+  // only the two ends of the dragged body: its base and its top
+  const ends = glueFaces(MODELS[fd.solid](fd.w, fd.h)).filter((f) => Math.abs(Math.abs(f.normal[1]) - 1) < 1e-9)
+  type Face = ReturnType<typeof glueFaces>[number]
+  let best: { t: Face; d: Face; gap: number } | null = null
+  for (const t of glueFaces(modelOf(ft))) {
+    const [cx, cy] = pt(t.center)
+    const [ex, ey] = pt(t.v0)
+    const reach = Math.max(Math.hypot(ex - cx, ey - cy), 1e-9)
+    for (const d of ends) {
+      if (d.kind !== t.kind) continue
+      const [dx, dy] = pd(d.center)
+      const gap = Math.hypot(dx - cx, dy - cy) / reach
+      if (gap < 0.6 && (!best || gap < best.gap)) best = { t, d, gap }
+    }
+  }
+  if (!best) return null
+  const { t, d } = best
+  const k = t.size / d.size
+  const [w, h] = [fd.w * k, fd.h * k]
+  const dc = times3(d.center, k)
+  const u: V3 = d.kind === 'circle' ? [1, 0, 0] : unit3(minus(times3(d.v0, k), dc))
+  const wT = t.kind === 'circle' ? across(t.normal) : unit3(minus(t.v0, t.center))
+  const rot = rotationTaking(d.normal, u, times3(t.normal, -1), wT)
+  const at = minus(t.center, mulM(rot, dc))
+  const part: SolidPart = { solid: fd.solid, w, h, rot, at }
+  const frame: SolidFrame = { ...ft, cut: undefined, parts: [...(ft.parts ?? []), part] }
+  const placed: Placed = { model: MODELS[fd.solid](w, h), rot, at, inside: false }
+  // the corners of the dragged body come along, in this body's coordinates
+  const adopt = objects.flatMap((o) => (o.type === 'point' && o.group === dragged.group && o.at3 && o.corner != null
+    ? [{ point: { ...o, group: target.group }, at: put(placed, times3(o.at3 as V3, k)) }]
+    : []))
+  const without = objects.filter((o) => !(o.type === 'path' && o.group === dragged.group))
+  const cleared = ft.cut != null ? setSolidCut(without, targetId, null) : without
+  return { objects: rebuild(cleared, targetId, frame, adopt), gap: best.gap }
+}
+
+/** Takes the part `index` away from a body: its corners go, unless another part shares them. */
+export function removeSolidPart(objects: GObj[], holderId: string, index: number): GObj[] {
+  const holder = objects.find((o) => o.id === holderId)
+  if (holder?.type !== 'path' || !holder.frame?.parts) return objects
+  const parts = holder.frame.parts.filter((_, i) => i !== index)
+  return rebuild(objects, holderId, { ...holder.frame, cut: undefined, parts: parts.length ? parts : undefined })
+}
+
+export const INSIDE = [
+  { id: 'inSphere', label: 'Sfera înscrisă' },
+  { id: 'outSphere', label: 'Sfera circumscrisă' },
+  { id: 'cone', label: 'Con cu aceeași bază' },
+  { id: 'pyramid', label: 'Piramidă cu aceeași bază' },
+  { id: 'cylinder', label: 'Cilindru înscris' },
+  { id: 'prism', label: 'Prismă patrulateră înscrisă' },
+] as const
+export type InsideId = (typeof INSIDE)[number]['id']
+
+const PYRAMID_OF: Partial<Record<SolidId, SolidId>> = { prism3: 'pyramid3', prism4: 'pyramid4', cube: 'pyramid4', prism6: 'pyramid6' }
+const PYRAMIDS: SolidId[] = ['pyramid3', 'pyramid4', 'pyramid6', 'tetrahedron']
+
+/**
+ * The body that fits inside `frame` in the way asked, or a message saying why it does not. The sphere touching all the
+ * faces needs a body that has one: a cube, a cylinder as tall as it is wide, a cone, a regular pyramid, a frustum of a
+ * cone with h² = 4Rr. The sphere through all the corners needs corners on one sphere.
+ */
+export function insidePart(frame: SolidFrame, what: InsideId): SolidPart | string {
+  const { solid, w, h } = frame
+  const model = MODELS[solid](w, h)
+  const sphere = (r: number, y: number): SolidPart => ({ solid: 'sphere', w: 2 * r, h: 2 * r, rot: ID, at: [0, y, 0], inside: true })
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(a), Math.abs(b))
+  const s = model.surface
+  if (what === 'inSphere') {
+    if (solid === 'cube') return sphere(w / 2, 0)
+    if (solid === 'sphere') return 'O sferă nu are o sferă înscrisă diferită de ea.'
+    if (solid === 'cylinder') return near(h, w) ? sphere(w / 2, 0) : 'Sfera înscrisă cere un cilindru echilateral (înălțimea egală cu diametrul). Desenează-l cu Shift sau ajustează-l.'
+    if (solid === 'cone' && s) {
+      const r = (s.r0 * h) / (s.r0 + Math.hypot(s.r0, h))
+      return sphere(r, -h / 2 + r)
+    }
+    if (solid === 'frustumCone' && s) {
+      return near(h * h, 4 * s.r0 * s.r1) ? sphere(h / 2, 0) : 'Sfera înscrisă într-un trunchi de con cere h² = 4Rr, iar trunchiul desenat nu are aceste proporții.'
+    }
+    if (PYRAMIDS.includes(solid)) {
+      // the center is on the height, as far from the base as from a lateral face
+      const [a, b] = model.corners.base
+      const ab = Math.hypot((a[0] + b[0]) / 2, (a[2] + b[2]) / 2)
+      const r = (ab * h) / (ab + Math.hypot(ab, h))
+      return sphere(r, -h / 2 + r)
+    }
+    return 'Acest corp nu are o sferă tangentă la toate fețele.'
+  }
+  if (what === 'outSphere') {
+    if (solid === 'sphere') return 'O sferă nu are o sferă circumscrisă diferită de ea.'
+    const c = model.corners
+    // the radius of the circle the corners stand on, at the bottom and at the top
+    let lo: number
+    let hi: number
+    if (s) {
+      lo = s.r0
+      hi = s.r1
+    } else {
+      const down = c.base.map((p) => Math.hypot(p[0], p[2]))
+      const up = (c.top ?? []).map((p) => Math.hypot(p[0], p[2]))
+      if (![...down, ...up].every((x, i, all) => i < down.length ? Math.abs(x - down[0]) < 1e-6 * w : Math.abs(x - all[down.length]) < 1e-6 * w)) {
+        return 'Vârfurile acestui corp nu sunt pe aceeași sferă.'
+      }
+      lo = down[0]
+      hi = up.length ? up[0] : 0
+    }
+    // (y + h/2)² + lo² = (y − h/2)² + hi²  →  y = (hi² − lo²) / (2h)
+    const y = (hi * hi - lo * lo) / (2 * h)
+    return sphere(Math.hypot(y + h / 2, lo), y)
+  }
+  if (what === 'cone') {
+    if (solid !== 'cylinder') return 'Conul cu aceeași bază se pune într-un cilindru.'
+    return { solid: 'cone', w, h, rot: ID, at: [0, 0, 0], inside: true }
+  }
+  if (what === 'pyramid') {
+    const p = PYRAMID_OF[solid]
+    if (!p) return 'Piramida cu aceeași bază se pune într-o prismă regulată sau într-un cub.'
+    return { solid: p, w, h, rot: ID, at: [0, 0, 0], inside: true }
+  }
+  if (what === 'cylinder') {
+    if (solid !== 'cube' && solid !== 'prism4') return 'Cilindrul înscris se pune într-un cub sau într-o prismă patrulateră regulată.'
+    return { solid: 'cylinder', w, h, rot: ID, at: [0, 0, 0], inside: true }
+  }
+  if (solid !== 'cylinder') return 'Prisma înscrisă se pune într-un cilindru.'
+  // a square in the circle: its corners on the circle, its sides at 45°
+  const q = Math.SQRT1_2
+  return { solid: 'prism4', w: w / Math.SQRT2, h, rot: [q, 0, -q, 0, 1, 0, q, 0, q], at: [0, 0, 0], inside: true }
+}
+
+/** Puts a body inside another, as `insidePart` says. Returns a message instead when it does not fit. */
+export function addInside(objects: GObj[], holderId: string, what: InsideId): GObj[] | string {
+  const holder = objects.find((o) => o.id === holderId)
+  if (holder?.type !== 'path' || !holder.frame) return objects
+  if (holder.frame.parts?.some((p) => !p.inside)) return 'Un corp se pune în interiorul unui corp simplu, nu al unuia lipit din mai multe.'
+  const part = insidePart(holder.frame, what)
+  if (typeof part === 'string') return part
+  const cleared = holder.frame.cut != null ? setSolidCut(objects, holderId, null) : objects
+  const now = cleared.find((o): o is PathObj => o.id === holderId && o.type === 'path')!
+  return rebuild(cleared, holderId, { ...now.frame!, parts: [...(now.frame!.parts ?? []), part] })
 }

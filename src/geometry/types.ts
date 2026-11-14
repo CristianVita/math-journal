@@ -40,6 +40,8 @@ export interface PointObj {
    * new constructions do not catch on it; the cursor still finds it, to show it again
    */
   quiet?: boolean
+  /** its coordinates written after its letter: A(2, −3) */
+  showCoords?: boolean
   /** a corner of a solid: it shares the group of the solid's edges */
   group?: string
   /** stays where it is: on a sheet the solid is ink, and cannot follow its corners */
@@ -82,6 +84,10 @@ export interface LineObj {
   side?: string
   /** false: a segment on a solid keeps its own line, instead of turning dashed where the solid hides it */
   autoDash?: boolean
+  /** a segment drawn as a vector, from its first point to its second, with an arrow */
+  vector?: boolean
+  /** its equation written next to it (a vector: its coordinates, 3i − 2j) */
+  showEquation?: boolean
 }
 
 export interface CircleObj {
@@ -92,6 +98,8 @@ export interface CircleObj {
   color: string
   width: number
   showRadius?: boolean
+  /** its equation, (x − a)² + (y − b)² = r², written above it */
+  showEquation?: boolean
 }
 
 /** Arc from `through` counter-clockwise to the direction of `to`, on the circle of center `center` through `through`. */
@@ -167,6 +175,22 @@ export interface SolidFrame {
   pitch: number
   /** a plane parallel to the base cuts the body here: 0 at the base, 1 at the top */
   cut?: number
+  /**
+   * other bodies that belong to this one: glued to a face of it (a pyramid on a prism) or drawn inside it (a sphere in
+   * a cube). Each is placed in this body's model coordinates: rotated by `rot` (a 3 × 3 matrix, row by row), then moved
+   * by `at`. They turn, move and go away together with it.
+   */
+  parts?: SolidPart[]
+}
+
+export interface SolidPart {
+  solid: SolidId
+  w: number
+  h: number
+  rot: number[]
+  at: [number, number, number]
+  /** inside the body, seen through it: its own hidden lines, and no faces in common */
+  inside?: boolean
 }
 
 export interface PathObj {

@@ -268,8 +268,13 @@ textarea { resize: vertical; width: 100%; }
 .trig-table { border-collapse: collapse; width: 100%; }
 .trig-table th, .trig-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: center; }
 .trig-table thead th { background: #f9fafb; }
-.identities { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; }
+.identities { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 12px; }
 .identity .katex-display { margin: 4px 0; overflow-x: auto; overflow-y: hidden; }
+.identity-parts { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; column-gap: 1.2em; row-gap: 2px; margin: 6px 0; }
+/* the room on the right: the sign of a root in KaTeX sticks out by 2 px, which was enough for a scroll bar */
+.identity-parts > span { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-right: 4px; }
+.identity-note { font-size: 13.5px; line-height: 1.6; margin: 6px 2px; }
+.identity-note p { margin: 0; }
 
 /* ---------- calculator ---------- */
 .calc-grid { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 18px; align-items: start; }
@@ -390,6 +395,14 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 .ws-bank-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .ws-draft { border: 1px dashed var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
 .ws-preview { background: #fafafa; border-radius: 6px; padding: 6px 8px; font-size: 14px; }
+/* exercises from a photo: the steps, then each exercise shown and editable */
+.ws-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ws-steps textarea { display: block; width: 100%; margin-top: 6px; font-size: 12px; }
+.ws-photo textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.ws-photo-item { border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.ws-photo-item .ws-row { align-items: flex-start; flex-wrap: nowrap; }
+.ws-photo-item .ws-preview { flex: 1; min-width: 0; overflow-x: auto; }
+.ws-photo-warn { color: #b45309; font-size: 12px; }
 .ws-filter { margin: 4px 0 8px; }
 .ws-bank { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .ws-bank li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
@@ -409,6 +422,10 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 .ws-item:last-child { border-bottom: 0; }
 .ws-item-body { display: flex; gap: 8px; font-size: 16px; }
 .ws-item-body .math-text p { margin: 0; }
+/* each line of an exercise is a paragraph (spacedLines): room between the subpoints, as on the printed sheet */
+.ws-spaced { line-height: 1.75; }
+.ws-item-body .ws-spaced p, .ws-spaced p { margin: 0 0 14px; }
+.ws-item-body .ws-spaced p:last-child, .ws-spaced p:last-child { margin-bottom: 0; }
 .ws-num { font-weight: 700; min-width: 22px; }
 .ws-item-tools { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0 0 30px; opacity: .55; }
 .ws-item-tools .btn.small { padding: 2px 8px; font-size: 12px; }
@@ -418,15 +435,71 @@ math-field.math-input:focus-within { outline: 2px solid var(--accent-soft); bord
 
 /* the printed pages: laid out off screen, then drawn to pictures */
 .ws-print-host { position: fixed; left: -10000px; top: 0; }
-.ws-print-page { box-sizing: border-box; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.45; overflow: hidden; margin-bottom: 20px; }
-.ws-print-head { margin-bottom: 22px; }
-.ws-print-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 12px; }
+/* airier on 12 November 2026, at the user's request: taller lines (the subpoints a), b), c) are lines of one paragraph),
+   more room around paragraphs and formulas on their own line, and between exercises */
+.ws-print-page { box-sizing: border-box; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.75; overflow: hidden; margin-bottom: 20px; }
+.ws-print-head { margin-bottom: 30px; line-height: 1.45; }
+.ws-print-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 14px; }
 .ws-print-meta { display: flex; justify-content: space-between; font-size: 15px; }
 .ws-print-blank { display: inline-block; width: 220px; border-bottom: 1px solid #333; }
-.ws-print-item { display: flex; gap: 8px; padding-top: 10px; }
+.ws-print-item { display: flex; gap: 10px; padding-top: 18px; }
 .ws-print-item.solution { font-size: 15px; }
-.ws-print-num { font-weight: 700; min-width: 24px; }
+.ws-print-num { font-weight: 700; min-width: 26px; }
 .ws-print-text { flex: 1; min-width: 0; }
-.ws-print-text p { margin: 0 0 6px; }
-.ws-print-text .katex-display { margin: 6px 0; text-align: left; }
+.ws-print-text p { margin: 0 0 14px; }
+.ws-print-text p:last-child { margin-bottom: 0; }
+.ws-print-text .katex-display { margin: 12px 0; text-align: left; }
 .ws-print-text .katex-display > .katex { text-align: left; }
+
+/* ---------- Modele E.N. (12 November 2026) ---------- */
+.ws-item-body > .math-text { flex: 1; min-width: 0; }
+.ws-fig, .ws-print-fig { flex: none; margin-left: 8px; }
+.en-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.en-list-item { width: 100%; display: flex; justify-content: space-between; gap: 8px; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: inherit; font: inherit; }
+.en-list-item:hover { background: #f3f4f6; }
+.en-list-item.active { background: #eef2ff; font-weight: 600; }
+.en-done { color: #15803d; font-size: 13px; white-space: nowrap; }
+.en-bar { flex-wrap: wrap; gap: 8px; }
+.en-bar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.en-mark { display: flex; gap: 6px; align-items: center; }
+.en-history { display: flex; gap: 6px; flex-wrap: wrap; }
+.en-x { background: none; border: 0; cursor: pointer; color: #9ca3af; margin-left: 4px; padding: 0; }
+.en-flash { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 6px; padding: 6px 10px; font-size: 14px; }
+.en-source { text-align: center; margin: -6px 0 10px; }
+.en-row { position: relative; }
+.en-tosheet { position: absolute; right: -6px; top: 4px; opacity: 0; display: flex; gap: 4px; }
+.en-tosheet .btn { padding: 2px 8px; font-size: 12px; }
+.en-row:hover .en-tosheet, .en-tosheet:focus { opacity: 1; }
+
+/* the model itself, the same on the page and on paper */
+.en-subject { margin: 18px 0 6px; font-size: 16px; line-height: 1.45; }
+.en-item { display: flex; align-items: baseline; gap: 6px; padding: 8px 0; font-size: 16px; line-height: 1.6; }
+.en-pts { flex: none; border: 1px solid #555; border-radius: 3px; font-size: 12px; line-height: 1; padding: 3px 3px; margin-top: 3px; min-width: 22px; text-align: center; }
+.en-pts-none { border-color: transparent; }
+.en-num { flex: none; font-weight: 700; min-width: 24px; }
+.en-body { flex: 1; min-width: 0; }
+.en-body p { margin: 0 0 6px; }
+.en-body p:last-child { margin-bottom: 0; }
+.en-text table { border-collapse: collapse; margin: 6px 0; font-size: 15px; }
+.en-text td, .en-text th { border: 1px solid #333; padding: 2px 10px; text-align: center; }
+.en-text th { font-weight: 400; }
+.en-choices { margin-top: 4px; }
+.en-part { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; }
+.en-part-text { flex: 1; min-width: 0; }
+.en-fig { flex: none; margin-left: 10px; align-self: flex-start; }
+.en-fig svg { display: block; }
+.en-answer { margin-top: 6px; padding: 4px 8px; background: #fefce8; border-left: 3px solid #eab308; font-size: 15px; }
+.en-note { margin-top: 18px; font-style: italic; font-size: 14px; }
+.en-print .en-item { font-size: 15px; }
+.en-barem-row { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 8px; }
+.en-barem-item { margin-bottom: 8px; }
+.en-barem-item p { display: inline; margin: 0; }
+.en-tabs { display: flex; gap: 4px; margin-bottom: 4px; }
+.en-tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 2px 6px 4px; font: inherit; font-size: 22px; font-weight: 700; color: #9ca3af; cursor: pointer; }
+.en-tab.active { color: inherit; border-bottom-color: #6366f1; }
+.rc-parts { margin-top: 4px; }
+.rc-parts.rc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+.rc-part { margin-top: 4px; }
+.rc-part p { margin: 0; }
+.rc-note { margin-top: 4px; font-size: 14px; color: #92400e; }
+.rc-note p { margin: 0; }

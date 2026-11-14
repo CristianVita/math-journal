@@ -21,6 +21,9 @@ const ICONS = {
   segment: <><path d="M5 19L19 5" /><Dot x={5} y={19} /><Dot x={19} y={5} /></>,
   line: <><path d="M3 21L21 3" /><path d="M14 3h7v7" /><path d="M3 14v7h7" /></>,
   ray: <><path d="M5 19L21 3" /><path d="M14 3h7v7" /><Dot x={5} y={19} /></>,
+  vector: <><path d="M5 19L19 5" /><path d="M11 5h8v8" /><Dot x={5} y={19} /></>,
+  // a point or a line written by its coordinates or its equation
+  typed: <><path d="M3 12h18" /><path d="M12 3v18" /><path d="M5 19L19 7" /><Dot x={16} y={9.6} r={1.8} /></>,
   circle: <><circle cx="12" cy="12" r="9" /><Dot x={12} y={12} r={1.8} /></>,
   arc: <><path d="M4 16a8 8 0 0 1 16 0" /><Dot x={4} y={16} /><Dot x={20} y={16} /></>,
   sector: <path d="M5 19H20A15 15 0 0 0 5 4z" fill="currentColor" fillOpacity=".2" />,

@@ -50,9 +50,11 @@ import {
   sub,
   uid,
 } from './engine'
+import { LabelSpace, alongSegment, aroundPoint, boxAt, clearance, directionsFrom, type ScreenDot, type ScreenLine } from './labelSpace'
+import { circleEquation, explicitForm, generalForm, lengthText, lineThrough, numText, parseTyped, signedArea, slope, vectorText } from './analytic'
 import { usePrompt } from '../components/PromptDialog'
 import { SolidIcon, ToolIcon } from '../components/ToolIcon'
-import { defaultView, frameIn, setSolidCut, setSolidView, solidLines, solidObjects, SOLIDS, type SolidId } from '../notebook/solids'
+import { addInside, defaultView, frameIn, glueSolid, INSIDE, removeSolidPart, setSolidCut, setSolidView, type InsideId, solidLines, solidObjects, SOLIDS, type SolidId } from '../notebook/solids'
 import { saveFile } from '../platform'
 import { createPortal } from 'react-dom'
 import { type Triangle, solveTriangle, triangleExtras, triangleVertices } from '../trig/trigMath'
@@ -61,6 +63,25 @@ import { InstrumentsBar, useInstruments } from '../notebook/useInstruments'
 import { readLocal, writeLocal } from '../db'
 
 const TOOLS_KEY = 'math-journal:board-instruments'
+
+// the size of the writing on the board, for placing it (the fonts of .measure and .pt-label in styles.css)
+const measureCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null
+const widths = new Map<string, number>()
+function textWidth(text: string, kind: 'measure' | 'point'): number {
+  const key = kind + text
+  let w = widths.get(key)
+  if (w == null) {
+    if (measureCtx) {
+      measureCtx.font = kind === 'point' ? "italic 600 14px 'Times New Roman', Georgia, serif" : "600 12px 'Segoe UI', system-ui, sans-serif"
+      w = measureCtx.measureText(text).width
+    } else w = text.length * (kind === 'point' ? 8 : 7)
+    widths.set(key, w)
+  }
+  return w
+}
+/** the height of the letters, without the room above and below them */
+const MEASURE_H = 10
+const POINT_H = 12
 
 function loadInstruments(): Instruments {
   try {
@@ -122,7 +143,7 @@ export function triangleFromInput(kind: string, values: string[]): Triangle | st
 }
 
 type Tool =
-  | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'arc' | 'sector' | 'triangle' | 'polygon' | 'regular'
+  | 'move' | 'pan' | 'point' | 'segment' | 'line' | 'ray' | 'vector' | 'circle' | 'arc' | 'sector' | 'triangle' | 'polygon' | 'regular'
   | 'lineAngle' | 'construct' | 'midpoint' | 'perpendicular' | 'mediatrix' | 'parallel' | 'bisector'
   | 'intersection' | 'text' | 'pen' | 'delete' | 'solid'
 
@@ -133,6 +154,7 @@ const TOOLS: { id: Tool; label: string; hint: string[] }[] = [
   { id: 'segment', label: 'Segment', hint: ['Primul capăt', 'Al doilea capăt'] },
   { id: 'line', label: 'Dreaptă', hint: ['Primul punct al dreptei', 'Al doilea punct'] },
   { id: 'ray', label: 'Semidreaptă', hint: ['Originea', 'Un punct pe semidreaptă'] },
+  { id: 'vector', label: 'Vector', hint: ['Originea vectorului', 'Vârful vectorului (unde e săgeata)'] },
   { id: 'circle', label: 'Cerc', hint: ['Centrul', 'Un punct de pe cerc'] },
   { id: 'arc', label: 'Arc de cerc', hint: ['Centrul', 'Începutul arcului', 'Sfârșitul arcului (merge în sens trigonometric)'] },
   { id: 'sector', label: 'Sector de cerc', hint: ['Centrul', 'Începutul arcului', 'Sfârșitul arcului (merge în sens trigonometric)'] },
@@ -142,7 +164,7 @@ const TOOLS: { id: Tool; label: string; hint: string[] }[] = [
   { id: 'lineAngle', label: 'Unghi între două linii', hint: ['Click pe prima linie sau muchie de corp (pe porțiunea care formează unghiul)', 'Click pe a doua linie sau muchie'] },
   { id: 'construct', label: 'Construiește unghi', hint: ['Primul punct, pe o latură', 'Al doilea punct: vârful unghiului', 'Al treilea punct, pe cealaltă latură (apoi poți scrie măsura exactă)'] },
   { id: 'midpoint', label: 'Mijloc', hint: ['Click pe un segment, o muchie de corp sau pe primul punct', 'Al doilea punct'] },
-  { id: 'perpendicular', label: 'Perpendiculară', hint: ['Click pe punct (sau pe un loc liber, pentru un punct nou), apoi pe dreaptă; merge și invers', 'Acum al doilea element (dreapta sau punctul)'] },
+  { id: 'perpendicular', label: 'Perpendiculară (și distanța de la punct la dreaptă)', hint: ['Click pe punct (sau pe un loc liber, pentru un punct nou), apoi pe dreaptă; merge și invers. Lungimea afișată este distanța de la punct la dreaptă', 'Acum al doilea element (dreapta sau punctul)'] },
   { id: 'mediatrix', label: 'Mediatoare', hint: ['Click pe segmentul, latura de poligon sau muchia de corp căreia vrei să-i construiești mediatoarea'] },
   { id: 'parallel', label: 'Paralelă', hint: ['Click pe punct (sau pe un loc liber, pentru un punct nou), apoi pe dreaptă; merge și invers', 'Acum al doilea element (dreapta sau punctul)'] },
   { id: 'bisector', label: 'Bisectoare', hint: ['Click pe arcul unghiului, sau pe prima latură (ori pe 3 puncte: latură, vârf, latură)', 'Acum a doua latură (sau vârful, dacă ai început cu un punct)', 'Un punct de pe a doua latură'] },
@@ -154,7 +176,7 @@ const TOOLS: { id: Tool; label: string; hint: string[] }[] = [
 ]
 
 /** Tools whose clicks place points (they get the snapping preview). */
-const POINT_TOOLS = new Set<string>(['point', 'segment', 'line', 'ray', 'circle', 'arc', 'sector', 'polygon', 'regular', 'construct', 'midpoint'])
+const POINT_TOOLS = new Set<string>(['point', 'segment', 'line', 'ray', 'vector', 'circle', 'arc', 'sector', 'polygon', 'regular', 'construct', 'midpoint'])
 
 /** How close to a line a click counts, once the point of a perpendicular or a parallel is chosen. */
 const PICK_LINE_PX = 18
@@ -1145,6 +1167,13 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           commit(objs)
         })
         break
+      case 'vector':
+        await needPoints(2, ([a, b]) => {
+          if (a === b) return
+          newLine(objs, 'segment', { kind: 'twoPoints', a, b }, { vector: true, showEquation: true })
+          commit(objs)
+        })
+        break
       case 'circle':
         await needPoints(2, ([c, t]) => {
           if (c === t) return
@@ -1818,6 +1847,27 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       }
       inst.hoverAt(...toPlane(screenPos(e)), tool === 'pen')
     }
+    // a body let go next to a face of another of the same shape is glued to it, as the ruler to the set square
+    if (drag.current?.mode === 'move' && drag.current.moved) {
+      const ids = new Set(drag.current.ids)
+      const now = sceneRef.current.objects
+      const moved = now.find((o): o is PathObj => o.type === 'path' && !!o.frame && ids.has(o.id))
+      if (moved && !moved.frame!.parts?.length) {
+        let best: ReturnType<typeof glueSolid> = null
+        for (const o of now) {
+          if (o.type !== 'path' || !o.frame || ids.has(o.id)) continue
+          const g = glueSolid(now, o.id, moved.id)
+          if (g && (!best || g.gap < best.gap)) best = g
+        }
+        if (best) {
+          const next = { ...sceneRef.current, objects: best.objects }
+          sceneRef.current = next
+          onChange(next)
+          setSelected(null)
+          flash('Corpurile s-au lipit: se mută și se rotesc împreună. Ctrl+Z le desparte, iar din panou se poate scoate o parte.')
+        }
+      }
+    }
     if (drag.current?.mode === 'solid') {
       // a click without a drag leaves nothing behind
       if (solidDrag && dist(solidDrag.from, solidDrag.to) > 0) {
@@ -1900,6 +1950,122 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     commit([...sceneRef.current.objects, { id: uid(), type: 'function', expr, color, width: 2 } satisfies FunctionObj])
   }
 
+  // ---------- analytic geometry: typed objects, vectors, centroid (12 November 2026) ----------
+
+  /** Two points of the line a·x + b·y + c = 0: the foot of the origin on it, and one further along. */
+  const pointsOfLine = ([a, b, c]: [number, number, number]): [Vec, Vec] => {
+    const n2 = a * a + b * b
+    const foot = { x: (-a * c) / n2, y: (-b * c) / n2 }
+    // along (−b, a), not a unit step: whole coefficients keep the points rational
+    return [foot, add(foot, { x: -b, y: a })]
+  }
+
+  /** A point, a line or a circle written by the user: A(2, −3), 2x − 3y + 6 = 0, (x − 1)² + (y + 2)² = 9. */
+  const addTyped = async () => {
+    const text = await ask('Scrie un punct, o dreaptă sau un cerc — ex: A(2, -3) · 2x - 3y + 6 = 0 · y = 2x + 1 · (x - 1)^2 + (y + 2)^2 = 9', '')
+    if (!text) return
+    const t = parseTyped(text)
+    if (t.kind === 'error') return void (await ask(t.message, '', true))
+    const objs = [...sceneRef.current.objects]
+    if (t.kind === 'point') {
+      const p = newPoint(objs, { x: t.x, y: t.y })
+      const taken = t.label && objs.some((o) => o.type === 'point' && o.id !== p.id && o.label === t.label)
+      if (t.label && !taken) p.label = t.label
+      p.showCoords = true
+      commit(objs)
+      if (taken) flash(`Litera ${t.label} e deja folosită: punctul se numește ${p.label}.`)
+      return
+    }
+    if (t.kind === 'line') {
+      const [p, q] = pointsOfLine(t.co)
+      const a = newPoint(objs, p)
+      const b = newPoint(objs, q)
+      a.hidden = b.hidden = true
+      newLine(objs, 'line', { kind: 'twoPoints', a: a.id, b: b.id }, { showEquation: true })
+      commit(objs)
+      return
+    }
+    const c = newPoint(objs, t.c)
+    c.label = centerLabel(objs.filter((o) => o.id !== c.id))
+    c.showCoords = true
+    const through = newPoint(objs, { x: t.c.x + t.r, y: t.c.y })
+    through.hidden = true
+    objs.push({ id: uid(), type: 'circle', center: c.id, through: through.id, color, width: 2, showEquation: true } satisfies CircleObj)
+    commit(objs)
+  }
+
+  /**
+   * A new equation for a line written by the user (its two points are hidden and free): the points move onto it.
+   * Returns why not, for other lines.
+   */
+  const setLineEquation = (id: string, text: string): string | null => {
+    const o = sceneRef.current.objects.find((x) => x.id === id)
+    if (!o || !isLinear(o) || o.dep.kind !== 'twoPoints') return 'Doar dreptele scrise prin ecuație se pot schimba așa.'
+    const t = parseTyped(text)
+    if (t.kind === 'error') return t.message
+    if (t.kind !== 'line') return 'Aici se scrie ecuația unei drepte, de exemplu 2x - 3y + 6 = 0.'
+    const [p, q] = pointsOfLine(t.co)
+    const { a, b } = o.dep
+    commit(sceneRef.current.objects.map((x) => (x.id === a ? { ...x, x: p.x, y: p.y } : x.id === b ? { ...x, x: q.x, y: q.y } : x) as GObj))
+    return null
+  }
+
+  /** A vector drawn from a point to a point made from others: a sum, a difference, a multiple, a copy elsewhere. */
+  const addVector = (from: string, parts: [string, number][], extra: Partial<LineObj> = {}, via?: string) => {
+    const objs = [...sceneRef.current.objects]
+    const tip = newPoint(objs, { x: 0, y: 0 }, { kind: 'combo', parts })
+    // the triangle rule, as drawn in class: the second vector moved to the tip of the first, dashed
+    if (via) newLine(objs, 'segment', { kind: 'twoPoints', a: via, b: tip.id }, { vector: true, dashed: true, width: 1.5 })
+    const v = newLine(objs, 'segment', { kind: 'twoPoints', a: from, b: tip.id }, { vector: true, showEquation: true, ...extra })
+    commit(objs)
+    setSelected(v.id)
+  }
+  const vectorEnds = (id: string) => {
+    const o = sceneRef.current.objects.find((x) => x.id === id)
+    return o && isLinear(o) && o.dep.kind === 'twoPoints' ? o.dep : null
+  }
+  const vectorOps = {
+    /** AB ± CD, by the triangle rule: from A to B + (D − C), or B − (D − C) */
+    combine: (id: string, other: string, sign: 1 | -1) => {
+      const u = vectorEnds(id)
+      const w = vectorEnds(other)
+      if (!u || !w) return
+      addVector(u.a, [[u.b, 1], [w.b, sign], [w.a, -sign]], { color: sign > 0 ? '#16a34a' : '#ea580c' }, u.b)
+    },
+    /** k·AB, from A */
+    scale: async (id: string) => {
+      const u = vectorEnds(id)
+      if (!u) return
+      const raw = await ask('Înmulțește vectorul cu numărul (ex: 2, -1, 1/2)', '2')
+      if (!raw) return
+      let k: number
+      try {
+        k = compile(raw.replace(',', '.')).evaluate({}) as number
+        if (typeof k !== 'number' || !Number.isFinite(k) || k === 0) throw new Error()
+      } catch {
+        return void (await ask('Scrie un număr diferit de 0, de exemplu 2 sau -1/2.', '', true))
+      }
+      addVector(u.a, [[u.a, 1 - k], [u.b, k]], { color: '#7c3aed' })
+    },
+    /** the same vector, from another point */
+    moveTo: (id: string, point: string) => {
+      const u = vectorEnds(id)
+      if (!u) return
+      addVector(point, [[point, 1], [u.b, 1], [u.a, -1]], { dashed: false })
+    },
+  }
+
+  /** The centroid of a triangle: a point made from its three vertices, with its coordinates. */
+  const addCentroid = (polyId: string) => {
+    const objs = [...sceneRef.current.objects]
+    const poly = objs.find((o) => o.id === polyId)
+    if (poly?.type !== 'polygon' || poly.points.length !== 3) return
+    const g = newPoint(objs, { x: 0, y: 0 }, { kind: 'combo', parts: poly.points.map((p) => [p, 1 / 3] as [string, number]) })
+    if (!objs.some((o) => o.type === 'point' && o.label === 'G')) g.label = 'G'
+    g.showCoords = true
+    commit(objs)
+  }
+
   const updateObj = (id: string, patch: Partial<GObj>) =>
     commit(sceneRef.current.objects.map((o) => (o.id === id ? ({ ...o, ...patch } as GObj) : o)))
 
@@ -1946,6 +2112,36 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const m = add(l.p, mul(u, t0))
     return [add(m, mul(u, -far * 2)), add(m, mul(u, far * 2))]
   }
+
+  const pointLabel = (id: string) => (scene.objects.find((x) => x.id === id) as PointObj | undefined)?.label ?? ''
+
+  /** The part of the line from a to b (on the screen) inside the board, a little in from its edges; null when none. */
+  const visiblePart = (a: Vec, b: Vec): [Vec, Vec] | null => {
+    const [x0, x1, y0, y1] = [24, W - 24, 48, H - 24]
+    let [t0, t1] = [0, 1]
+    const d = sub(b, a)
+    for (const [p, q] of [[-d.x, a.x - x0], [d.x, x1 - a.x], [-d.y, a.y - y0], [d.y, y1 - a.y]]) {
+      if (Math.abs(p) < 1e-12) {
+        if (q < 0) return null
+        continue
+      }
+      const r = q / p
+      if (p < 0) t0 = Math.max(t0, r)
+      else t1 = Math.min(t1, r)
+    }
+    if (t0 > t1) return null
+    return [add(a, mul(d, t0)), add(a, mul(d, t1))]
+  }
+
+  /** The normal of the line from a to b that points up the screen (or left, for a horizontal… vertical line). */
+  const upNormal = (a: Vec, b: Vec): Vec => {
+    const n = norm({ x: -(b.y - a.y), y: b.x - a.x })
+    return n.y > 1e-9 || (Math.abs(n.y) <= 1e-9 && n.x > 0) ? mul(n, -1) : n
+  }
+
+  /** Places around a circle (centre c, radius r, on the screen), for writing of size w × h, the direction `first` first. */
+  const aroundCircle = (c: Vec, r: number, w: number, h: number, first: Vec): Vec[] =>
+    directionsFrom(first).map((d) => ({ x: c.x + d.x * (r + 6 + w / 2), y: c.y + d.y * (r + 6 + h / 2) }))
 
   const fmtAngle = (rad: number) =>
     view.angleUnit === 'deg' ? `${formatNum((rad * 180) / Math.PI, 1)}°` : `${formatNum(rad / Math.PI, 3)}π`
@@ -2012,8 +2208,9 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       return `${i ? 'L' : 'M'}${p.x},${p.y}`
     }).join(' ')).join(' ')
 
-  // where the measures of angles have gone so far, in this drawing of the board
-  const angleLabels: Vec[] = []
+  // where the writing goes, in this drawing of the board: laid out just before it is drawn (the letters of the points
+  // first, then each length, measure and equation as it is drawn), so that none falls on another
+  const labels = { space: new LabelSpace([], []), letters: new Map<string, Vec>() }
 
   /**
    * A segment split into parts that show their lengths too (BD and DC on BC, after a perpendicular): as on paper, its
@@ -2063,6 +2260,35 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     return { brace, side }
   })()
 
+  /**
+   * The side of a segment (a, b on the screen, n one of its normals) away from the rest of its figure: the points
+   * joined to its ends by lines, or the other corners of its polygon. Above it, when that does not decide: a segment
+   * alone, or a diagonal, whose figure lies on both sides. Before 12 November 2026 the side came from the order the
+   * segment was drawn in, so the lengths of two diagonals could land on the same spot.
+   */
+  const outwardSide = (o: LineObj, a: Vec, b: Vec, n: Vec): Vec => {
+    const up = n.y > 0 ? mul(n, -1) : n
+    if (o.dep.kind !== 'twoPoints') return up
+    const ends = [o.dep.a, o.dep.b]
+    const others: Vec[] = []
+    const see = (id: string) => {
+      const at = P(id)
+      if (at && !ends.includes(id)) others.push(toScreen(at))
+    }
+    for (const x of scene.objects) {
+      if (x.id === o.id) continue
+      if (isLinear(x) && x.dep.kind === 'twoPoints') {
+        if (ends.includes(x.dep.a)) see(x.dep.b)
+        if (ends.includes(x.dep.b)) see(x.dep.a)
+      } else if (x.type === 'polygon' && ends.every((e) => x.points.includes(e))) x.points.forEach(see)
+    }
+    if (!others.length) return up
+    const c = mul(others.reduce((m, v) => add(m, v), { x: 0, y: 0 }), 1 / others.length)
+    const s = dot(n, sub(c, mul(add(a, b), 0.5)))
+    if (Math.abs(s) < 4) return up
+    return s > 0 ? mul(n, -1) : n
+  }
+
   /** A curly brace over the segment from a to b (on the screen), on the side n; its tip is where the length goes. */
   const bracePath = (a: Vec, b: Vec, n: Vec, from: number, depth: number) => {
     const t = norm(sub(b, a))
@@ -2093,18 +2319,57 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         if (o.ghost) return hl ? <line key={o.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="halo" /> : null
         const mid = toScreen(mul(add(l.a, l.b), 0.5))
         const n = norm({ x: -(b.y - a.y), y: b.x - a.x })
+        // a vector: an arrow at its tip, and its coordinates beside it
+        const arrow = o.vector && dist(a, b) > 1e-6 && (() => {
+          const u = norm(sub(b, a))
+          const size = 8 + o.width * 1.5
+          const back = sub(b, mul(u, size))
+          const side = mul({ x: -u.y, y: u.x }, size * 0.45)
+          return <polygon points={[b, add(back, side), sub(back, side)].map((p) => `${p.x},${p.y}`).join(' ')} fill={o.color} stroke={o.color} strokeWidth={1} strokeLinejoin="round" />
+        })()
+        const written = o.showEquation && (() => {
+          if (o.vector) {
+            // AB with an arrow over it, then = 3i − 2j; the arrow is part of the writing's height
+            const name = o.dep.kind === 'twoPoints' ? `${pointLabel(o.dep.a)}${pointLabel(o.dep.b)}` : ''
+            const eq = `= ${vectorText(sub(l.b, l.a))}`
+            const nameW = textWidth(name, 'measure')
+            const w = nameW + 4 + textWidth(eq, 'measure')
+            const nv = upNormal(a, b)
+            const at = labels.space.place(alongSegment(a, b, nv, clearance(nv, w, MEASURE_H + 6, 18), [0.5, 0.38, 0.62, 0.28, 0.72]), w, MEASURE_H + 6, [o.id])
+            const x0 = at.x - w / 2
+            return (
+              <g>
+                <path d={`M${x0},${at.y - 7} h${nameW} m-4,-3 l4,3 l-4,3`} stroke={o.color} strokeWidth={1.2} fill="none" />
+                <text x={x0} y={at.y + 7} className="measure" fill={o.color}>
+                  <tspan>{name}</tspan><tspan dx={4}>{eq}</tspan>
+                </text>
+              </g>
+            )
+          }
+          const part = visiblePart(a, b)
+          if (!part) return null
+          const text = generalForm(lineThrough(l.a, l.b))
+          const nl = upNormal(a, b)
+          const tw = textWidth(text, 'measure')
+          const at = labels.space.place(alongSegment(part[0], part[1], nl, clearance(nl, tw, MEASURE_H, 14), [0.78, 0.62, 0.9, 0.45, 0.3, 0.15]), tw, MEASURE_H, [o.id])
+          return <text x={at.x} y={at.y + 4} className="measure" fill={o.color} textAnchor="middle">{text}</text>
+        })()
         return (
           <g key={o.id}>
             {hl && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="halo" />}
+            {arrow}
+            {written}
             {gaps.has(o.id)
               ? <path d={brokenPath([[l.a.x, l.a.y], [l.b.x, l.b.y]], gaps.get(o.id)!)} stroke={o.color} strokeWidth={o.width} fill="none" strokeDasharray={dashedNow(o) ? '6 5' : undefined} strokeLinecap="round" />
               : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={o.color} strokeWidth={o.width} strokeDasharray={dashedNow(o) ? '6 5' : undefined} strokeLinecap="round" />}
             {o.type === 'segment' && o.showLength && (() => {
               const value = formatNum(segmentLength(o.id) ?? dist(l.a, l.b))
+              const w = textWidth(value, 'measure')
               const up = measureSides.brace.get(o.id)
               // a brace needs room: on a very short segment the length just goes further out
               if (up && dist(a, b) > 30) {
                 const tip = add(mid, mul(up, 26 + 10 + 13))
+                labels.space.hold(boxAt(tip, w, MEASURE_H))
                 return (
                   <>
                     <path d={bracePath(a, b, up, 26, 10)} stroke={o.color} strokeWidth={1.2} fill="none" />
@@ -2112,9 +2377,10 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
                   </>
                 )
               }
-              const side = up ?? measureSides.side.get(o.id) ?? n
-              const k = up ? 40 : 14
-              return <text x={mid.x + side.x * k} y={mid.y + side.y * k + (measureSides.side.has(o.id) ? 4 : 0)} className="measure" fill={o.color} textAnchor="middle">{value}</text>
+              // the parts of a split segment stay between it and the brace; the others go outside the figure if they can
+              const side = up ?? measureSides.side.get(o.id) ?? outwardSide(o, a, b, n)
+              const at = labels.space.place(alongSegment(a, b, side, up ? 40 : clearance(side, w, MEASURE_H, 13)), w, MEASURE_H, [o.id])
+              return <text x={at.x} y={at.y + 4} className="measure" fill={o.color} textAnchor="middle">{value}</text>
             })()}
           </g>
         )
@@ -2125,13 +2391,17 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         if (!c || !t) return null
         const sc = toScreen(c)
         const r = dist(c, t) * view.scale
+        // the equation above the circle, the radius above and to the right; elsewhere around it when taken
+        const eq = o.showEquation ? circleEquation(c, dist(c, t)) : ''
+        const eqAt = eq && labels.space.place(aroundCircle(sc, r, textWidth(eq, 'measure'), MEASURE_H, { x: 0, y: -1 }), textWidth(eq, 'measure'), MEASURE_H, [o.id])
+        const rad = o.showRadius ? `r = ${formatNum(dist(c, t))}` : ''
+        const radAt = rad && labels.space.place(aroundCircle(sc, r, textWidth(rad, 'measure'), MEASURE_H, { x: 0.6, y: -1 }), textWidth(rad, 'measure'), MEASURE_H, [o.id])
         return (
           <g key={o.id}>
             {hl && <circle cx={sc.x} cy={sc.y} r={r} className="halo" fill="none" />}
             <circle cx={sc.x} cy={sc.y} r={r} stroke={o.color} strokeWidth={o.width} fill="none" />
-            {o.showRadius && (
-              <text x={sc.x + 6} y={sc.y - r - 6} className="measure" fill={o.color}>r = {formatNum(dist(c, t))}</text>
-            )}
+            {radAt && <text x={radAt.x} y={radAt.y + 4} className="measure" fill={o.color} textAnchor="middle">{rad}</text>}
+            {eqAt && <text x={eqAt.x} y={eqAt.y + 4} className="measure" fill={o.color} textAnchor="middle">{eq}</text>}
           </g>
         )
       }
@@ -2148,6 +2418,12 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         const r = dist(sc, mid)
         const along = r > 0 ? Math.min(Math.max(26, r * 0.45), Math.max(r - 12, r / 2)) / r : 0
         const deg = { x: sc.x + (mid.x - sc.x) * along, y: sc.y + (mid.y - sc.y) * along }
+        // these stay where they are; the rest of the writing keeps away from them
+        if (o.showMeasure) labels.space.hold(boxAt(deg, textWidth(fmtAngle(sweep), 'measure'), MEASURE_H))
+        if (o.showRadius) {
+          const w = textWidth(`r = ${formatNum(dist(c, t))}`, 'measure')
+          labels.space.hold(boxAt({ x: mid.x + 6 + w / 2, y: mid.y - 10 }, w, MEASURE_H))
+        }
         return (
           <g key={o.id}>
             {o.filled && <path d={`M ${sc.x} ${sc.y} L ${d.slice(2)} Z`} fill={o.color + '22'} stroke="none" />}
@@ -2201,11 +2477,10 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           }
         }
         if (o.showValue) {
-          // measures that would land on one another: the later one moves away from the vertex, along its own direction
+          // where it would land on other writing, a point or a line, it moves away from the vertex, along its own direction
           const away = norm(sub(label, sv))
-          const taken = (at: Vec) => angleLabels.some((q) => Math.abs(q.x - at.x) < 46 && Math.abs(q.y - at.y) < 17)
-          for (let i = 0; i < 12 && taken(label); i++) label = add(label, mul(away, 16))
-          angleLabels.push(label)
+          const start = label
+          label = labels.space.place(Array.from({ length: 10 }, (_, i) => add(start, mul(away, 12 * i))), textWidth(fmtAngle(value), 'measure'), MEASURE_H, o.type === 'lineAngle' ? [o.l1, o.l2] : [])
         }
         let shape: JSX.Element
         if (isRight) {
@@ -2288,22 +2563,16 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     const s = toScreen(p)
     // filled = can be dragged (free, or sliding on a line / circle); hollow = fully determined by the construction
     const free = o.dep.kind === 'free' || o.dep.kind === 'onLine' || o.dep.kind === 'onCircle'
-    // the vertex of angles has its letter outside all of them, in the widest opening left between their sides
-    const rays = scene.objects.flatMap((x) => (x.type === 'angle' && x.v === o.id ? [P(x.a), P(x.b)] : []))
-      .filter((r): r is Vec => !!r)
-    const away = rays.length ? labelDirection(p, rays) : null
-    let out: Vec | null = null
-    // on the screen, y points down
-    if (away) out = { x: away.x, y: -away.y }
-    else if (o.group && o.corner != null && inLowerHalf(o, p)) out = { x: 0, y: 1 }
-    else if (o.group && o.corner != null && !o.rim && !o.ball && onLeftEdge(o, p)) out = { x: -1.1, y: 0 }
+    // with its coordinates: A(2, −3); where it goes was chosen with the rest of the writing (`labels.letters`): in the
+    // widest opening between the angles and lines at the point, under it in the lower half of a figure, on the left on
+    // its left edge, and anywhere else nearby when that place is taken
+    const text = o.showCoords ? `${o.label}(${numText(p.x)}, ${numText(p.y)})` : o.label
+    const at = labels.letters.get(o.id) ?? { x: s.x + 7 + textWidth(text, 'point') / 2, y: s.y - 13 }
     return (
       <g key={o.id} {...(quiet ? { 'data-ui': true, opacity: 0.45 } : {})}>
         {isSel(o.id) && <circle cx={s.x} cy={s.y} r={9} className="halo-pt" />}
         <circle cx={s.x} cy={s.y} r={free ? 4.5 : 3.5} fill={free ? o.color : '#fff'} stroke={o.color} strokeWidth={free ? 1 : 2} />
-        {out
-          ? <text x={s.x + out.x * 15} y={s.y + out.y * 15 + 5} textAnchor="middle" className="pt-label" fill={o.color}>{o.label}</text>
-          : <text x={s.x + 7} y={s.y - 8} className="pt-label" fill={o.color}>{o.label}</text>}
+        <text x={at.x} y={at.y + 5} textAnchor="middle" className="pt-label" fill={o.color}>{text}</text>
       </g>
     )
   }
@@ -2374,6 +2643,86 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const toolInfo = TOOLS.find((t) => t.id === tool)!
   const hint = toolInfo.hint[Math.min(pending.length, toolInfo.hint.length - 1)]
 
+  // ---------- the layout of the writing (12 November 2026) ----------
+  {
+    const lines: ScreenLine[] = []
+    const dots: ScreenDot[] = []
+    const sampled = (id: string, c: Vec, r: number, from: number, sweep: number) => {
+      const n = Math.max(8, Math.ceil((sweep / (2 * Math.PI)) * 40))
+      let prev = toScreen(add(c, mul({ x: Math.cos(from), y: Math.sin(from) }, r)))
+      for (let i = 1; i <= n; i++) {
+        const t = from + (sweep * i) / n
+        const next = toScreen(add(c, mul({ x: Math.cos(t), y: Math.sin(t) }, r)))
+        lines.push({ id, a: prev, b: next })
+        prev = next
+      }
+    }
+    for (const o of scene.objects) {
+      if (isLinear(o)) {
+        const l = L(o.id)
+        if (!l || o.ghost) continue
+        const [a, b] = lineEnds(l).map(toScreen)
+        lines.push({ id: o.id, a, b })
+      } else if (o.type === 'polygon') {
+        const pts = o.points.map(P)
+        if (!pts.every(Boolean)) continue
+        pts.forEach((p, i) => lines.push({ id: o.id, a: toScreen(p!), b: toScreen(pts[(i + 1) % pts.length]!) }))
+      } else if (o.type === 'path' && !o.frame) {
+        for (let i = 0; i + 1 < o.points.length; i++) {
+          lines.push({ id: o.id, a: toScreen({ x: o.points[i][0], y: o.points[i][1] }), b: toScreen({ x: o.points[i + 1][0], y: o.points[i + 1][1] }) })
+        }
+      } else if (o.type === 'circle' || o.type === 'arc') {
+        const c = P(o.center)
+        const t = P(o.through)
+        const to = o.type === 'arc' ? P(o.to) : t
+        if (!c || !t || !to) continue
+        const from = Math.atan2(t.y - c.y, t.x - c.x)
+        sampled(o.id, c, dist(c, t), from, o.type === 'arc' ? angleCCW(t, c, to) : 2 * Math.PI)
+      } else if (o.type === 'point' && !o.hidden && !o.quiet) {
+        const p = P(o.id)
+        if (p) dots.push({ id: o.id, p: toScreen(p) })
+      }
+    }
+    const space = new LabelSpace(lines, dots, { x0: 0, y0: 0, x1: W, y1: H })
+    labels.space = space
+    // writing that stays where it is: text written on the board
+    for (const o of scene.objects) {
+      if (o.type !== 'text') continue
+      const p = toScreen(o)
+      space.hold({ x0: p.x, y0: p.y - o.size, x1: p.x + Math.max(40, o.text.length * o.size * 0.55), y1: p.y + o.size * 0.4 })
+    }
+    // the letters of the points, before everything else: the user's rules for them come first
+    for (const o of scene.objects) {
+      if (o.type !== 'point' || o.hidden || (o.quiet && !isSel(o.id))) continue
+      const p = P(o.id)
+      if (!p) continue
+      const s = toScreen(p)
+      const text = o.showCoords ? `${o.label}(${numText(p.x)}, ${numText(p.y)})` : o.label
+      if (!text) continue
+      const w = textWidth(text, 'point')
+      // the rays from the point: the sides of its angles, and every line drawn through it or from it
+      const rays: Vec[] = scene.objects.flatMap((x) => (x.type === 'angle' && x.v === o.id ? [P(x.a), P(x.b)] : []))
+        .filter((r): r is Vec => !!r).map(toScreen)
+      const angleRays = rays.length
+      for (const l of lines) {
+        const d = sub(l.b, l.a)
+        const n2 = dot(d, d)
+        if (n2 < 1e-9) continue
+        const t = dot(sub(s, l.a), d) / n2
+        if (t < -0.01 || t > 1.01 || dist(s, add(l.a, mul(d, t))) > 1.5) continue
+        if (dist(s, l.a) > 1) rays.push(l.a)
+        if (dist(s, l.b) > 1) rays.push(l.b)
+      }
+      let first: Vec | null = null
+      if (angleRays) first = labelDirection(s, rays)
+      else if (o.group && o.corner != null && inLowerHalf(o, p)) first = { x: 0, y: 1 }
+      else if (o.group && o.corner != null && !o.rim && !o.ball && onLeftEdge(o, p)) first = { x: -1, y: 0 }
+      else if (rays.length) first = labelDirection(s, rays)
+      const at = space.place(aroundPoint(s, first ?? { x: 1, y: -1 }, w, POINT_H), w, POINT_H, [o.id])
+      labels.letters.set(o.id, at)
+    }
+  }
+
   const toolbar = !readOnly && (
       <div className="board-toolbar">
         {sheet && <span className="muted">Construcții:</span>}
@@ -2389,6 +2738,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
           </button>
         ))}
         <button className="tool" title="Graficul unei funcții f(x)" onClick={() => { sheet?.onActivate(); addFunction() }}><ToolIcon name="function" /></button>
+        <button className="tool" title="Punct, dreaptă sau cerc scris prin coordonate sau ecuație: A(2, -3), 2x - 3y + 6 = 0, (x - 1)^2 + (y + 2)^2 = 9" onClick={() => { sheet?.onActivate(); addTyped() }}><ToolIcon name="typed" /></button>
         <span className="sep" />
         {COLORS.map((c) => (
           <button key={c} className={'swatch' + (color === c ? ' active' : '')} style={{ background: c }} title="Culoare" onClick={() => setColor(c)} />
@@ -2572,10 +2922,35 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             },
             cut: figure.holder.frame.cut,
             setCut: (cut) => cutSolid(figure.holder!.id, cut),
+            parts: (figure.holder.frame.parts ?? []).map((p) => ({ label: SOLIDS.find((x) => x.id === p.solid)?.label ?? p.solid, inside: !!p.inside })),
+            removePart: (i) => {
+              remember()
+              const objects = removeSolidPart(sceneRef.current.objects, figure.holder!.id, i)
+              const next = { ...sceneRef.current, objects }
+              sceneRef.current = next
+              onChange(next)
+              setSelected(null)
+            },
+            putInside: (what) => {
+              const out = addInside(sceneRef.current.objects, figure.holder!.id, what)
+              if (typeof out === 'string') return flash(out)
+              remember()
+              const next = { ...sceneRef.current, objects: out }
+              sceneRef.current = next
+              onChange(next)
+              setSelected(null)
+            },
           },
         } : undefined} resolvedLen={(id) => {
           const l = L(id)
           return l ? segmentLength(id) ?? dist(l.a, l.b) : null
+        }} analytic={{
+          P, L,
+          vectors: scene.objects.flatMap((x) => (x.type === 'segment' && x.vector && x.dep.kind === 'twoPoints' ? [{ id: x.id, name: pointLabel(x.dep.a) + pointLabel(x.dep.b) }] : [])),
+          points: scene.objects.flatMap((x) => (x.type === 'point' && !x.hidden && !x.quiet ? [{ id: x.id, label: x.label }] : [])),
+          ...vectorOps,
+          centroid: addCentroid,
+          setLineEquation,
         }} onSolid={outOfSight.get(sel.id)} corners={cornersOf(sel) && {
           solid: !!sceneRef.current.objects.find((x) => x.type === 'point' && x.group === cornersOf(sel)!.group && x.at3),
           quiet: cornersOf(sel)!.quiet,
@@ -2713,6 +3088,10 @@ interface FigureTools {
     /** the plane parallel to the base, from 0 (base) to 1 (top), if the body is cut */
     cut?: number
     setCut: (cut: number | null) => void
+    /** the bodies glued to it or inside it */
+    parts: { label: string; inside: boolean }[]
+    removePart: (index: number) => void
+    putInside: (what: InsideId) => void
   }
 }
 
@@ -2763,13 +3142,146 @@ function FigurePanel({ t }: { t: FigureTools }) {
               </div>
               <button className="btn small" onClick={() => { t.solid!.begin(); t.solid!.setCut(null) }} title="Scoate secțiunea, cu punctele ei și ce e construit pe ele">Scoate secțiunea</button>
             </>}
+          <div className="insp-sub">Corp în corp</div>
+          <select value="" onChange={(e) => e.target.value && t.solid!.putInside(e.target.value as InsideId)} title="Pune un corp în interiorul acestuia, pe aceeași axă; se rotește împreună cu el">
+            <option value="">Pune înăuntru…</option>
+            {INSIDE.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+          <div className="muted small">Ca să lipești un corp de o față (de exemplu o piramidă pe o prismă), trage-l cu baza lângă fața aceea: se potrivește singur.</div>
+          {t.solid.parts.map((p, i) => (
+            <div key={i} className="insp-row">
+              <span className="small">{p.inside ? 'În interior: ' : 'Lipit: '}{p.label}</span>
+              <button className="btn small" onClick={() => t.solid!.removePart(i)} title="Scoate acest corp, cu vârfurile lui care nu sunt comune și ce e construit pe ele">Scoate</button>
+            </div>
+          ))}
         </>
       )}
     </div>
   )
 }
 
-function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools, corners, onSolid }: {
+/** What the panel needs for analytic geometry: positions, the vectors and points to pick, and the actions. */
+interface AnalyticTools {
+  P: (id: string) => Vec | null
+  L: (id: string) => ResolvedLine | null
+  vectors: { id: string; name: string }[]
+  points: { id: string; label: string }[]
+  combine: (id: string, other: string, sign: 1 | -1) => void
+  scale: (id: string) => void
+  moveTo: (id: string, point: string) => void
+  centroid: (polygon: string) => void
+  setLineEquation: (id: string, text: string) => string | null
+}
+
+/** The equation of a line that the user typed, which can be typed again; an error stays under it. */
+function EquationInput({ initial, onSet }: { initial: string; onSet: (text: string) => string | null }) {
+  const [text, setText] = useState(initial)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => setText(initial), [initial])
+  return (
+    <>
+      <label className="insp-row">Ecuația
+        <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') setError(onSet(text)) }} onBlur={() => text !== initial && setError(onSet(text))} />
+      </label>
+      {error && <div className="insp-note">{error}</div>}
+    </>
+  )
+}
+
+/** Coordinates, equations, slope, vector operations, area and centroid, in the panel of the chosen object. */
+function AnalyticRows({ o, scene, a, onPatch }: { o: GObj; scene: Scene; a: AnalyticTools; onPatch: (p: Partial<GObj>) => void }) {
+  if (o.type === 'point') {
+    const p = a.P(o.id)
+    return (
+      <>
+        {p && o.dep.kind !== 'free' && <div className="insp-row"><span>Coordonate</span><b>({numText(p.x)}, {numText(p.y)})</b></div>}
+        <label className="insp-row chk"><input type="checkbox" checked={!!o.showCoords} onChange={(e) => onPatch({ showCoords: e.target.checked })} /> Arată coordonatele pe tablă</label>
+      </>
+    )
+  }
+  if (isLinear(o)) {
+    const l = a.L(o.id)
+    if (!l) return null
+    if (o.type === 'segment' && o.vector && o.dep.kind === 'twoPoints') {
+      const d = sub(l.b, l.a)
+      const others = a.vectors.filter((v) => v.id !== o.id)
+      const me = a.vectors.find((v) => v.id === o.id)?.name ?? ''
+      const from = o.dep.a
+      const size = lengthText(len(d))
+      return (
+        <>
+          <div className="insp-row"><span>Coordonatele</span><b>{vectorText(d)} = ({numText(d.x)}, {numText(d.y)})</b></div>
+          <div className="insp-row"><span>Lungimea</span><b>|{me}| = {size}{size.includes('√') ? ` ≈ ${formatNum(len(d))}` : ''}</b></div>
+          <label className="insp-row chk"><input type="checkbox" checked={!!o.showEquation} onChange={(e) => onPatch({ showEquation: e.target.checked })} /> Arată coordonatele pe tablă</label>
+          <div className="insp-sub">Operații cu vectori</div>
+          {others.length > 0 ? (
+            <>
+              <select value="" onChange={(e) => e.target.value && a.combine(o.id, e.target.value, 1)} title="Suma, prin regula triunghiului: al doilea vector se mută cu originea în vârful primului">
+                <option value="">Adună cu…</option>
+                {others.map((v) => <option key={v.id} value={v.id}>{me} + {v.name}</option>)}
+              </select>
+              <select value="" onChange={(e) => e.target.value && a.combine(o.id, e.target.value, -1)} title="Diferența: se adună opusul celui de-al doilea vector">
+                <option value="">Scade…</option>
+                {others.map((v) => <option key={v.id} value={v.id}>{me} − {v.name}</option>)}
+              </select>
+            </>
+          ) : <div className="muted small">Desenează încă un vector ca să-i poți aduna sau scădea.</div>}
+          <button className="btn small" onClick={() => a.scale(o.id)} title="Un vector de k ori mai lung, din aceeași origine (opus pentru k negativ)">Înmulțește cu un număr…</button>
+          <select value="" onChange={(e) => e.target.value && a.moveTo(o.id, e.target.value)} title="Același vector (aceeași direcție, sens și lungime), cu originea în alt punct">
+            <option value="">Mută originea în…</option>
+            {a.points.filter((p) => p.id !== from).map((p) => <option key={p.id} value={p.id}>punctul {p.label}</option>)}
+          </select>
+        </>
+      )
+    }
+    const co = lineThrough(l.a, l.b)
+    const m = slope(co)
+    const typed = o.dep.kind === 'twoPoints' && [o.dep.a, o.dep.b].every((id) => {
+      const p = scene.objects.find((x) => x.id === id)
+      return p?.type === 'point' && p.hidden && p.dep.kind === 'free'
+    })
+    return (
+      <>
+        {typed
+          ? <EquationInput initial={generalForm(co)} onSet={(t) => a.setLineEquation(o.id, t)} />
+          : <div className="insp-row"><span>Ecuația</span><b>{generalForm(co)}</b></div>}
+        <div className="insp-row"><span>Forma explicită</span><b>{explicitForm(co)}</b></div>
+        <div className="insp-row"><span>Panta</span><b>{m == null ? 'nu are (dreaptă verticală)' : `m = ${numText(m)}`}</b></div>
+        <label className="insp-row chk"><input type="checkbox" checked={!!o.showEquation} onChange={(e) => onPatch({ showEquation: e.target.checked })} /> Arată ecuația pe tablă</label>
+      </>
+    )
+  }
+  if (o.type === 'circle') {
+    const c = a.P(o.center)
+    const t = a.P(o.through)
+    if (!c || !t) return null
+    return (
+      <>
+        <div className="insp-row"><span>Ecuația</span><b>{circleEquation(c, dist(c, t))}</b></div>
+        <label className="insp-row chk"><input type="checkbox" checked={!!o.showEquation} onChange={(e) => onPatch({ showEquation: e.target.checked })} /> Arată ecuația pe tablă</label>
+      </>
+    )
+  }
+  if (o.type === 'polygon') {
+    const pts = o.points.map(a.P)
+    if (!pts.every(Boolean)) return null
+    const vs = pts as Vec[]
+    const area = Math.abs(signedArea(vs))
+    const per = vs.reduce((s2, p, i) => s2 + dist(p, vs[(i + 1) % vs.length]), 0)
+    const g = vs.length === 3 ? { x: (vs[0].x + vs[1].x + vs[2].x) / 3, y: (vs[0].y + vs[1].y + vs[2].y) / 3 } : null
+    return (
+      <>
+        <div className="insp-row"><span>Aria (din coordonate)</span><b>{numText(area)}</b></div>
+        <div className="insp-row"><span>Perimetrul</span><b>{formatNum(per)}</b></div>
+        {g && <button className="btn small" onClick={() => a.centroid(o.id)} title="Punctul de intersecție al medianelor, cu coordonatele lui: media coordonatelor vârfurilor">Centrul de greutate G({numText(g.x)}, {numText(g.y)})</button>}
+      </>
+    )
+  }
+  return null
+}
+
+function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools, corners, onSolid, analytic }: {
+  analytic?: AnalyticTools
   /** for a segment on a solid: whether the solid hides it now; undefined elsewhere */
   onSolid?: boolean
   o: GObj
@@ -2788,6 +3300,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools, corn
   const label = (id: string) => (scene.objects.find((x) => x.id === id) as PointObj | undefined)?.label ?? '?'
   let title = names[o.type]
   if (o.type === 'path' && o.group) title = 'Muchie de corp'
+  if (o.type === 'segment' && o.vector) title = 'Vector'
   if (o.type === 'point') title += ' ' + o.label
   if (isLinear(o) && o.dep.kind === 'twoPoints') title += ` ${label(o.dep.a)}${label(o.dep.b)}`
   if (o.type === 'angle') title += ` ∠${label(o.a)}${label(o.v)}${label(o.b)}`
@@ -2813,6 +3326,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools, corn
           ))}
         </div>
       </div>
+      {analytic && <AnalyticRows o={o} scene={scene} a={analytic} onPatch={onPatch} />}
       {o.type === 'point' && (
         <>
           <label className="insp-row">Etichetă <input value={o.label} onChange={(e) => onPatch({ label: e.target.value })} /></label>
@@ -2854,7 +3368,7 @@ function Inspector({ o, scene, onPatch, onDelete, resolvedLen, figureTools, corn
       )}
       {isLinear(o) && (
         <>
-          {o.dep.kind === 'twoPoints' && (
+          {o.dep.kind === 'twoPoints' && !(o.type === 'segment' && o.vector) && (
             <label className="insp-row">Tip
               <select value={o.type} onChange={(e) => onPatch({ type: e.target.value as LineObj['type'], showLength: e.target.value === 'segment' ? o.showLength ?? true : o.showLength })}>
                 <option value="segment">segment (lungime finită)</option>
