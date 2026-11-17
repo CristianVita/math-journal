@@ -31,6 +31,9 @@ describe('figures of the generated geometry', () => {
             }
             expect(figureSvg(fig)).toMatch(/^<svg/)
           }
+          // the share is counted from grade VII up: grades V–VI have points on a line, angles and parallel lines,
+          // which the reader does not draw (14 November 2026)
+          if (g.grade < 7) continue
           forms++
           if (got) drawn++
           else misses.push(`${g.id} ${level}/${f}: ${g.make(seeded(7919 + f), level, f).text}`)
@@ -39,7 +42,7 @@ describe('figures of the generated geometry', () => {
     })
   }
 
-  it('most grade VIII forms get a figure', () => {
+  it('most forms of grades VII and up get a figure', () => {
     if (process.env.FIG_MISSES) writeFileSync(process.env.FIG_MISSES, misses.join('\n'))
     expect(drawn / forms, misses.join('\n')).toBeGreaterThan(0.8)
   })

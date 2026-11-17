@@ -61,8 +61,8 @@ const make = (genId: string, level: Level, seed: number, form: number): SheetIte
   const g = GENERATORS.find((x) => x.id === genId)
   if (!g) return null
   const m = g.make(seeded(seed), level, form)
-  // geometry comes with its figure, read from the statement (13 November 2026)
-  const fig = g.topic === 'Geometrie' ? figureFor(m.text) : undefined
+  // geometry comes with its figure, read from the statement (13 November 2026); a form may draw its own (15 November)
+  const fig = m.fig ?? (g.topic === 'Geometrie' ? figureFor(m.text) : undefined)
   return { id: uid(), text: m.text, solution: m.solution, source: { gen: genId, level, seed, form }, grade: g.grade, figure: fig ? figureSvg(fig) : undefined }
 }
 
@@ -70,11 +70,17 @@ const make = (genId: string, level: Level, seed: number, form: number): SheetIte
 export const newExercise = (genId: string, level: Level, form: number) => make(genId, level, newSeed(), form)
 
 /** The figure of a statement as SVG, for any exercise on the sheet (from the bank or a photo too). */
-const drawFor = (text: string) => {
-  const fig = figureFor(text)
+const drawFor = (item: SheetItem) => {
+  const fig = ownFigure(item) ?? figureFor(item.text)
   return fig ? figureSvg(fig) : undefined
 }
-const canDraw = (text: string) => !!figureFor(text)
+const canDraw = (item: SheetItem) => !!(ownFigure(item) ?? figureFor(item.text))
+/** The figure a generated exercise draws itself, made again from its seed. */
+function ownFigure(item: SheetItem) {
+  if (!('gen' in item.source)) return undefined
+  const { gen, level, seed, form } = item.source
+  return GENERATORS.find((x) => x.id === gen)?.make(seeded(seed), level, form).fig
+}
 
 /** How many of the last exercises made for a sheet are never repeated (asked for by the user on 10 November 2026). */
 const RECENT = 100
@@ -540,7 +546,7 @@ export default function WorksheetsPage() {
                     {'gen' in item.source && <button className="btn small" onClick={() => another(item)} title="Un alt exercițiu de același fel">↻ Altul</button>}
                     {item.figure
                       ? <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: undefined } : x)))} title="Scoate figura: elevul o desenează singur">Fără figură</button>
-                      : canDraw(item.text) && <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: drawFor(x.text) } : x)))} title="Desenează figura după enunț">Figură</button>}
+                      : canDraw(item) && <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: drawFor(x) } : x)))} title="Desenează figura după enunț">Figură</button>}
                     <button className="btn small" onClick={() => toggle(item.id)}>{open.has(item.id) ? 'Ascunde rezolvarea' : 'Rezolvarea'}</button>
                     <button className="btn small" disabled={i === 0} onClick={() => move(i, -1)} title="Mută mai sus" aria-label="Mută mai sus">↑</button>
                     <button className="btn small" disabled={i === sheet.items.length - 1} onClick={() => move(i, 1)} title="Mută mai jos" aria-label="Mută mai jos">↓</button>

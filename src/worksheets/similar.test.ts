@@ -22,6 +22,6 @@ describe('a generated kind like a book exercise', () => {
   })
 
   it('gives nothing when the app has nothing alike', () => {
-    expect(best('Construiți cu rigla și compasul hexagonul stelat și colorați zonele simetrice față de axa verticală.')).toBeUndefined()
+    expect(best('Povestiți pe scurt fabula lupului și a mielului.')).toBeUndefined()
   })
 })

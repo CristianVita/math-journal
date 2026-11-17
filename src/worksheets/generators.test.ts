@@ -1,7 +1,8 @@
 // The exercises made by the app: right arithmetic, valid formulas, and the same exercise for the same seed.
 import { describe, expect, it } from 'vitest'
 import katex from 'katex'
-import { GENERATORS, type Level } from './generators'
+import { GENERATORS, JOINED, type Level } from './generators'
+import { figureSvg, namesUsed } from '../models/figure'
 import { addExact, de, exact, exactTex, exactValue, frac, radians, root, rootParts, seeded, surd } from './tex'
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i * 7919 + 13)
@@ -36,6 +37,16 @@ describe('each generator, at each level, in each of its forms', () => {
               // "de" glued to the next word
               expect(t, `${g.id} ${level}/${form}`).not.toMatch(/\bde(cifre|pagini|termeni|lei|ani|picioare|ori)\b/)
               expect((t.replace(/\$\$[\s\S]+?\$\$/g, '').match(/\$/g) ?? []).length % 2, `${g.id} ${level}/${form}: unmatched $`).toBe(0)
+            }
+            // a figure drawn by the form: its points defined, inside its size, and it draws
+            if (m.fig) {
+              const fig = m.fig
+              for (const n of namesUsed(fig)) expect(fig.p[n], `${g.id} ${level}/${form}: ${n}`).toBeDefined()
+              for (const [n, [x, y]] of Object.entries(fig.p)) {
+                expect(x >= -0.5 && x <= fig.w + 0.5 && y >= -0.5 && y <= fig.h + 0.5, `${g.id} ${level}/${form}: ${n} outside`).toBe(true)
+              }
+              expect(figureSvg(fig)).toMatch(/^<svg[\s\S]*<\/svg>$/)
+              expect(figureSvg(fig)).not.toMatch(/NaN|undefined/)
             }
             texts.add(m.text)
           }
@@ -73,6 +84,10 @@ describe('each generator, at each level, in each of its forms', () => {
 
   it('the contest level has at least two kinds in every grade', () => {
     for (const grade of [5, 6, 7, 8]) expect(GENERATORS.filter((g) => g.grade === grade && g.forms(4) > 0).length, `clasa ${grade}`).toBeGreaterThanOrEqual(2)
+  })
+
+  it('the forms of the second grade V workbook join kinds that exist', () => {
+    for (const id of JOINED) expect(GENERATORS.some((g) => g.id === id), id).toBe(true)
   })
 
   it('there are generators for every grade from V to VIII', () => {

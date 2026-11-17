@@ -16,11 +16,15 @@ function formulas(text: string): { tex: string; display: boolean }[] {
 
 for (const model of BUILTIN) {
   describe(model.title, () => {
-    it('has 18 exercises', () => expect(model.items).toHaveLength(18))
+    const [s2, s3] = model.starts ?? [6, 12]
+    it('has 18 exercises (or as many as the book prints, when `starts` says so)', () => {
+      expect(model.items).toHaveLength(s3 + 6)
+      expect(s3 - s2).toBe(6)
+    })
 
     it('subjects I and II: four choices and the answer; subject III: 2 + 3 points', () => {
       model.items.forEach((item, i) => {
-        if (i < 12) {
+        if (i < s3) {
           expect(item.choices?.length, `exercițiul ${i + 1}`).toBeGreaterThanOrEqual(2)
           expect(item.ans, `exercițiul ${i + 1}`).toBeGreaterThanOrEqual(0)
           expect(item.ans!, `exercițiul ${i + 1}`).toBeLessThan(item.choices!.length)
@@ -47,7 +51,7 @@ for (const model of BUILTIN) {
       const line = barem.split('\n').find((l) => l.startsWith(`- **M${n}:**`))
       expect(line, `M${n} în barem.md`).toBeDefined()
       const key = [...line!.matchAll(/\b(\d{1,2})([a-d])\b/g)].map((m) => [Number(m[1]), m[2]] as const)
-      expect(key).toHaveLength(12)
+      expect(key).toHaveLength(s3)
       for (const [k, letter] of key) expect(LETTERS[model.items[k - 1].ans!], `exercițiul ${k}`).toBe(letter)
     })
 

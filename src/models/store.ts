@@ -17,8 +17,23 @@ import { M13 } from './data/m13'
 import { M14 } from './data/m14'
 import { M15 } from './data/m15'
 import { M16 } from './data/m16'
+import { M17 } from './data/m17'
+import { M18 } from './data/m18'
+import { M19 } from './data/m19'
+import { M20 } from './data/m20'
+import { M21 } from './data/m21'
+import { M22 } from './data/m22'
+import { M23 } from './data/m23'
+import { M40 } from './data/m40'
+import { M41 } from './data/m41'
+import { M42 } from './data/m42'
+import { M43 } from './data/m43'
+import { M44 } from './data/m44'
+import { M45 } from './data/m45'
+import { M46 } from './data/m46'
+import { M47 } from './data/m47'
 
-export const BUILTIN: EnModel[] = [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16]
+export const BUILTIN: EnModel[] = [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17, M18, M19, M20, M21, M22, M23, M40, M41, M42, M43, M44, M45, M46, M47]
 
 /** Kept in the database, in LOCAL_KEYS, so they go into the backup. */
 export const OWN_KEY = 'math-journal:en-models'

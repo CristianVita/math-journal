@@ -6,6 +6,7 @@ import {
   addExact, exact, exactTex, frac, gcd, int, nonZero, paren, pick, poly, reduce, root, rightTriangle, rootParts, shuffle, surd,
   type Exact, type Rng,
 } from './tex'
+import type { Fig } from '../models/figure'
 import * as F from './forms'
 import * as H from './hard'
 import * as E from './en'
@@ -26,6 +27,21 @@ import { KINDS as K7 } from './grade7'
 import { KINDS as KB1 } from './grade5book1'
 import { KINDS as KB2 } from './grade5book2'
 import { KINDS as KB3 } from './grade5book3'
+import { KINDS as KB4, CONTEST as CB4 } from './grade5book4'
+import { KINDS as KP2A, CONTEST as CP2A } from './grade5part2a'
+import {
+  KINDS as KP2B, CONTEST as CP2B,
+  perFracToPeriodic, perClassify, perNthDecimal, geoLinesThroughPairs, geoCollinearLines, geoHowManyPoints,
+} from './grade5part2b'
+import { KINDS as KP2C, CONTEST as CP2C } from './grade5part2c'
+import { KINDS as KP2D, CONTEST as CP2D } from './grade5part2d'
+import { KINDS as KP2E, CONTEST as CP2E } from './grade5part2e'
+import { KINDS as KP2F, CONTEST as CP2F } from './grade5part2f'
+import { KINDS as KPU1, CONTEST as CPU1 } from './grade5puisor1'
+import { KINDS as KPU2, CONTEST as CPU2 } from './grade5puisor2'
+import { KINDS as KPU3, CONTEST as CPU3 } from './grade5puisor3'
+import { KINDS as KPU4, CONTEST as CPU4 } from './grade5puisor4'
+import { KINDS as KFIG, CONTEST as CFIG } from './grade5drawn'
 
 export type Level = 1 | 2 | 3 | 4
 export type Grade = 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
@@ -40,6 +56,9 @@ export interface Made {
   solution: string
   /** for the tests: the arithmetic of the exercise holds, independently of how it is written */
   verify?: () => boolean
+  /** the figure the statement needs (a number line, angles, a chart…), drawn by the form itself; without it, geometry
+   * gets the figure read from the statement (`figures.ts`) */
+  fig?: Fig
 }
 
 /** One kind of exercise as first written: one form for each level. */
@@ -1024,15 +1043,60 @@ GENERATORS.push(
 )
 
 // grades V–VII after the syllabus (13 November 2026): kinds made only of forms, from grade5.ts, grade6.ts, grade7.ts
-type GradeKinds = { id: string; label: string; topic: Kind['topic']; forms: Record<1 | 2 | 3, Form[]> }[]
-const fromKinds = (grade: Grade, kinds: GradeKinds) => kinds.map((k) => withForms(
-  { id: k.id, grade, topic: k.topic, label: k.label, make: (rng, level) => k.forms[level as 1 | 2 | 3][0](rng) },
-  { 1: k.forms[1].slice(1), 2: k.forms[2].slice(1), 3: k.forms[3].slice(1) },
-))
+type GradeKinds = { id: string; label: string; topic: Kind['topic']; joins?: string; forms: Record<1 | 2 | 3, Form[]> }[]
+// the second grade V workbook ("cu puișorul", pp. 6–116, photographed on 14 November 2026) adds its forms to the kinds
+// of the same chapter (`joins`), so that the list of kinds does not show each chapter twice
+// the exercises with drawings of all the grade V workbooks (15 November 2026) join the same way, or one of the kinds
+// in DRAWN, made only of what joins them
+const DRAWN: GradeKinds = [
+  { id: 'v-number-line', label: 'Axa numerelor', topic: 'Algebră', forms: { 1: [], 2: [], 3: [] } },
+  { id: 'v-fraction-figures', label: 'Fracții pe figuri: părți hașurate', topic: 'Algebră', forms: { 1: [], 2: [], 3: [] } },
+  { id: 'v-count-figures', label: 'Numărarea figurilor: segmente, unghiuri, triunghiuri, pătrate', topic: 'Geometrie', forms: { 1: [], 2: [], 3: [] } },
+]
+const PUISOR = [...KPU1, ...KPU2, ...KPU3, ...KPU4, ...KFIG]
+export const JOINED = new Set(PUISOR.flatMap((k) => (k.joins ? [k.joins] : [])))
+const joinedForms = (id: string, l: 1 | 2 | 3) => PUISOR.filter((k) => k.joins === id).flatMap((k) => k.forms[l])
+const fromKinds = (grade: Grade, kinds: GradeKinds) => kinds.map((k) => {
+  const at = (l: 1 | 2 | 3) => [...k.forms[l], ...joinedForms(k.id, l)]
+  const forms = { 1: at(1), 2: at(2), 3: at(3) }
+  return withForms(
+    { id: k.id, grade, topic: k.topic, label: k.label, make: (rng, level) => forms[level as 1 | 2 | 3][0](rng) },
+    { 1: forms[1].slice(1), 2: forms[2].slice(1), 3: forms[3].slice(1) },
+  )
+})
 GENERATORS.push(...fromKinds(5, K5), ...fromKinds(6, K6), ...fromKinds(7, K7))
 // grade V after the Mate 2000+ Consolidare workbook, part I, photographed by the user (13 November 2026);
 // levels by the stars of its sections (Supermate counted as hard)
 GENERATORS.push(...fromKinds(5, KB1), ...fromKinds(5, KB2), ...fromKinds(5, KB3))
+// the same workbook, pp. 184–206 (fraction tests, recap tests, school contests), photographed on 14 November 2026
+GENERATORS.push(...fromKinds(5, KB4), ...CB4.map((k) => contest(k.id, 5, k.label, k.forms)))
+
+// part II of the same workbook (pp. 9–148), photographed on 14 November 2026, read by three agents in turn. Two
+// chapters fell to two of them (periodic decimals, pp. 45–46 and 55–56; points and lines, pp. 98–106): each becomes
+// one kind, without the forms the second agent wrote again
+const merged = (id: string, label: string, a: GradeKinds[number], b: GradeKinds[number], drop: Form[]) => {
+  const at = (l: 1 | 2 | 3) => [...a.forms[l], ...b.forms[l].filter((f) => !drop.includes(f))]
+  return { id, label, topic: a.topic, forms: { 1: at(1), 2: at(2), 3: at(3) } }
+}
+const byId = (kinds: GradeKinds, id: string) => kinds.find((k) => k.id === id)!
+const periodic = merged('v-decimal-periodic', 'Fracții zecimale periodice', byId(KP2A, 'v-decimal-periodic'), byId(KP2B, 'v-periodic-decimals'), [perFracToPeriodic, perClassify, perNthDecimal])
+const pointsLines = merged('v-points-lines', 'Punct, dreaptă, semidreaptă, segment', byId(KP2C, 'v-lines-through-points'), byId(KP2B, 'v-points-lines'), [geoLinesThroughPairs, geoCollinearLines, geoHowManyPoints])
+const part2 = [...KP2A, ...KP2B, ...KP2C].filter((k) => !['v-decimal-periodic', 'v-periodic-decimals', 'v-lines-through-points', 'v-points-lines'].includes(k.id))
+GENERATORS.push(
+  ...fromKinds(5, [...part2, periodic, pointsLines]),
+  ...[...CP2A, ...CP2B, ...CP2C].map((k) => contest(k.id, 5, k.label, k.forms)),
+)
+// pp. 152–220 of part II (units, perimeters, areas, volumes, recap and final tests), photographed on 14 November
+// 2026, again three agents; the volume chapter (pp. 175–182) fell to two of them and becomes one kind
+const volume = merged('v-volume-units', 'Unități de măsură pentru volum. Volumul cubului și al paralelipipedului', byId(KP2D, 'v-volume-units'), byId(KP2E, 'v-volume-tests'), [])
+GENERATORS.push(
+  ...fromKinds(5, [...[...KP2D, ...KP2E, ...KP2F].filter((k) => !['v-volume-units', 'v-volume-tests'].includes(k.id)), volume]),
+  ...[...CP2D, ...CP2E, ...CP2F].map((k) => contest(k.id, 5, k.label, k.forms)),
+)
+GENERATORS.push(
+  ...fromKinds(5, [...PUISOR.filter((k) => !k.joins), ...DRAWN.filter((k) => JOINED.has(k.id))]),
+  ...[...CPU1, ...CPU2, ...CPU3, ...CPU4, ...CFIG].map((k) => contest(k.id, 5, k.label, k.forms)),
+)
 
 // ---------- high school, for the baccalaureate (from 12 November 2026) ----------
 

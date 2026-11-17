@@ -12,18 +12,18 @@ import { similarForms } from './similar'
 export interface Chapter { id: string; title: string; gens: string[] }
 
 export const CHAPTERS: Chapter[] = [
-  { id: 'numbers', title: 'Numere: operații, puteri, fracții, divizibilitate', gens: ['v-ops', 'v-powers', 'v-fractions', 'v-decimals', 'vi-fractions', 'vi-integers', 'viii-numbers', 'v-division', 'v-divisibility', 'vi-sets', 'vi-gcd-lcm', 'vii-real-numbers', 'v-writing-numbers', 'v-compare-round', 'v-addition', 'v-subtraction', 'v-powers-digits', 'v-bases', 'v-add-sub', 'v-multiplication', 'v-division-exact', 'v-remainder', 'v-ops-brackets', 'v-power-rules', 'v-power-compare', 'v-perfect-squares'] },
+  { id: 'numbers', title: 'Numere: operații, puteri, fracții, divizibilitate', gens: ['v-ops', 'v-powers', 'v-fractions', 'v-decimals', 'vi-fractions', 'vi-integers', 'viii-numbers', 'v-division', 'v-divisibility', 'vi-sets', 'vi-gcd-lcm', 'vii-real-numbers', 'v-writing-numbers', 'v-compare-round', 'v-addition', 'v-subtraction', 'v-powers-digits', 'v-bases', 'v-add-sub', 'v-multiplication', 'v-division-exact', 'v-remainder', 'v-ops-brackets', 'v-power-rules', 'v-power-compare', 'v-perfect-squares', 'v-fraction-mult', 'v-fraction-order', 'v-fraction-props', 'v-decimal-writing', 'v-decimal-order', 'v-decimal-add-sub', 'v-decimal-multiply', 'v-decimal-powers', 'v-decimal-periodic', 'v-decimal-division', 'v-decimal-order-ops', 'v-final-naturals', 'v-final-fractions', 'v-final-tests', 'v-final-recap-numbers', 'v-number-line', 'v-fraction-figures'] },
   { id: 'radicals', title: 'Radicali', gens: ['vii-radicals', 'viii-radicals'] },
   { id: 'percent', title: 'Rapoarte, proporții, procente', gens: ['vi-percent', 'vi-proportion', 'vi-ratios'] },
-  { id: 'data', title: 'Date, medii, probabilități', gens: ['viii-data', 'v-mean-units'] },
+  { id: 'data', title: 'Date, medii, probabilități', gens: ['viii-data', 'v-mean-units', 'v-mean-applied', 'v-statistics'] },
   { id: 'algebra', title: 'Calcul algebric: expresii, descompuneri', gens: ['viii-expressions', 'viii-factoring', 'vii-algebra'] },
   { id: 'equations', title: 'Ecuații, inecuații, sisteme', gens: ['vii-linear', 'viii-inequality', 'viii-system', 'viii-quadratic', 'v-equations', 'vi-equations', 'vii-equations'] },
-  { id: 'problems', title: 'Probleme cu text', gens: ['viii-problems', 'v-problems', 'v-recap-grade4', 'v-unit-method', 'v-comparison-method', 'v-figurative-method', 'v-backwards-method', 'v-false-hypothesis'] },
+  { id: 'problems', title: 'Probleme cu text', gens: ['viii-problems', 'v-problems', 'v-recap-grade4', 'v-unit-method', 'v-comparison-method', 'v-figurative-method', 'v-backwards-method', 'v-false-hypothesis', 'v-recap-tests', 'v-everyday', 'v-decimal-methods', 'v-final-methods'] },
   { id: 'function', title: 'Funcția liniară', gens: ['viii-function'] },
-  { id: 'triangles', title: 'Unghiuri și triunghiuri: Pitagora, Thales, trigonometrie', gens: ['vi-angles', 'vii-pythagoras', 'vii-thales', 'vii-trig', 'v-geometry', 'vi-triangle', 'vii-metric'] },
-  { id: 'quads', title: 'Patrulatere și arii', gens: ['v-rectangle', 'vii-areas', 'vii-quadrilaterals'] },
+  { id: 'triangles', title: 'Unghiuri și triunghiuri: Pitagora, Thales, trigonometrie', gens: ['vi-angles', 'vii-pythagoras', 'vii-thales', 'vii-trig', 'v-geometry', 'vi-triangle', 'vii-metric', 'v-points-lines', 'v-segment-length', 'v-midpoint-symmetric', 'v-angle-measure', 'v-angle-calc', 'v-symmetry-axis', 'v-final-geometry', 'v-count-figures'] },
+  { id: 'quads', title: 'Patrulatere și arii', gens: ['v-rectangle', 'vii-areas', 'vii-quadrilaterals', 'v-length-perimeter', 'v-area-units', 'v-final-recap-figures'] },
   { id: 'circle', title: 'Cercul', gens: ['vi-lines-circle', 'vii-circle'] },
-  { id: 'solids', title: 'Corpuri: arii și volume', gens: ['viii-solids', 'viii-cuboid', 'viii-prisms', 'viii-pyramids', 'viii-round', 'viii-frustums', 'viii-elements'] },
+  { id: 'solids', title: 'Corpuri: arii și volume', gens: ['viii-solids', 'viii-cuboid', 'viii-prisms', 'viii-pyramids', 'viii-round', 'viii-frustums', 'viii-elements', 'v-volume-units', 'v-final-measures'] },
   { id: 'space', title: 'Distanțe și unghiuri în spațiu', gens: ['viii-space', 'viii-dihedral'] },
 ]
 

@@ -14,7 +14,7 @@ import katex from 'katex'
 import { figureSvg } from './figure'
 import { itemHtml, modelPictures, subjectHtml } from './modelExport'
 import { BUILTIN, loadOwn, loadResults, saveOwn, saveResults, type EnResult } from './store'
-import { answerText, itemText, subjectOf, type EnModel } from './types'
+import { answerText, itemText, startsSubject, subjectOf, type EnModel } from './types'
 import RecapView from './RecapView'
 import { addSimilar, appendToSheet } from './sheet'
 
@@ -251,9 +251,9 @@ export default function ModelsPage() {
               <div className="muted small en-source">{model.source}</div>
               {model.items.map((item, i) => (
                 <div key={i}>
-                  {i % 6 === 0 && <div dangerouslySetInnerHTML={{ __html: subjectHtml(subjectOf(i), model.own) }} />}
+                  {startsSubject(i, model.starts) && <div dangerouslySetInnerHTML={{ __html: subjectHtml(subjectOf(i, model.starts), model.own) }} />}
                   <div className="en-row">
-                    <div dangerouslySetInnerHTML={{ __html: itemHtml(item, i, showBarem) }} />
+                    <div dangerouslySetInnerHTML={{ __html: itemHtml(item, i, showBarem, model.starts) }} />
                     <span className="en-tosheet">
                       <button className="btn small" onClick={() => toSheet([i])} title="Pune exercițiul pe fișa de lucru">Pe fișă</button>
                       <button className="btn small" onClick={() => setFlash(addSimilar(itemText(item)))} title="Pune pe fișă un exercițiu nou, generat, de același fel">Încă unul la fel</button>

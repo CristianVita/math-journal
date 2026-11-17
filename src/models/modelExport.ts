@@ -3,13 +3,13 @@
 import { renderMathMarkdown } from '../components/MathText'
 import { A4, pagePictures } from '../worksheets/worksheetExport'
 import { figureSvg } from './figure'
-import { LETTERS, SUBJECTS, choicesText, subjectOf, type EnItem, type EnModel } from './types'
+import { LETTERS, SUBJECTS, choicesText, startsSubject, subjectOf, type EnItem, type EnModel } from './types'
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 const md = (s: string) => renderMathMarkdown(s)
 
-export function itemHtml(item: EnItem, i: number, withAnswer = false): string {
-  const three = subjectOf(i) === 2
+export function itemHtml(item: EnItem, i: number, withAnswer = false, starts?: [number, number]): string {
+  const three = subjectOf(i, starts) === 2
   let body = item.text.trim() ? `<div class="en-text">${md(item.text)}</div>` : ''
   if (item.choices) body += `<div class="en-choices">${md(choicesText(item.choices))}</div>`
   for (const [k, p] of (item.parts ?? []).entries()) {
@@ -72,8 +72,8 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
     `<div class="ws-print-meta"><span>Nume: ${opt.student ? `<b>${esc(opt.student)}</b>` : '<span class="ws-print-blank"></span>'}</span><span>Data: ${esc(opt.date)}</span></div></div>`,
   )
   model.items.forEach((item, i) => {
-    if (i % 6 === 0) place(subjectHtml(subjectOf(i), model.own), true)
-    place(itemHtml(item, i))
+    if (startsSubject(i, model.starts)) place(subjectHtml(subjectOf(i, model.starts), model.own), true)
+    place(itemHtml(item, i, false, model.starts))
   })
   if (!model.own) place('<div class="en-note">Toate subiectele sunt obligatorii. Se acordă 10 puncte din oficiu. Timp de lucru: 2 ore.</div>')
 
@@ -87,12 +87,13 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
 
 /** The answer key: subjects I and II as letters in a row, subject III part by part. */
 export function baremHtml(model: EnModel): string {
-  const grid = (from: number) =>
-    `<div class="en-barem-row">${model.items.slice(from, from + 6).map((it, k) =>
+  const [s2, s3] = model.starts ?? [6, 12]
+  const grid = (from: number, to: number) =>
+    `<div class="en-barem-row">${model.items.slice(from, to).map((it, k) =>
       `<span><b>${from + k + 1}.</b> ${it.ans != null ? LETTERS[it.ans] : '—'}</span>`).join('')}</div>`
-  const three = model.items.slice(12).map((it, k) =>
-    `<div class="en-barem-item"><b>${13 + k}.</b> ${md((it.parts ?? []).map((p, j) => `${LETTERS[j]}) ${p.ans ?? '—'}`).join('; '))}</div>`).join('')
-  return `<div class="en-barem"><div class="en-subject"><b>Subiectul I</b></div>${grid(0)}<div class="en-subject"><b>Subiectul II</b></div>${grid(6)}<div class="en-subject"><b>Subiectul III</b></div>${three}</div>`
+  const three = model.items.slice(s3).map((it, k) =>
+    `<div class="en-barem-item"><b>${s3 + 1 + k}.</b> ${md((it.parts ?? []).map((p, j) => `${LETTERS[j]}) ${p.ans ?? '—'}`).join('; '))}</div>`).join('')
+  return `<div class="en-barem"><div class="en-subject"><b>Subiectul I</b></div>${grid(0, s2)}<div class="en-subject"><b>Subiectul II</b></div>${grid(s2, s3)}<div class="en-subject"><b>Subiectul III</b></div>${three}</div>`
 }
 
 export const modelPictures = (model: EnModel, opt: PrintOptions) => pagePictures((host) => layoutModel(host, model, opt))

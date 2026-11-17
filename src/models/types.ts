@@ -31,6 +31,9 @@ export interface EnModel {
   items: EnItem[]
   /** written in the app by the user: the statements only, as pasted */
   own?: boolean
+  /** where subjects II and III begin, when not at 6 and 12 (Perianu, Testul 6: the book prints only 5 exercises in
+   * subject I) */
+  starts?: [number, number]
 }
 
 export const SUBJECTS = [
@@ -39,8 +42,14 @@ export const SUBJECTS = [
   { title: 'Subiectul III', hint: 'Scrieți rezolvările complete.', from: 12 },
 ] as const
 
+type Starts = readonly [number, number]
+const STARTS: Starts = [6, 12]
+
 /** 0, 1 or 2: the subject of the exercise at this place. */
-export const subjectOf = (i: number) => (i < 6 ? 0 : i < 12 ? 1 : 2)
+export const subjectOf = (i: number, starts: Starts = STARTS) => (i < starts[0] ? 0 : i < starts[1] ? 1 : 2)
+
+/** Whether a subject begins at this exercise. */
+export const startsSubject = (i: number, starts: Starts = STARTS) => i === 0 || i === starts[0] || i === starts[1]
 
 export const LETTERS = ['a', 'b', 'c', 'd']
 

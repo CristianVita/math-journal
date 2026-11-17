@@ -88,9 +88,10 @@ export function similarForms(text: string, n = 3): Match[] {
   const q = norm(new Map([...tf].filter(([w]) => index!.idf.has(w)).map(([w, k]) => [w, (1 + Math.log(k)) * index!.idf.get(w)!])))
   const own = shapes(text)
   const scored = index.entries.filter((e) => fits(own, e.shapes)).map((e) => {
-    let s = 0
-    for (const [w, x] of q) s += x * (e.vec.get(w) ?? 0)
-    return { gen: e.gen, level: e.level, form: e.form, label: e.label, score: s }
+    let s = 0, shared = 0
+    for (const [w, x] of q) if (e.vec.has(w)) { s += x * e.vec.get(w)!; shared++ }
+    // one word in common is chance: with so many kinds, "scurt" or "trei" alone finds one (14 November 2026)
+    return { gen: e.gen, level: e.level, form: e.form, label: e.label, score: shared >= 2 ? s : 0 }
   })
   return scored.filter((m) => m.score >= 0.2).sort((a, b) => b.score - a.score).slice(0, n)
 }
