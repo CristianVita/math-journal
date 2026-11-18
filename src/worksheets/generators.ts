@@ -21,6 +21,7 @@ import * as G8b from './geometry8b'
 import * as G8c from './geometry8c'
 import * as G8d from './geometry8d'
 import * as B1 from './bac1'
+import * as B2 from './bac2'
 import { KINDS as K5 } from './grade5'
 import { KINDS as K6 } from './grade6'
 import { KINDS as K7 } from './grade7'
@@ -1117,6 +1118,13 @@ GENERATORS.push(
   bac('x-equations', 10, ['M1'], 'Algebră', 'Ecuații exponențiale, logaritmice, iraționale', B1.equations),
   bac('x-combinatorics', 10, ['M1'], 'Algebră', 'Combinatorică și probabilități', B1.combinatorics),
   bac('x-analytic', 10, ['M1'], 'Geometrie', 'Vectori și geometrie analitică', B1.analytic),
+)
+
+// subject II of the M1 exam: matrices and systems (grade XI), laws of composition and polynomials (grade XII)
+GENERATORS.push(
+  bac('xi-matrices', 11, ['M1'], 'Algebră', 'Matrice, determinanți, sisteme de ecuații liniare', B2.matrices),
+  bac('xii-laws', 12, ['M1'], 'Algebră', 'Legi de compoziție', B2.laws),
+  bac('xii-polynomials', 12, ['M1'], 'Algebră', 'Polinoame', B2.polynomials),
 )
 
 export const LEVELS: Record<Level, string> = { 1: 'ușor', 2: 'mediu', 3: 'greu', 4: 'concurs' }

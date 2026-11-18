@@ -100,6 +100,8 @@ describe('each generator, at each level, in each of its forms', () => {
     for (const g of GENERATORS) expect(!!g.profiles?.length, g.id).toBe(g.grade >= 9)
     const m1 = GENERATORS.filter((g) => g.profiles?.includes('M1')).map((g) => g.id)
     for (const id of ['ix-progressions', 'ix-quadratic', 'ix-trig', 'x-numbers', 'x-equations', 'x-combinatorics', 'x-analytic']) expect(m1).toContain(id)
+    // subject II (19 November 2026)
+    for (const id of ['xi-matrices', 'xii-laws', 'xii-polynomials']) expect(m1).toContain(id)
   })
 })
 
