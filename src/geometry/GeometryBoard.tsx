@@ -61,27 +61,31 @@ import { type Triangle, solveTriangle, triangleExtras, triangleVertices } from '
 import { defaultInstruments, InstrumentsLayer, PX_PER_CM, type Instruments } from '../notebook/instruments'
 import { InstrumentsBar, useInstruments } from '../notebook/useInstruments'
 import { readLocal, writeLocal } from '../db'
+import { boxOf, inside, rectOf, straightEnds, takesLine, unionOf, type Rect } from '../notebook/selection'
 
 const TOOLS_KEY = 'math-journal:board-instruments'
 
 // the size of the writing on the board, for placing it (the fonts of .measure and .pt-label in styles.css)
 const measureCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null
 const widths = new Map<string, number>()
-function textWidth(text: string, kind: 'measure' | 'point'): number {
-  const key = kind + text
+function textWidth(text: string, kind: 'measure' | 'point', px = 18): number {
+  const key = kind + px + text
   let w = widths.get(key)
   if (w == null) {
     if (measureCtx) {
-      measureCtx.font = kind === 'point' ? "italic 600 14px 'Times New Roman', Georgia, serif" : "600 12px 'Segoe UI', system-ui, sans-serif"
+      measureCtx.font = kind === 'point' ? `italic 600 ${px}px 'Times New Roman', Georgia, serif` : "600 12px 'Segoe UI', system-ui, sans-serif"
       w = measureCtx.measureText(text).width
-    } else w = text.length * (kind === 'point' ? 8 : 7)
+    } else w = text.length * (kind === 'point' ? px * 0.55 : 7)
     widths.set(key, w)
   }
   return w
 }
 /** the height of the letters, without the room above and below them */
 const MEASURE_H = 10
-const POINT_H = 12
+// the size of the letters of the points, chosen by the user in the toolbar (23 November 2026); shared by the board and the
+// constructions of the notebook
+export const LETTERS_KEY = 'math-journal:letter-size'
+export const LETTER_SIZES: [number, string][] = [[14, 'mici'], [18, 'normale'], [22, 'mari'], [28, 'foarte mari'], [34, 'uriașe']]
 
 function loadInstruments(): Instruments {
   try {
@@ -148,7 +152,7 @@ type Tool =
   | 'intersection' | 'text' | 'pen' | 'delete' | 'solid'
 
 const TOOLS: { id: Tool; label: string; hint: string[] }[] = [
-  { id: 'move', label: 'Cursor', hint: ['Selectează și trage puncte sau figuri; trage fundalul pentru a muta tabla; rotița = zoom'] },
+  { id: 'move', label: 'Cursor', hint: ['Selectează și trage puncte sau figuri; pe un loc gol, trage un dreptunghi ca să prinzi scrisul cu pixul și apoi mută-l (Delete îl șterge); tabla o muți cu Mută tabla; rotița = zoom'] },
   { id: 'pan', label: 'Mută tabla', hint: ['Trage oriunde pentru a te deplasa în sistemul xOy; rotița = zoom'] },
   { id: 'point', label: 'Punct', hint: ['Click pentru a plasa un punct'] },
   { id: 'segment', label: 'Segment', hint: ['Primul capăt', 'Al doilea capăt'] },
@@ -271,6 +275,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     | { mode: 'xform'; kind: 'scale' | 'rotate'; pivot: Vec; start: Vec; base: XformBase; moved: boolean }
     | { mode: 'orbit'; holder: string; start: Vec; yaw: number; pitch: number; moved: boolean }
     | { mode: 'inst' }
+    | { mode: 'lasso'; start: Vec }
     | null
   >(null)
   const [xformLabel, setXformLabel] = useState<string | null>(null)
@@ -493,9 +498,10 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const asSegment = (p: PathObj): GObj[] => {
     const pts = p.points
     if (pts.length < 2) return [p]
+    // straight to within 0.04 units (about 1.5 px): the points of a slanted line are rounded, so an exact test missed
+    // the second ray of an angle drawn with the protractor (23 November 2026)
+    if (!straightEnds(pts, 0.05, 0.04)) return [p]
     const [[ax, ay], [bx, by]] = [pts[0], pts[pts.length - 1]]
-    const length = Math.hypot(bx - ax, by - ay)
-    if (length < 1e-6 || !pts.every(([x, y]) => Math.abs((x - ax) * (by - ay) - (y - ay) * (bx - ax)) / length < 1e-6 * Math.max(1, length))) return [p]
     const end = (x: number, y: number): PointObj => ({ id: uid(), type: 'point', x, y, label: '', color: p.color, dep: { kind: 'free' }, hidden: true })
     const [a, b] = [end(ax, ay), end(bx, by)]
     return [a, b, { id: p.id, type: 'segment', dep: { kind: 'twoPoints', a: a.id, b: b.id }, color: p.color, width: p.width >= 2 ? 2 : p.width, showLength: false }]
@@ -1667,12 +1673,14 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       drag.current = { mode: 'xform', kind: handle, pivot, start: toWorld(s), base: xformBase(figure.movable, figure.ids), moved: false }
       return
     }
+    const ws = toWorld(s)
+    if (boxSel.length && boxSelRect && inside(boxSelRect, ws.x, ws.y)) return startMove(boxSel, s)
     const hit = hitTest(s)
     setSelected(hit?.id ?? null)
+    setBoxSel([])
     if (!hit) {
-      if (sheet) return
-      drag.current = { mode: 'pan', start: s, view: { ...view } }
-      setPanning(true)
+      drag.current = { mode: 'lasso', start: ws }
+      setMarquee(rectOf([ws.x, ws.y], [ws.x, ws.y]))
       return
     }
     // a vertex moves alone (reshaping the figure); grabbing any other part moves the whole figure
@@ -1702,6 +1710,29 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }
 
   const pathOrig = useRef<Map<string, [number, number][]>>(new Map())
+  const [letterPx, setLetterPx] = useState(() => Number(readLocal(LETTERS_KEY)) || 18)
+  const chooseLetters = (px: number) => {
+    setLetterPx(px)
+    writeLocal(LETTERS_KEY, String(px))
+  }
+  // the Cursor on an empty place draws a rectangle that takes the free drawing and the texts in it (22 November
+  // 2026, asked for after a lesson); the board itself moves with Mută tabla
+  const [boxSel, setBoxSel] = useState<string[]>([])
+  const [marquee, setMarquee] = useState<Rect | null>(null)
+  useEffect(() => setBoxSel([]), [tool])
+  const boxSelRect = useMemo(() => {
+    const taken = scene.objects.filter((o) => boxSel.includes(o.id))
+    return unionOf(taken.map((o) => (o.type === 'path' ? boxOf(o.points) : o.type === 'text' ? { x0: o.x, y0: o.y, x1: o.x, y1: o.y } : null)), 12 / view.scale)
+  }, [scene.objects, boxSel, view.scale])
+  const startMove = (ids: string[], s: Vec) => {
+    const orig = new Map<string, Vec>()
+    for (const o of sceneRef.current.objects) {
+      if (!ids.includes(o.id)) continue
+      if (o.type === 'point' || o.type === 'text') orig.set(o.id, { x: o.x, y: o.y })
+      if (o.type === 'path') orig.set(o.id, { x: 0, y: 0 })
+    }
+    drag.current = { mode: 'move', ids, start: toWorld(s), orig, moved: false }
+  }
 
   const onPointerMove = (e: React.PointerEvent) => {
     const s = screenPos(e)
@@ -1772,6 +1803,8 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       })
     } else if (d.mode === 'solid') {
       setSolidDrag((sd) => sd && { ...sd, to: snap(w) })
+    } else if (d.mode === 'lasso') {
+      setMarquee(rectOf([d.start.x, d.start.y], [w.x, w.y]))
     } else if (d.mode === 'move') {
       if (!d.moved) {
         remember()
@@ -1833,6 +1866,13 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   }
 
   const onPointerUp = (e: React.PointerEvent) => {
+    if (drag.current?.mode === 'lasso') {
+      const w = toWorld(screenPos(e))
+      const r = rectOf([drag.current.start.x, drag.current.start.y], [w.x, w.y])
+      setMarquee(null)
+      setBoxSel(sceneRef.current.objects.filter((o) =>
+        (o.type === 'path' && !o.group && !o.frame && takesLine(r, o.points)) || (o.type === 'text' && inside(r, o.x, o.y))).map((o) => o.id))
+    }
     if (drag.current?.mode === 'inst') {
       const marks = inst.up(e.pointerId)
       // the line just drawn along an instrument: a segment, if it is straight
@@ -1913,6 +1953,10 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       if (e.key === 'Escape') {
         setPending([])
         setTool('move')
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && boxSel.length) {
+        commit(sceneRef.current.objects.filter((o) => !boxSel.includes(o.id)))
+        setBoxSel([])
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
         removeObj(selected)
@@ -2567,12 +2611,12 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     // widest opening between the angles and lines at the point, under it in the lower half of a figure, on the left on
     // its left edge, and anywhere else nearby when that place is taken
     const text = o.showCoords ? `${o.label}(${numText(p.x)}, ${numText(p.y)})` : o.label
-    const at = labels.letters.get(o.id) ?? { x: s.x + 7 + textWidth(text, 'point') / 2, y: s.y - 13 }
+    const at = labels.letters.get(o.id) ?? { x: s.x + 8 + textWidth(text, 'point', letterPx) / 2, y: s.y - letterPx * 0.83 }
     return (
       <g key={o.id} {...(quiet ? { 'data-ui': true, opacity: 0.45 } : {})}>
         {isSel(o.id) && <circle cx={s.x} cy={s.y} r={9} className="halo-pt" />}
         <circle cx={s.x} cy={s.y} r={free ? 4.5 : 3.5} fill={free ? o.color : '#fff'} stroke={o.color} strokeWidth={free ? 1 : 2} />
-        <text x={at.x} y={at.y + 5} textAnchor="middle" className="pt-label" fill={o.color}>{text}</text>
+        <text x={at.x} y={at.y + letterPx / 3} textAnchor="middle" className="pt-label" fill={o.color} style={{ fontSize: letterPx }}>{text}</text>
       </g>
     )
   }
@@ -2699,7 +2743,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       const s = toScreen(p)
       const text = o.showCoords ? `${o.label}(${numText(p.x)}, ${numText(p.y)})` : o.label
       if (!text) continue
-      const w = textWidth(text, 'point')
+      const w = textWidth(text, 'point', letterPx)
       // the rays from the point: the sides of its angles, and every line drawn through it or from it
       const rays: Vec[] = scene.objects.flatMap((x) => (x.type === 'angle' && x.v === o.id ? [P(x.a), P(x.b)] : []))
         .filter((r): r is Vec => !!r).map(toScreen)
@@ -2718,7 +2762,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
       else if (o.group && o.corner != null && inLowerHalf(o, p)) first = { x: 0, y: 1 }
       else if (o.group && o.corner != null && !o.rim && !o.ball && onLeftEdge(o, p)) first = { x: -1, y: 0 }
       else if (rays.length) first = labelDirection(s, rays)
-      const at = space.place(aroundPoint(s, first ?? { x: 1, y: -1 }, w, POINT_H), w, POINT_H, [o.id])
+      const at = space.place(aroundPoint(s, first ?? { x: 1, y: -1 }, w, letterPx * 0.83), w, letterPx * 0.83, [o.id])
       labels.letters.set(o.id, at)
     }
   }
@@ -2752,6 +2796,9 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
         </>}
         <label className="chk"><input type="checkbox" checked={view.axes} onChange={(e) => setView({ axes: e.target.checked })} /> Axe</label>
         <label className="chk"><input type="checkbox" checked={view.snap} onChange={(e) => setView({ snap: e.target.checked })} /> Aliniere</label>
+        <select value={letterPx} onChange={(e) => chooseLetters(Number(e.target.value))} title="Mărimea literelor punctelor">
+          {LETTER_SIZES.map(([px, name]) => <option key={px} value={px}>litere {name}</option>)}
+        </select>
         <select value={view.angleUnit} onChange={(e) => setView({ angleUnit: e.target.value as 'deg' | 'rad' })} title="Unitatea unghiurilor">
           <option value="deg">grade</option>
           <option value="rad">radiani</option>
@@ -2805,7 +2852,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
                 : spaceHeld || tool === 'pan' ? 'grab'
                 : inst.hover === 'body' ? 'move'
                 : inst.hover === 'knob' || inst.hover === 'radius' || inst.hover === 'pencil' ? 'grab'
-                : tool === 'move' ? (hoverHandle === 'scale' ? 'nwse-resize' : hoverHandle === 'rotate' ? 'alias' : hoverHandle === 'orbit' ? 'grab' : hover ? 'move' : sheet ? 'default' : 'grab')
+                : tool === 'move' ? (hoverHandle === 'scale' ? 'nwse-resize' : hoverHandle === 'rotate' ? 'alias' : hoverHandle === 'orbit' ? 'grab' : hover ? 'move' : boxSelRect && mouse && inside(boxSelRect, mouse.x, mouse.y) ? 'move' : 'crosshair')
                 : 'crosshair',
               touchAction: 'none',
             }}
@@ -2820,6 +2867,13 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             {scene.objects.filter((o) => o.type === 'polygon').map(renderObj)}
             {scene.objects.filter((o) => o.type !== 'polygon' && o.type !== 'point').map(renderObj)}
             {preview()}
+            {[marquee && ['nb-marquee', marquee], tool === 'move' && boxSel.length && boxSelRect && ['nb-selection', boxSelRect]].map((m) => {
+              if (!m) return null
+              const [cls, r] = m as [string, Rect]
+              const a = toScreen({ x: r.x0, y: r.y1 })
+              const b = toScreen({ x: r.x1, y: r.y0 })
+              return <rect key={cls} className={cls} x={a.x} y={a.y} width={b.x - a.x} height={b.y - a.y} />
+            })}
             {solidDrag && solidLines(solid, solidDrag.from.x, solidDrag.from.y, solidDrag.to.x, solidDrag.to.y, true).map((l, i) => (
               <polyline
                 key={i}

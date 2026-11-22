@@ -409,7 +409,11 @@ function flatFigure(text: string, f: Flat): Fig {
   const ra = [...(f.ra ?? [])]
   for (const [a, d, b] of feet(text)) if (f.p[a] && f.p[d] && f.p[b]) ra.push(`${a}${d}${b}`)
   const s = [f.s, segs, ...feet(text).filter(([a, d]) => f.p[a] && f.p[d]).map(([a, d]) => `${a}-${d}`)].filter(Boolean).join(' ')
-  return plane(f.p, fitWidth(f.p), { s, ra, dot: extra.filter((n) => n === 'O').join(' ') || undefined })
+  // a triangle or a square in its circle: the circle through A, B, C (23 November 2026)
+  const c = /înscris într-un cerc|pe un cerc|pe cercul|cercul circumscris|cercului circumscris/.test(text) && f.p.A && f.p.B && f.p.C
+    ? (() => { const o = circumcentre(f.p.A, f.p.B, f.p.C); return [{ at: o, r: Math.hypot(f.p.A[0] - o[0], f.p.A[1] - o[1]) }] })()
+    : undefined
+  return plane(f.p, fitWidth(f.p), { s, ra, c, dot: extra.filter((n) => n === 'O').join(' ') || undefined })
 }
 
 /** A width that keeps a plane figure at most about 130 px high and 170 px wide. */
@@ -440,6 +444,46 @@ function raisedFigure(text: string, f: Flat): Fig | undefined {
   return plane(flat, 170, { s: `${f.s} ${segs}`, dot: base.O ? 'O' : undefined, l: { [top]: 'n' } })
 }
 
+/**
+ * A circle with its centre and the points on it (23 November 2026: the circle exercises came without a figure). The
+ * points go around evenly, a diameter across, or by the arcs when they are "direct proporționale cu numerele …";
+ * the chords and the angles named in the statement are drawn.
+ */
+function circleFigure(text: string): Fig | undefined {
+  const centre = text.match(/centru(?:l)? \$([A-Z])\$/)?.[1] ?? (mentions(text).has('O') ? 'O' : undefined)
+  const on = [...mentions(text)].filter((n) => n.length === 1 && n !== centre && !/[RS]/.test(n)).slice(0, 6)
+  if (!on.length && !centre) return undefined
+  const deg = (d: number): Pt => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)]
+  const p: Pts = {}
+  if (centre) p[centre] = [0, 0]
+  const ratio = text.match(/proporționale cu numerele (\d+), (\d+) și (\d+)/)
+  const diam = text.match(/diametr\S* \$\[?([A-Z])([A-Z])\]?\$/)
+  // a point outside, with the tangents from it: the points of contact where the tangents touch
+  const out = text.match(/punctul \$([A-Z])\$,? exterior/)?.[1]
+  if (out && on.includes(out)) {
+    const d = 2.4
+    const a = (Math.acos(1 / d) * 180) / Math.PI
+    p[out] = [-d, 0]
+    on.filter((n) => n !== out).slice(0, 2).forEach((n, i) => { p[n] = deg(i ? 180 + a : 180 - a) })
+  } else if (ratio && on.length >= 3) {
+    const k = [1, 2, 3].map((i) => Number(ratio[i]))
+    const sum = k[0] + k[1] + k[2]
+    let a = 210
+    on.slice(0, 3).forEach((n, i) => { p[n] = deg(a); a -= (360 * k[i]) / sum })
+  } else {
+    const rest = diam ? on.filter((n) => n !== diam[1] && n !== diam[2]) : on
+    if (diam) { p[diam[1]] = deg(180); p[diam[2]] = deg(0) }
+    rest.forEach((n, i) => { p[n] = diam ? deg(40 + (100 * i) / Math.max(1, rest.length - 1)) : deg(210 - (360 * i) / rest.length) })
+  }
+  const known = new Set(Object.keys(p))
+  const t = math(text).replace(/\\[a-zA-Z]+/g, ' ')
+  const angles = [...t.matchAll(/(?<![A-Za-z'])([A-Z])([A-Z])([A-Z])(?![A-Za-z'])/g)]
+    .filter((m) => known.has(m[1]) && known.has(m[2]) && known.has(m[3])).map((m) => `${m[1]}-${m[2]}-${m[3]}`)
+  const chords = dedupe(named(text, known), angles)
+  const s = [...angles, chords].filter(Boolean).join(' ')
+  return plane(p, 150, { c: [{ at: [0, 0], r: 1 }], s, dot: centre })
+}
+
 /** The figure of a statement, or nothing when it is not understood (or needs none). */
 export function figureFor(text: string): Fig | undefined {
   try {
@@ -452,7 +496,8 @@ export function figureFor(text: string): Fig | undefined {
 /** The same, failing loudly: for the tests. */
 export function drawFigure(text: string): Fig | undefined {
   {
-    if (/planul \$\\alpha\$|îndoaie|în total \d+ muchii|reperul cartezian|vectori|Două drepte|Un unghi are|direct proporționale cu numerele 1, 2, 3/.test(text)) return undefined
+    if (/planul \$\\alpha\$|îndoaie|în total \d+ muchii|reperul cartezian|vectori|Două drepte|Un unghi are/.test(text)) return undefined
+    if (/direct proporționale cu numerele 1, 2, 3/.test(text) && !/\bcerc/.test(text)) return undefined
     if (/trunchi(?:ul)? de con/.test(text)) return coneFrustum(text)
     if (/\bsfer/.test(text) && !/trunchi/.test(text)) return /cilindru/.test(text) ? cylinder(text, true) : sphere()
     const hasCone = /\bcon(?:ul|ului)?\b/.test(text), hasCyl = /cilindr/.test(text)
@@ -462,7 +507,7 @@ export function drawFigure(text: string): Fig | undefined {
     const body = bodyFor(text)
     if (body) return solidFigure(text, body)
     const f = flatFor(text)
-    if (!f) return undefined
+    if (!f) return /\bcerc/.test(text) ? circleFigure(text) : undefined
     if (/se ridică|exterior planului/.test(text)) return raisedFigure(text, f)
     return flatFigure(text, f)
   }

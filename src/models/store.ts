@@ -33,7 +33,15 @@ import { M45 } from './data/m45'
 import { M46 } from './data/m46'
 import { M47 } from './data/m47'
 
-export const BUILTIN: EnModel[] = [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17, M18, M19, M20, M21, M22, M23, M40, M41, M42, M43, M44, M45, M46, M47]
+const BOOKS: EnModel[] = [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17, M18, M19, M20, M21, M22, M23, M40, M41, M42, M43, M44, M45, M46, M47]
+
+/**
+ * One name for all of them (asked for by the user on 23 November 2026): Model E.N. 1 … 31, in this order; where each
+ * comes from (the book and its own name) is shown under it. The results of the students follow the id, not the name.
+ */
+const originOf = (m: EnModel, i: number) =>
+  i < 9 ? 'culegerea de modele, ' + m.title.replace('Model E.N. ', 'modelul ') : i < 16 ? 'manualul, ' + m.title.replace('Testul', 'testul') : m.title.replace('Testul', 'testul')
+export const BUILTIN: EnModel[] = BOOKS.map((m, i) => ({ ...m, title: `Model E.N. ${i + 1}`, origin: originOf(m, i) }))
 
 /** Kept in the database, in LOCAL_KEYS, so they go into the backup. */
 export const OWN_KEY = 'math-journal:en-models'

@@ -386,7 +386,10 @@ function Knob({ at }: { at: Pt }) {
 function Ruler({ dockEnd }: { dockEnd?: 1 | -1 }) {
   const l = RULER_L / 2, h = RULER_H / 2
   const ticks = []
-  for (let mm = 0; mm <= RULER_L / 4; mm++) {
+  // the count is worked out before the loop: minified, RULER_L may be called `of`, and `for (…; mm <= of / 4; …)`
+  // was read as a for-of by the bundler (the build failed on 22 November 2026)
+  const last = RULER_L / 4
+  for (let mm = 0; mm <= last; mm++) {
     const x = -l + mm * 4
     const len = mm % 10 === 0 ? 16 : mm % 5 === 0 ? 11 : 6
     ticks.push(<line key={mm} x1={x} y1={-h} x2={x} y2={-h + len} {...TICK} />)

@@ -20,6 +20,10 @@ export interface EnItem {
   ans?: number
   /** subject III: a) and b) */
   parts?: EnPart[]
+  /** a generated exercise: its worked solution, the key */
+  sol?: string
+  /** a generated exercise: its kind and level, so that "Încă unul la fel" puts another of the same kind in its place */
+  gen?: { id: string; level: 1 | 2 | 3 | 4 }
   fig?: Fig
 }
 
@@ -34,6 +38,10 @@ export interface EnModel {
   /** where subjects II and III begin, when not at 6 and 12 (Perianu, Testul 6: the book prints only 5 exercises in
    * subject I) */
   starts?: [number, number]
+  /** made by the app from its own kinds (`generated.ts`): written out, the key is the solutions */
+  generated?: boolean
+  /** where a model of a book comes from, shown under its name: "Perianu, testul 3" */
+  origin?: string
 }
 
 export const SUBJECTS = [
@@ -67,6 +75,7 @@ export function itemText(item: EnItem): string {
 /** The answer from the key, as one text, or '' when the book gives none. */
 export function answerText(item: EnItem): string {
   if (item.choices && item.ans != null) return `Răspuns: ${LETTERS[item.ans]}) ${item.choices[item.ans]}`
+  if (item.sol) return item.sol
   if (item.parts?.some((p) => p.ans)) return item.parts.map((p, i) => `${LETTERS[i]}) ${p.ans ?? '—'}`).join('\n\n')
   return ''
 }

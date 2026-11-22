@@ -11,13 +11,14 @@ import { emptyScene, type GObj, type Scene } from '../geometry/types'
 import { usePrompt } from '../components/PromptDialog'
 import { readLocal, writeLocal } from '../db'
 import { eraseLine } from './erase'
+import { boxOf, inside, rectOf, shifted, straightEnds, takesBox, takesLine, unionOf, type Rect } from './selection'
 import { defaultInstruments, InstrumentsLayer, PX_PER_CM, type Bounds, type Instruments } from './instruments'
 import { SolidIcon, ToolIcon } from '../components/ToolIcon'
 import { InstrumentsBar, linePoints, round, useInstruments } from './useInstruments'
 import { SHAPES, shapePoints, shapeStrokes, type ShapeId } from './shapes'
 import { SOLIDS, solidObjects, solidStrokes, type SolidId } from './solids'
 
-type Tool = 'pen' | 'marker' | 'text' | 'shape' | 'geometry' | 'eraser'
+type Tool = 'pen' | 'marker' | 'text' | 'shape' | 'geometry' | 'eraser' | 'select'
 type Paper = 'grid' | 'lines' | 'blank'
 
 interface Stroke {
@@ -54,7 +55,7 @@ interface Notebook {
 }
 
 /** What the pointer is doing between pointerdown and pointerup; 'inst' = an instrument has it. */
-interface Active { pointerId: number; start: number[]; before: Item[]; sceneBefore?: Scene; mode: 'draw' | 'erase' | 'inst' | 'note' | 'shape'; note?: Note }
+interface Active { pointerId: number; start: number[]; before: Item[]; sceneBefore?: Scene; mode: 'draw' | 'erase' | 'inst' | 'note' | 'shape' | 'lasso' | 'drag'; note?: Note }
 
 /** The text being typed; id is null for a new one. */
 interface NoteEdit { page: number; id: string | null; color: string; size: number; x: number; y: number; text: string }
@@ -77,7 +78,7 @@ const COLORS: Record<'pen' | 'marker' | 'text' | 'shape', { name: string; value:
     { name: 'albastru', value: '#60a5fa' },
   ],
 }
-const SIZES: Record<Tool, number[]> = { pen: [2, 3.5, 6], marker: [12, 18, 26], text: [16, 22, 32], shape: [2, 3.5, 6], geometry: [2, 3.5, 6], eraser: [8, 16, 30] }
+const SIZES: Record<Tool, number[]> = { pen: [2, 3.5, 6], marker: [12, 18, 26], text: [16, 22, 32], shape: [2, 3.5, 6], geometry: [2, 3.5, 6], eraser: [8, 16, 30], select: [2, 2, 2] }
 const SIZE_LABELS = ['Fin', 'Mediu', 'Gros']
 const TEXT_SIZE_LABELS = ['Mic', 'Mediu', 'Mare']
 // a font every system has: an exported page is drawn as an image, which cannot use the page's own fonts
@@ -297,7 +298,7 @@ export default function NotebookPage() {
   const [nb, setNb] = useState<Notebook>(load)
   const [tool, setTool] = useState<Tool>('pen')
   const [colors, setColors] = useState({ pen: COLORS.pen[0].value, marker: COLORS.marker[0].value, text: COLORS.text[0].value, shape: COLORS.shape[0].value })
-  const [sizeIdx, setSizeIdx] = useState<Record<Tool, number>>({ pen: 1, marker: 1, text: 1, shape: 1, geometry: 1, eraser: 1 })
+  const [sizeIdx, setSizeIdx] = useState<Record<Tool, number>>({ pen: 1, marker: 1, text: 1, shape: 1, geometry: 1, eraser: 1, select: 1 })
   const [drawing, setDrawing] = useState<Stroke | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   // undo / redo: snapshots of one page's strokes (strokes are never mutated, so this is cheap)
@@ -454,12 +455,59 @@ export default function NotebookPage() {
   const size = SIZES[tool][sizeIdx[tool]]
   const drawsOn = tool === 'pen' || tool === 'marker'
   // with a figure or the text tool the compass still draws; the eraser only moves the instruments
-  const instDraw = drawsOn || (tool === 'eraser' ? false : 'compass')
+  const instDraw = drawsOn || (tool === 'eraser' || tool === 'select' ? false : 'compass')
+  // the Select tool (22 November 2026): a rectangle takes the writing in it, which is then dragged anywhere
+  const [selected, setSelected] = useState<string[]>([])
+  const [marquee, setMarquee] = useState<Rect | null>(null)
+  useEffect(() => setSelected([]), [tool, nb.current])
+  const itemBox = (s: Item): Rect | null => {
+    if (s.tool === 'text') {
+      const b = noteBox(s.text, s.size)
+      return { x0: s.x, y0: s.y, x1: s.x + b.w, y1: s.y + b.h }
+    }
+    return unionOf([boxOf(s.points)], s.size / 2)
+  }
+  // the free drawing of the Constructions row is writing too (the user writes whole pages with it): the Cursor takes
+  // it as well, converted to the sheet's pixels
+  const toPx = ([wx, wy]: [number, number]) => [SHEET_ORIGIN.x + wx * PX_PER_CM, SHEET_ORIGIN.y - wy * PX_PER_CM]
+  const freeInk = (o: GObj): o is Extract<GObj, { type: 'path' }> => o.type === 'path' && !o.group && !o.frame
+  const selBox = useMemo(() => unionOf([
+    ...strokes.filter((s) => selected.includes(s.id)).map(itemBox),
+    ...scene.objects.filter((o) => freeInk(o) && selected.includes(o.id)).map((o) => freeInk(o) ? unionOf([boxOf(o.points.map(toPx))], o.width) : null),
+  ], 6), [strokes, scene.objects, selected])
+  const moveScene = (before: Scene, dx: number, dy: number): Scene => ({
+    ...before,
+    objects: before.objects.map((o) => (freeInk(o) && selected.includes(o.id)
+      ? { ...o, points: o.points.map(([x, y]) => [x + dx / PX_PER_CM, y - dy / PX_PER_CM] as [number, number]) } : o)),
+  })
+  const moveItem = (s: Item, dx: number, dy: number): Item =>
+    s.tool === 'text' ? { ...s, x: round(s.x + dx), y: round(s.y + dy) } : { ...s, points: shifted(s.points, dx, dy).map((p) => p.map((v) => round(v, 2))) }
   const newStroke = (points: number[][], pressure: boolean): Stroke =>
     ({ id: uid(), tool: tool as Stroke['tool'], color: colors[tool as Stroke['tool']], size, points, pressure })
 
   const instStroke = ({ points, thin }: { points: number[][]; thin?: boolean }): Stroke =>
     ({ id: uid(), tool: 'pen', color: colors.pen, size: thin ? 1.5 : SIZES.pen[sizeIdx.pen], points, pressure: true })
+
+  /**
+   * A straight line drawn with the ruler, the set square or the protractor stays ink, but its two ends go on the
+   * constructions layer as hidden joined points, as the corners of a figure do: the Constructions tools (the angle
+   * between two lines, the perpendicular…) then find it as a side (23 November 2026, asked for by the user).
+   */
+  const addLineSides = (lines: number[][][]) => {
+    const toWorld = (p: number[]): [number, number] => [(p[0] - SHEET_ORIGIN.x) / PX_PER_CM, (SHEET_ORIGIN.y - p[1]) / PX_PER_CM]
+    const points: GObj[] = []
+    for (const pts of lines) {
+      const ends = straightEnds(pts)
+      if (!ends) continue
+      const [a, b] = ends
+      const group = uid()
+      ;[a, b].forEach((p, i) => {
+        const [x, y] = toWorld(p)
+        points.push({ id: uid(), type: 'point', x, y, label: '', color: colors.pen, dep: { kind: 'free' }, hidden: true, locked: true, group, corner: i, joins: [1 - i] })
+      })
+    }
+    if (points.length) setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? { ...s, objects: [...s.objects, ...points] } : s)) }))
+  }
 
   const inst = useInstruments({
     tools: nb.tools,
@@ -470,6 +518,7 @@ export default function NotebookPage() {
     onStrokes: (list) => {
       remember(nb.current, strokes)
       setPage(nb.current, [...strokes, ...list.map(instStroke)])
+      addLineSides(list.map((s) => s.points))
     },
     // an instrument just taken out is meant for drawing, as on the board
     onShown: () => { if (!drawsOn) setTool('pen') },
@@ -602,6 +651,18 @@ export default function NotebookPage() {
       else if (k === 't') setTool('text')
       else if (k === 'f') setTool('shape')
       else if (k === 'e') setTool('eraser')
+      else if (k === 's') setTool('select')
+      else if (k === 'escape') setSelected([])
+      else if ((k === 'delete' || k === 'backspace') && tool === 'select' && selected.length) {
+        e.preventDefault()
+        remember(nb.current, strokes)
+        setNb((n) => ({
+          ...n,
+          pages: n.pages.map((p, i) => (i === n.current ? p.filter((s) => !selected.includes(s.id)) : p)),
+          scenes: n.scenes.map((sc, i) => (i === n.current ? { ...sc, objects: sc.objects.filter((o) => !selected.includes(o.id)) } : sc)),
+        }))
+        setSelected([])
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -674,6 +735,14 @@ export default function NotebookPage() {
       // the second click of a segment: it ends where this press lets go
       active.current = { ...base, start: (shape === 'segment' && segFrom.current) || p, mode: 'shape' }
       segFrom.current = null
+    } else if (tool === 'select') {
+      // a press on the selection drags it; anywhere else it starts a new rectangle
+      if (selBox && inside(selBox, p[0], p[1])) active.current = { ...base, sceneBefore: nb.scenes[nb.current], mode: 'drag' }
+      else {
+        setSelected([])
+        active.current = { ...base, mode: 'lasso' }
+        setMarquee(rectOf(p, p))
+      }
     } else if (tool === 'eraser') {
       active.current = { ...base, sceneBefore: nb.scenes[nb.current], mode: 'erase' }
       eraserWas.current = null
@@ -697,6 +766,16 @@ export default function NotebookPage() {
     if (tool === 'eraser') setCursor(!a && inst.hover ? null : { x: px, y: py })
     if (!a || a.pointerId !== e.pointerId) return
     if (a.mode === 'inst') return inst.move(e.pointerId, px, py, e.shiftKey)
+    if (a.mode === 'lasso') return setMarquee(rectOf(a.start, [px, py]))
+    if (a.mode === 'drag') {
+      const [dx, dy] = [px - a.start[0], py - a.start[1]]
+      const sb = a.sceneBefore
+      return setNb((n) => ({
+        ...n,
+        pages: n.pages.map((p, i) => (i === n.current ? a.before.map((s) => (selected.includes(s.id) ? moveItem(s, dx, dy) : s)) : p)),
+        scenes: sb ? n.scenes.map((sc, i) => (i === n.current ? moveScene(sb, dx, dy) : sc)) : n.scenes,
+      }))
+    }
     if (a.mode === 'shape') {
       const solid = SOLIDS.find((f) => f.id === shape)
       const strokes = solid ? solidStrokes(solid.id, a.start[0], a.start[1], px, py) : shapeStrokes(shape as ShapeId, a.start, px, py)
@@ -758,6 +837,22 @@ export default function NotebookPage() {
       }
       return
     }
+    if (a.mode === 'lasso') {
+      const r = rectOf(a.start, [ux, uy])
+      setMarquee(null)
+      setSelected(strokes.filter((s) => {
+        if (s.tool === 'text') {
+          const b = itemBox(s)
+          return !!b && takesBox(r, b)
+        }
+        return takesLine(r, s.points)
+      }).map((s) => s.id).concat(scene.objects.filter((o) => freeInk(o) && takesLine(r, o.points.map(toPx))).map((o) => o.id)))
+      return
+    }
+    if (a.mode === 'drag') {
+      if (nb.pages[nb.current] !== a.before || nb.scenes[nb.current] !== a.sceneBefore) remember(nb.current, a.before, a.sceneBefore)
+      return
+    }
     if (a.mode === 'note') {
       if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before)
       else if (e.type === 'pointerup') {
@@ -776,6 +871,8 @@ export default function NotebookPage() {
     if (drawing) {
       remember(nb.current, a.before)
       setPage(nb.current, [...a.before, drawing, ...marks.map(instStroke)])
+      // a line along an instrument (or Shift held): the tools of Constructions can use it
+      if (a.mode === 'inst' || e.shiftKey || marks.length) addLineSides([drawing.points, ...marks.map((m) => m.points)])
     }
     setDrawing(null)
   }
@@ -825,8 +922,9 @@ export default function NotebookPage() {
             <button className={tool === 'marker' ? 'active' : ''} onClick={() => setTool('marker')} title="Evidențiator (M)"><ToolIcon name="marker" />Evidențiator</button>
             <button className={tool === 'text' ? 'active' : ''} onClick={() => setTool('text')} title="Text (T): clic pe foaie și scrii; clic pe un text ca să-l modifici, trage de el ca să-l muți"><ToolIcon name="text" />Text</button>
             <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')} title="Radieră (E): șterge doar porțiunea pe care treci, și din desenul liber de la Construcții; un text atins se șterge tot"><ToolIcon name="eraser" />Radieră</button>
+            <button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')} title="Cursor (S): trage un dreptunghi în jurul scrisului, apoi trage de selecție ca s-o muți; Delete o șterge, Esc renunță"><ToolIcon name="move" />Cursor</button>
           </div>
-          {tool !== 'eraser' && tool !== 'geometry' && (
+          {tool !== 'eraser' && tool !== 'geometry' && tool !== 'select' && (
             <div className="swatches">
               {COLORS[tool].map((c) => (
                 <button
@@ -922,6 +1020,8 @@ export default function NotebookPage() {
           {strokes.map((s) => s.id !== editing?.id && <PageItem key={s.id} s={s} />)}
           {drawing && <StrokePath s={drawing} />}
           {draft.map((d) => <StrokePath key={d.id} s={d} />)}
+          {marquee && <rect className="nb-marquee" x={marquee.x0} y={marquee.y0} width={marquee.x1 - marquee.x0} height={marquee.y1 - marquee.y0} />}
+          {tool === 'select' && selBox && <rect className="nb-selection" x={selBox.x0} y={selBox.y0} width={selBox.x1 - selBox.x0} height={selBox.y1 - selBox.y0} />}
           {tool === 'eraser' && cursor && (
             <circle className="eraser-cursor" cx={cursor.x} cy={cursor.y} r={size} fill="rgba(255,255,255,.6)" stroke="#6b7280" strokeDasharray="3 3" />
           )}

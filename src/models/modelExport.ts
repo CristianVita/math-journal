@@ -16,7 +16,7 @@ export function itemHtml(item: EnItem, i: number, withAnswer = false, starts?: [
     body += `<div class="en-part"><span class="en-pts">${p.pts}p</span><div class="en-part-text">${md(`${LETTERS[k]}) ${p.text}`)}</div></div>`
   }
   if (withAnswer) {
-    const ans = item.choices && item.ans != null
+    const ans = item.sol ? item.sol : item.choices && item.ans != null
       ? `${LETTERS[item.ans]}) ${item.choices[item.ans]}`
       : (item.parts ?? []).map((p, k) => `${LETTERS[k]}) ${p.ans ?? '—'}`).join('<br>')
     if (ans) body += `<div class="en-answer">${md('**Barem:** ' + ans)}</div>`
@@ -25,8 +25,8 @@ export function itemHtml(item: EnItem, i: number, withAnswer = false, starts?: [
   return `<div class="en-item">${three ? '<span class="en-pts en-pts-none"></span>' : '<span class="en-pts">5p</span>'}<span class="en-num">${i + 1}.</span><div class="en-body">${body}</div>${fig}</div>`
 }
 
-export const subjectHtml = (s: number, own = false) =>
-  `<div class="en-subject"><b>${SUBJECTS[s].title}.</b> <i>${SUBJECTS[s].hint}</i> ${own ? '' : '<i>(30 de puncte)</i>'}</div>`
+export const subjectHtml = (s: number, own = false, generated = false) =>
+  `<div class="en-subject"><b>${SUBJECTS[s].title}.</b> <i>${generated && s < 2 ? 'Scrieți rezultatul, cu un calcul scurt.' : SUBJECTS[s].hint}</i> ${own ? '' : '<i>(30 de puncte)</i>'}</div>`
 
 export interface PrintOptions {
   student: string
@@ -72,7 +72,7 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
     `<div class="ws-print-meta"><span>Nume: ${opt.student ? `<b>${esc(opt.student)}</b>` : '<span class="ws-print-blank"></span>'}</span><span>Data: ${esc(opt.date)}</span></div></div>`,
   )
   model.items.forEach((item, i) => {
-    if (startsSubject(i, model.starts)) place(subjectHtml(subjectOf(i, model.starts), model.own), true)
+    if (startsSubject(i, model.starts)) place(subjectHtml(subjectOf(i, model.starts), model.own, model.generated), true)
     place(itemHtml(item, i, false, model.starts))
   })
   if (!model.own) place('<div class="en-note">Toate subiectele sunt obligatorii. Se acordă 10 puncte din oficiu. Timp de lucru: 2 ore.</div>')
@@ -87,6 +87,7 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
 
 /** The answer key: subjects I and II as letters in a row, subject III part by part. */
 export function baremHtml(model: EnModel): string {
+  if (model.generated) return `<div class="en-barem">${model.items.map((it, k) => `<div class="en-barem-item"><b>${k + 1}.</b> ${md(it.sol ?? '—')}</div>`).join('')}</div>`
   const [s2, s3] = model.starts ?? [6, 12]
   const grid = (from: number, to: number) =>
     `<div class="en-barem-row">${model.items.slice(from, to).map((it, k) =>
