@@ -9,7 +9,7 @@
 // and names its page and exercise. Asked for by the user on 15 November 2026.
 import type { Made } from './generators'
 import type { DrawnContest, DrawnKind } from './grade5drawn'
-import { barChart, numberLine, pointsOnLine, rays, shadedGrid, table } from './figures5'
+import { barChart, numberLine, pieChart, pointsOnLine, rays, shadedGrid, table } from './figures5'
 import { onCircle, type Fig, type Pt } from '../models/figure'
 import { de, int, pick, shuffle, type Rng } from './tex'
 
@@ -86,31 +86,6 @@ function lineChart(names: string[], values: number[], step: number, w = 380): Fi
       { d: `M${ox} ${y1} l-3.5 7 l7 0 Z M${w - 4} ${oy} l-7 -3.5 l0 7 Z`, fill: '#111' },
       { d: pts.map((q, i) => `${i ? 'L' : 'M'}${P(q)}`).join(' ') },
       { d: pts.map(dotPath).join(' '), fill: '#111' },
-    ],
-    t,
-  }
-}
-
-/** A pie chart: sectors from the top, clockwise, the name inside, the percent (or '?') outside; `hatched` sectors hatched. */
-function pieChart(pcs: number[], names: string[], shown: string[], hatched: number[]): Fig {
-  const r = 70
-  const c: Pt = [110, 92]
-  const at = (p: number) => onCircle(c, r, 90 - 3.6 * p)
-  const cum = pcs.map((_, i) => sum(pcs.slice(0, i)))
-  const t: NonNullable<Fig['t']> = []
-  pcs.forEach((p, i) => {
-    const mid = 90 - 3.6 * (cum[i] + p / 2)
-    const inside = onCircle(c, r * 0.55, mid)
-    const outside = onCircle(c, r + 17, mid)
-    t.push({ at: [inside[0], inside[1] + 4], s: names[i], size: 12 })
-    t.push({ at: [outside[0], outside[1] + 4], s: shown[i], size: 11 })
-  })
-  return {
-    w: 220, h: 184, p: {},
-    c: [{ at: c, r }],
-    path: [
-      ...hatched.map((i) => ({ d: `M${P(c)} L${P(at(cum[i]))} A${r} ${r} 0 ${pcs[i] > 50 ? 1 : 0} 1 ${P(at(cum[i] + pcs[i]))} Z`, hatch: true })),
-      { d: cum.map((p) => `M${P(c)} L${P(at(p))}`).join(' ') },
     ],
     t,
   }

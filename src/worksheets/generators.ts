@@ -42,6 +42,8 @@ import { KINDS as KPU1, CONTEST as CPU1 } from './grade5puisor1'
 import { KINDS as KPU2, CONTEST as CPU2 } from './grade5puisor2'
 import { KINDS as KPU3, CONTEST as CPU3 } from './grade5puisor3'
 import { KINDS as KPU4, CONTEST as CPU4 } from './grade5puisor4'
+import { KINDS as KB5 } from './grade5book5'
+import { KINDS as KB5FIG } from './grade5book5Figures'
 import { KINDS as KFIG, CONTEST as CFIG } from './grade5drawn'
 
 export type Level = 1 | 2 | 3 | 4
@@ -1054,7 +1056,7 @@ const DRAWN: GradeKinds = [
   { id: 'v-fraction-figures', label: 'Fracții pe figuri: părți hașurate', topic: 'Algebră', forms: { 1: [], 2: [], 3: [] } },
   { id: 'v-count-figures', label: 'Numărarea figurilor: segmente, unghiuri, triunghiuri, pătrate', topic: 'Geometrie', forms: { 1: [], 2: [], 3: [] } },
 ]
-const PUISOR = [...KPU1, ...KPU2, ...KPU3, ...KPU4, ...KFIG]
+const PUISOR = [...KPU1, ...KPU2, ...KPU3, ...KPU4, ...KFIG, ...KB5, ...KB5FIG]
 export const JOINED = new Set(PUISOR.flatMap((k) => (k.joins ? [k.joins] : [])))
 const joinedForms = (id: string, l: 1 | 2 | 3) => PUISOR.filter((k) => k.joins === id).flatMap((k) => k.forms[l])
 const fromKinds = (grade: Grade, kinds: GradeKinds) => kinds.map((k) => {

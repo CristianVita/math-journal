@@ -120,6 +120,35 @@ export function shadedCircle(n: number, shaded: number[], r = 60): Fig {
   }
 }
 
+/** A pie chart with names inside and percentages (or '?') outside. Sectors run clockwise from the top. */
+export function pieChart(percents: number[], names: string[], shown: string[], hatched: number[]): Fig {
+  const r = 70
+  const c: Pt = [110, 92]
+  const at = (p: number) => onCircle(c, r, 90 - 3.6 * p)
+  const point = ([x, y]: Pt) => `${x.toFixed(1)} ${y.toFixed(1)}`
+  const start = percents.map((_, i) => percents.slice(0, i).reduce((total, p) => total + p, 0))
+  const t: NonNullable<Fig['t']> = []
+  percents.forEach((p, i) => {
+    const middle = 90 - 3.6 * (start[i] + p / 2)
+    const inside = onCircle(c, r * 0.55, middle)
+    const outside = onCircle(c, r + 17, middle)
+    t.push({ at: [inside[0], inside[1] + 4], s: names[i], size: 12 })
+    t.push({ at: [outside[0], outside[1] + 4], s: shown[i], size: 11 })
+  })
+  return {
+    w: 220, h: 184, p: {},
+    c: [{ at: c, r }],
+    path: [
+      ...hatched.map((i) => ({
+        d: `M${point(c)} L${point(at(start[i]))} A${r} ${r} 0 ${percents[i] > 50 ? 1 : 0} 1 ${point(at(start[i] + percents[i]))} Z`,
+        hatch: true,
+      })),
+      { d: start.map((p) => `M${point(c)} L${point(at(p))}`).join(' ') },
+    ],
+    t,
+  }
+}
+
 /** A bar chart: the categories under the bars, the values on the vertical axis every `step`, with grid lines. */
 export function barChart(names: string[], values: number[], step: number, o: { w?: number; title?: string } = {}): Fig {
   const w = o.w ?? Math.max(300, names.length * 58 + 50)
