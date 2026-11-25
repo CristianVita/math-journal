@@ -13,7 +13,7 @@ import { PHOTO_PROMPT, brokenFormulas, spacedLines, splitExercises } from './fro
 import { figureFor } from './figures'
 import { TESTS8 } from './tests8'
 import { headAfter, titleWhenEmpty } from './sheetTitle'
-import { CHAPTERS, bookExercises, chapterForms, type BookExercise } from './chapters'
+import { CHAPTERS, bookExercises, chapterForms, fitsChapter, type BookExercise } from './chapters'
 import { figureSvg } from '../models/figure'
 import { isDesktop } from '../platform'
 import katex from 'katex'
@@ -214,7 +214,7 @@ export default function WorksheetsPage() {
       const own = forms.filter((f) => f.gen === g)
       // only the forms of the chapter: another form of the kind may be about something else
       const item = makeFresh(g, chLevel, own[Math.floor(Math.random() * own.length)].form, avoid, true)
-      if (!item) continue
+      if (!item || !fitsChapter(ch, item.text)) continue
       made.push(item)
       avoid.add(fingerprint(item.text))
     }

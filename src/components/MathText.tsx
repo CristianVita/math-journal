@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import katex from 'katex'
 import { marked } from 'marked'
+import { bigFractions } from './bigFractions'
 
 marked.setOptions({ gfm: true, breaks: true })
 
@@ -12,7 +13,7 @@ export function renderMathMarkdown(src: string): string {
   const math: string[] = []
   const short: boolean[] = []
   const stash = (tex: string, display: boolean) => {
-    math.push(katex.renderToString(tex, { throwOnError: false, displayMode: display }))
+    math.push(katex.renderToString(display ? tex : bigFractions(tex), { throwOnError: false, displayMode: display }))
     short.push(!display && tex.length <= SHORT)
     return `@@M${math.length - 1}@@`
   }

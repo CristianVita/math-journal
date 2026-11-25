@@ -83,6 +83,8 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - Până la 100 de exerciții odată, **fără niciun exercițiu repetat pe fișă**; un tipar revine abia după ce au fost folosite toate celelalte ale clasei și nivelului
 - O bancă cu exercițiile tale, cu formule, pe care le refolosești la orice elev
 - Un exercițiu se poate înlocui cu altul de același fel, muta sau păstra în bancă
+- O fișă pe un capitol (de exemplu radicali sau probleme cu situații reale) rămâne pe subiect, cu exerciții din cărți și exerciții noi
+- Fracțiile din rând se scriu mari, ca în cărți; când o formulă se rupe la capăt de rând, semnul operației se scrie din nou pe rândul următor
 - Tipărire în PDF sau Word, pe pagini A4: titlu, numele elevului (sau o linie liberă) și data, spațiu de lucru sub fiecare exercițiu, rezolvările pe pagini separate
 
 **Trigonometrie**

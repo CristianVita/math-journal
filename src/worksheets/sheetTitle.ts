@@ -6,7 +6,10 @@ import { TESTS8 } from './tests8'
 
 export const DEFAULT_TITLE = 'Fișă de lucru'
 
-const AUTO = new Set([DEFAULT_TITLE, '', ...TESTS8.map((t) => t.title), ...CHAPTERS.map((c) => c.title), ...GENERATORS.map((g) => g.label)])
+/** Chapter titles of before, still on saved sheets, and what they are called now. */
+const RENAMED: Record<string, string> = { 'Probleme cu text': 'Probleme cu situații reale' }
+
+const AUTO = new Set([DEFAULT_TITLE, '', ...Object.keys(RENAMED), ...TESTS8.map((t) => t.title), ...CHAPTERS.map((c) => c.title), ...GENERATORS.map((g) => g.label)])
 /** Whether the title was set by the app (or is empty), so that it may change by itself. */
 export const isAutoTitle = (title: string) => AUTO.has(title.trim())
 
@@ -29,7 +32,7 @@ export function headAfter(sheet: Head, what: string | null, today: string): { ti
   const [old, now] = [dayOf(sheet.date), dayOf(today)]
   const date = empty && old !== null && now !== null && old < now ? today : sheet.date
   if (!isAutoTitle(sheet.title)) return { title: sheet.title, date }
-  return { title: empty || sheet.title === name ? name : DEFAULT_TITLE, date }
+  return { title: empty || (RENAMED[sheet.title.trim()] ?? sheet.title) === name ? name : DEFAULT_TITLE, date }
 }
 
 /** The title of a sheet left without exercises. */

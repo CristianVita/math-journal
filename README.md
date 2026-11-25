@@ -89,6 +89,8 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - Up to 100 exercises at once, with **none repeated on a sheet**; a pattern comes back only after all the others of the grade and level have been used
 - A bank of your own exercises, with formulas, to reuse with any student
 - Swap an exercise for another of the same kind, reorder, keep it in the bank
+- A sheet on one chapter (such as radicals, or problems with real-life situations) keeps to its subject, with exercises from the books and new ones
+- Fractions in a line of text are written large, as in the books; when a formula breaks at the end of a line, the sign of the operation is written again on the next one
 - Printed as PDF or Word on A4 pages: title, the student's name (or a blank line) and the date, room to work under each exercise, and the solutions on separate pages
 
 **Trigonometry**

@@ -8,33 +8,47 @@ import { answerText, itemText } from '../models/types'
 import { recapAnswer, recapText } from '../models/recap'
 import type { Fig } from '../models/figure'
 import { similarForms } from './similar'
+import { seeded } from './tex'
+import { BOOK_CHAPTERS } from './bookChapters'
 import { GENERATORS, type Level } from './generators'
 
-/** `skip`: forms of a kind that do not belong to the chapter, as "level/form" */
-export interface Chapter { id: string; title: string; gens: string[]; skip?: Record<string, string[]> }
+/** `on`, `off`: what the statement of a generated exercise must, and must not, have to belong to the chapter (some kinds,
+ * as the recap tests, are about several things; the user wants a chapter to keep to its subject, 25 November 2026).
+ * `skip`: forms of a kind that do not belong to the chapter, as "level/form" */
+export interface Chapter { id: string; title: string; gens: string[]; skip?: Record<string, string[]>; on?: RegExp; off?: RegExp }
 
 export const CHAPTERS: Chapter[] = [
-  { id: 'numbers', title: 'Numere: operații, puteri, fracții, divizibilitate', gens: ['v-ops', 'v-powers', 'v-fractions', 'v-decimals', 'vi-fractions', 'vi-integers', 'viii-numbers', 'viii-sets', 'viii-intervals', 'v-division', 'v-divisibility', 'vi-sets', 'vi-gcd-lcm', 'vii-real-numbers', 'v-writing-numbers', 'v-compare-round', 'v-addition', 'v-subtraction', 'v-powers-digits', 'v-bases', 'v-add-sub', 'v-multiplication', 'v-division-exact', 'v-remainder', 'v-ops-brackets', 'v-power-rules', 'v-power-compare', 'v-perfect-squares', 'v-fraction-mult', 'v-fraction-order', 'v-fraction-props', 'v-decimal-writing', 'v-decimal-order', 'v-decimal-add-sub', 'v-decimal-multiply', 'v-decimal-powers', 'v-decimal-periodic', 'v-decimal-division', 'v-decimal-order-ops', 'v-final-naturals', 'v-final-fractions', 'v-final-tests', 'v-final-recap-numbers', 'v-number-line', 'v-fraction-figures'] },
-  { id: 'radicals', title: 'Radicali', gens: ['vii-radicals', 'viii-radicals'] },
-  { id: 'percent', title: 'Rapoarte, proporții, procente', gens: ['vi-percent', 'vi-proportion', 'vi-ratios'] },
-  { id: 'data', title: 'Date, medii, probabilități', gens: ['viii-data', 'v-mean-units', 'v-mean-applied', 'v-statistics'],
+  { id: 'numbers', title: 'Numere: operații, puteri, fracții, divizibilitate', off: /\b(?:cm|km|kg|lei|dm|ml)\b|litr|perimetr|\bari[ae]|medi[ae] (?:aritm|geom)|probabil|unghi|volum|ecuați|cumpăr|plăti|ore\b|elevi|copii|pagini/i, gens: ['v-ops', 'v-powers', 'v-fractions', 'v-decimals', 'vi-fractions', 'vi-integers', 'viii-numbers', 'viii-sets', 'viii-intervals', 'v-division', 'v-divisibility', 'vi-sets', 'vi-gcd-lcm', 'vii-real-numbers', 'v-writing-numbers', 'v-compare-round', 'v-addition', 'v-subtraction', 'v-powers-digits', 'v-bases', 'v-add-sub', 'v-multiplication', 'v-division-exact', 'v-remainder', 'v-ops-brackets', 'v-power-rules', 'v-power-compare', 'v-perfect-squares', 'v-fraction-mult', 'v-fraction-order', 'v-fraction-props', 'v-decimal-writing', 'v-decimal-order', 'v-decimal-add-sub', 'v-decimal-multiply', 'v-decimal-powers', 'v-decimal-periodic', 'v-decimal-division', 'v-decimal-order-ops', 'v-final-naturals', 'v-final-fractions', 'v-final-tests', 'v-final-recap-numbers', 'v-number-line', 'v-fraction-figures'] },
+  { id: 'radicals', title: 'Radicali', off: /ecuați|triunghi|\bcm\b/i, gens: ['vii-radicals', 'viii-radicals'] },
+  { id: 'percent', title: 'Rapoarte, proporții, procente', off: /probabil/i, gens: ['vi-percent', 'vi-proportion', 'vi-ratios'] },
+  { id: 'data', title: 'Date, medii, probabilități', on: /medi[aeiu]|\bnot[ae]\b|notel|tabel|grafic|diagram|probabil|sondaj|temperatur|frecven|vizit|bilete|timp|puncte|precipita|promov/i, gens: ['viii-data', 'v-mean-units', 'v-mean-applied', 'v-statistics'],
     // units of measure, journeys, shopping lists: not data (the user met a coach journey here, 25 November 2026)
     skip: { 'v-mean-units': ['1/1', '1/2', '2/1', '2/2', '3/2'], 'v-statistics': ['1/6', '3/0', '3/2', '3/5', '3/6'], 'viii-data': ['3/3'] } },
-  { id: 'algebra', title: 'Calcul algebric: expresii, descompuneri', gens: ['viii-expressions', 'viii-factoring', 'vii-algebra', 'viii-literal', 'viii-formulas', 'viii-alg-fractions'] },
-  { id: 'equations', title: 'Ecuații, inecuații, sisteme', gens: ['vii-linear', 'viii-inequality', 'viii-system', 'viii-quadratic', 'v-equations', 'vi-equations', 'vii-equations'] },
-  { id: 'problems', title: 'Probleme cu text', gens: ['viii-problems', 'v-problems', 'v-recap-grade4', 'v-unit-method', 'v-comparison-method', 'v-figurative-method', 'v-backwards-method', 'v-false-hypothesis', 'v-recap-tests', 'v-everyday', 'v-decimal-methods', 'v-final-methods'] },
+  { id: 'algebra', title: 'Calcul algebric: expresii, descompuneri', off: /^Rezolvați|\bcm\b|\blei\b/, gens: ['viii-expressions', 'viii-factoring', 'vii-algebra', 'viii-literal', 'viii-formulas', 'viii-alg-fractions'] },
+  { id: 'equations', title: 'Ecuații, inecuații, sisteme', off: /\b(?:cm|km|kg|lei)\b|magazin|triunghi|elevi|copii|bilete/i, gens: ['vii-linear', 'viii-inequality', 'viii-system', 'viii-quadratic', 'v-equations', 'vi-equations', 'vii-equations'] },
+  { id: 'problems', title: 'Probleme cu situații reale', off: /^(?:Calculați|Efectuați)[: ]|^(?:Arătați|Demonstrați)|perimetr|triunghi|unghi|\bcub|volum|Descompuneți/, gens: ['viii-problems', 'v-problems', 'v-recap-grade4', 'v-unit-method', 'v-comparison-method', 'v-figurative-method', 'v-backwards-method', 'v-false-hypothesis', 'v-recap-tests', 'v-everyday', 'v-decimal-methods', 'v-final-methods'] },
   { id: 'function', title: 'Funcții. Funcția liniară', gens: ['viii-function', 'viii-functions'] },
-  { id: 'triangles', title: 'Unghiuri și triunghiuri: Pitagora, Thales, trigonometrie', gens: ['vi-angles', 'vii-pythagoras', 'vii-thales', 'vii-trig', 'v-geometry', 'vi-triangle', 'vii-metric', 'v-points-lines', 'v-segment-length', 'v-midpoint-symmetric', 'v-angle-measure', 'v-angle-calc', 'v-symmetry-axis', 'v-final-geometry', 'v-count-figures'] },
-  { id: 'quads', title: 'Patrulatere și arii', gens: ['v-rectangle', 'vii-areas', 'vii-quadrilaterals', 'v-length-perimeter', 'v-area-units', 'v-final-recap-figures'] },
-  { id: 'circle', title: 'Cercul', gens: ['vi-lines-circle', 'vii-circle'] },
-  { id: 'solids', title: 'Corpuri: arii și volume', gens: ['viii-solids', 'viii-cuboid', 'viii-prisms', 'viii-pyramids', 'viii-round', 'viii-frustums', 'viii-elements', 'v-volume-units', 'v-final-measures'] },
+  { id: 'triangles', title: 'Unghiuri și triunghiuri: Pitagora, Thales, trigonometrie', off: /paralelipiped|volum|litr|\bcub|cerc|romb|trapez|paralelogram|pătrat|(?<![a-zăâîșț])dreptunghi(?!c)/i, gens: ['vi-angles', 'vii-pythagoras', 'vii-thales', 'vii-trig', 'v-geometry', 'vi-triangle', 'vii-metric', 'v-points-lines', 'v-segment-length', 'v-midpoint-symmetric', 'v-angle-measure', 'v-angle-calc', 'v-symmetry-axis', 'v-final-geometry', 'v-count-figures'] },
+  { id: 'quads', title: 'Patrulatere și arii', off: /\bcub|paralelipiped|volum|litr|piramid|prism/i, gens: ['v-rectangle', 'vii-areas', 'vii-quadrilaterals', 'v-length-perimeter', 'v-area-units', 'v-final-recap-figures'] },
+  { id: 'circle', title: 'Cercul', on: /cerc|coard|arcul|tangent|\bdisc/i, gens: ['vi-lines-circle', 'vii-circle'] },
+  { id: 'solids', title: 'Corpuri: arii și volume', on: /\bcub|paralelipiped|piramid|tetraedr|prism|\bcon\b|\bconul|cilindr|sfer|trunchi|volum|litr|\^3|\bhl|\bml|acvari|piscin|bazin|cutie/i, gens: ['viii-solids', 'viii-cuboid', 'viii-prisms', 'viii-pyramids', 'viii-round', 'viii-frustums', 'viii-elements', 'v-volume-units', 'v-final-measures'] },
   { id: 'space', title: 'Distanțe și unghiuri în spațiu', gens: ['viii-space', 'viii-dihedral'] },
 ]
+
+/** Whether a generated statement keeps to the subject of the chapter. */
+export const fitsChapter = (c: Chapter, text: string) => !(c.on && !c.on.test(text)) && !c.off?.test(text)
+
+/** Whether a generated form keeps to the subject of the chapter, told from a few of its statements. */
+const keeps = (c: Chapter, gen: string, level: Level, form: number) => {
+  if (!c.on && !c.off) return true
+  const g = GENERATORS.find((x) => x.id === gen)!
+  return [11, 2357, 40009].every((seed) => fitsChapter(c, g.make(seeded(seed), level, form).text))
+}
 
 /** The generated forms of a chapter at a level. */
 export const chapterForms = (c: Chapter, level: Level) => GENERATORS.filter((g) => c.gens.includes(g.id))
   .map((g) => ({ gen: g.id, forms: Array.from({ length: g.forms(level) }, (_, f) => f).filter((f) => !c.skip?.[g.id]?.includes(`${level}/${f}`)) }))
-  .flatMap((x) => x.forms.map((form) => ({ gen: x.gen, form })))
+  .flatMap((x) => x.forms.filter((f) => keeps(c, x.gen, level, f)).map((form) => ({ gen: x.gen, form })))
 
 const byGen = new Map(CHAPTERS.flatMap((c) => c.gens.map((g) => [g, c.id] as const)))
 
@@ -45,7 +59,7 @@ export function chaptersOf(text: string): string[] {
   if (solid) {
     const out: string[] = []
     if (/aria|volum|capacitat|litri|\bl\b|desfășura|muchi/.test(t)) out.push('solids')
-    if (/distanț|unghi|diedr|perpendicular|paralel|planul|planele|proiecți/.test(t)) out.push('space')
+    if (/distanț|(?<!tri|drept)unghi|diedr|perpendicular|paralel(?!ipiped)|planul|planele|proiecți/.test(t) || /\\sphericalangle/.test(text)) out.push('space')
     return out.length ? out : ['solids']
   }
   if (/\bcerc|\barc/.test(t)) return ['circle']
@@ -77,6 +91,9 @@ export interface BookExercise {
   chapters: string[]
 }
 
+/** Read one by one where the rules below go wrong (`bookChapters.ts`), else by the statement. */
+const own = (model: string, n: number, text: string) => (BOOK_CHAPTERS[`${model}#${n}`] ? [BOOK_CHAPTERS[`${model}#${n}`]] : chaptersOf(text))
+
 let book: BookExercise[] | null = null
 
 /** Every exercise of the books in the app, with its chapters. */
@@ -86,13 +103,13 @@ export function bookExercises(): BookExercise[] {
   for (const m of BUILTIN) {
     m.items.forEach((it, i) => {
       const text = itemText(it)
-      book!.push({ source: { model: m.id, n: i + 1 }, where: `${m.title}, ex. ${i + 1}`, text, solution: answerText(it), fig: it.fig, chapters: chaptersOf(text) })
+      book!.push({ source: { model: m.id, n: i + 1 }, where: `${m.title}, ex. ${i + 1}`, text, solution: answerText(it), fig: it.fig, chapters: own(m.id, i + 1, text) })
     })
   }
   for (const s of RECAP8.sections) {
     s.items.forEach((it, i) => {
       const text = recapText(it)
-      book!.push({ source: { model: `${RECAP8.id}-${s.id}`, n: i + 1 }, where: `Recapitulare, ${s.title}, ex. ${i + 1}`, text, solution: recapAnswer(it), fig: it.fig, chapters: chaptersOf(text) })
+      book!.push({ source: { model: `${RECAP8.id}-${s.id}`, n: i + 1 }, where: `Recapitulare, ${s.title}, ex. ${i + 1}`, text, solution: recapAnswer(it), fig: it.fig, chapters: own(`${RECAP8.id}-${s.id}`, i + 1, text) })
     })
   }
   return book

@@ -2,6 +2,7 @@
 // "Modele E.N." page next to the models, with the book's answers, taken onto the worksheet or printed by chapter
 // (13 November 2026, asked for by the user).
 import { renderMathMarkdown } from '../components/MathText'
+import { repeatOperators } from '../components/repeatOperators'
 import { A4, pagePictures } from '../worksheets/worksheetExport'
 import { figureSvg, type Fig } from './figure'
 
@@ -95,6 +96,7 @@ export function layoutRecap(host: HTMLElement, recap: Recap, section: RecapSecti
     const el = document.createElement('div')
     el.innerHTML = html
     body.appendChild(el)
+    repeatOperators(el)
     if (body.offsetHeight > avail && body.childElementCount > 1) {
       body.removeChild(el)
       newPage()

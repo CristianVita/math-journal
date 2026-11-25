@@ -1,6 +1,7 @@
 // A national evaluation model as HTML, the same on the page and on paper: the points in a box, the number, the
 // statement, the answers to choose from on one line, the parts of subject III, the figure on the right.
 import { renderMathMarkdown } from '../components/MathText'
+import { repeatOperators } from '../components/repeatOperators'
 import { A4, pagePictures } from '../worksheets/worksheetExport'
 import { figureSvg } from './figure'
 import { LETTERS, SUBJECTS, answerText, answeredBy, choicesText, startsSubject, subjectOf, type EnItem, type EnModel } from './types'
@@ -59,6 +60,7 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
     const el = document.createElement('div')
     el.innerHTML = html
     body.appendChild(el)
+    repeatOperators(el)
     if (body.offsetHeight > avail && body.childElementCount > 1) {
       body.removeChild(el)
       // a subject's title never stays alone at the bottom of a page

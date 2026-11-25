@@ -1,6 +1,7 @@
 // A worksheet as printed pages: laid out on A4 sheets in the page itself (so that the formulas are measured as they
 // will look), cut into pages where an exercise would not fit, then each page drawn to a picture for PDF or Word.
 import { renderMathMarkdown } from '../components/MathText'
+import { repeatOperators } from '../components/repeatOperators'
 import type { PageImage } from '../export/exportDoc'
 
 /** A4 at 96 dpi, in CSS pixels, and the margin inside it. */
@@ -71,6 +72,7 @@ export function layoutSheet(host: HTMLElement, sheet: PrintSheet): HTMLElement[]
   }
   const place = (el: HTMLElement) => {
     body.appendChild(el)
+    repeatOperators(el)
     if (body.offsetHeight > avail && body.childElementCount > 1) {
       body.removeChild(el)
       newPage()

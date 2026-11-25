@@ -1,6 +1,7 @@
 // The title of a worksheet says what is on it, and what is on it belongs under that title.
 import { describe, expect, it } from 'vitest'
-import { CHAPTERS, bookExercises, chapterForms, chapterOfGen } from './chapters'
+import { CHAPTERS, bookExercises, chapterForms, chapterOfGen, chaptersOf, fitsChapter } from './chapters'
+import { BOOK_CHAPTERS } from './bookChapters'
 import { GENERATORS, type Level } from './generators'
 import { DEFAULT_TITLE, headAfter, isAutoTitle, titleWhenEmpty } from './sheetTitle'
 import { TESTS8 } from './tests8'
@@ -41,6 +42,15 @@ describe('the title of the sheet', () => {
     expect(after([CHAPTERS[0].title, c, c]).title).toBe(DEFAULT_TITLE)
   })
 
+  it('a sheet saved under the old name of a chapter still counts as named by the app', () => {
+    const now = 'Probleme cu situații reale'
+    expect(CHAPTERS.some((c) => c.title === now)).toBe(true)
+    const old = { title: 'Probleme cu text', date: TODAY, items: [1] }
+    expect(headAfter(old, now, TODAY).title).toBe(now)
+    expect(headAfter(old, 'Radicali', TODAY).title).toBe(DEFAULT_TITLE)
+    expect(headAfter({ ...old, items: [] }, 'Radicali', TODAY).title).toBe('Radicali')
+  })
+
   it('a title written by the user is never changed', () => {
     const own = 'Pregătire Maria, ședința 4'
     expect(isAutoTitle(own)).toBe(false)
@@ -67,6 +77,41 @@ describe('the exercises belong under the title', () => {
         expect(f.form).toBeLessThan(GENERATORS.find((g) => g.id === f.gen)!.forms(l))
       }
       if (c.gens.length) expect(list.length, `${c.title} ${l}`).toBeGreaterThan(0)
+    }
+  })
+
+  it('a generated exercise of a chapter keeps to its subject, and every level has enough of them', () => {
+    for (const c of CHAPTERS) for (const l of [1, 2, 3] as Level[]) {
+      const list = chapterForms(c, l)
+      expect(list.length, `${c.title} ${l}`).toBeGreaterThanOrEqual(4)
+      let off = 0
+      for (const f of list) for (let s = 0; s < 4; s++) if (!fitsChapter(c, GENERATORS.find((g) => g.id === f.gen)!.make(seeded(s * 104729 + 9), l, f.form).text)) off++
+      // the page checks each one again when it is made; here only a few may be refused
+      expect(off / (list.length * 4), `${c.title} ${l}`).toBeLessThan(0.05)
+    }
+  })
+
+  it('the book exercises put by hand exist, in chapters that exist', () => {
+    const all = new Set(bookExercises().map((b) => `${b.source.model}#${b.source.n}`))
+    for (const [k, c] of Object.entries(BOOK_CHAPTERS)) {
+      expect(all.has(k), k).toBe(true)
+      expect(CHAPTERS.some((x) => x.id === c), c).toBe(true)
+    }
+  })
+
+  it('the strays the user met, and others like them, are in their own chapter', () => {
+    const of = (w: string) => bookExercises().find((b) => b.where === w)!.chapters
+    expect(of('Model E.N. 23, ex. 10')).toEqual(['triangles']) // a distance, met under "Radicali"
+    expect(of('Model E.N. 4, ex. 1')).toEqual(['numbers']) // a quarter of 8^8, under the solids
+    expect(of('Model E.N. 22, ex. 7')).toEqual(['triangles']) // angles with a secant, under the circle
+    expect(of('Model E.N. 3, ex. 6')).toEqual(['percent'])
+    const solid = (t: string) => chaptersOf(t)
+    expect(solid('Un acvariu are forma unui paralelipiped dreptunghic. Calculați volumul.')).toEqual(['solids'])
+    expect(solid('O prismă triunghiulară are toate muchiile egale. Aflați aria laterală.')).toEqual(['solids'])
+    for (const b of bookExercises()) {
+      if (b.chapters.includes('radicals')) expect(b.text, b.where).not.toMatch(/\sphericalangle|\triangle|figura/)
+      if (b.chapters.includes('circle')) expect(b.text, b.where).toMatch(/cerc|hexagon|mathcal{C}|înscris/i)
+      if (b.chapters.includes('function')) expect(b.text, b.where).toMatch(/funcți|reper|axe/)
     }
   })
 
