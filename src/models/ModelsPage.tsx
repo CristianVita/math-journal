@@ -14,9 +14,10 @@ import katex from 'katex'
 import { figureSvg } from './figure'
 import { itemHtml, modelPictures, subjectHtml } from './modelExport'
 import { BUILTIN, loadOwn, loadResults, saveOwn, saveResults, type EnResult } from './store'
-import { answerText, itemText, startsSubject, subjectOf, type EnModel } from './types'
+import { answerText, answeredBy, itemText, startsSubject, subjectOf, type EnModel } from './types'
 import RecapView from './RecapView'
-import { generateModel, makeItem } from './generated'
+import { bookItem, bookKey, generateModel, GEN_KINDS, makeItem, seenBy, type GenKind } from './generated'
+import { seeded } from '../worksheets/tex'
 import { addSimilar, appendToSheet } from './sheet'
 
 const katexCheck = (tex: string, display: boolean) => { katex.renderToString(tex, { throwOnError: true, displayMode: display }) }
@@ -57,16 +58,24 @@ export default function ModelsPage() {
   const [view, setView] = useState<'models' | 'recap'>('models')
   const { ask, confirm, dialog } = usePrompt()
   const [flash, setFlash] = useState('')
-  // in a generated model, another exercise of the same kind takes this one's place
+  // in a generated model, another exercise of the same kind takes this one's place; one of a book, another of a book
+  // from the same place
   const anotherHere = (i: number) => {
     const it = model?.items[i]
-    if (!model || !it?.gen) return
-    const next = makeItem(it.gen.id, it.gen.level as 1 | 2 | 3, Math.floor(Math.random() * 1e9))
+    if (!model || !(it?.gen || it?.book)) return
+    const seed = Math.floor(Math.random() * 1e9)
+    const next = it.book ? bookItem(i, seeded(seed), it.book.model, model.studentId != null ? seenBy(model.studentId, own, results) : undefined) : makeItem(it.gen!.id, it.gen!.level as 1 | 2 | 3, seed)
     setOwn((o) => o.map((m) => (m.id === model.id ? { ...m, items: m.items.map((x, j) => (j === i ? next : x)) } : m)))
+    if (next.book) setFlash(`Exercițiul ${i + 1} e acum din ${next.book.title}, exercițiul ${next.book.n}.`)
   }
+  const [genKind, setGenKind] = useState<GenKind>('books')
   const newGenerated = () => {
     const n = Math.max(0, ...own.filter((x) => x.generated).map((x) => Number(x.title.match(/\d+$/)?.[0]) || 0)) + 1
-    const m = generateModel(Math.floor(Math.random() * 1e9), new Date(), n)
+    const seen = studentId != null ? seenBy(studentId, own, results) : undefined
+    const m = generateModel(Math.floor(Math.random() * 1e9), new Date(), n, genKind, seen)
+    if (studentId != null) m.studentId = studentId
+    const again = m.items.filter((it) => it.book && seen?.has(bookKey(it.book.model, it.book.n))).length
+    if (again) setFlash(`${student?.name ?? 'Elevul'} a primit deja toate exercițiile din cărți de pe unele locuri: ${again} din model se repetă.`)
     setOwn((o) => [...o, m])
     setModelId(m.id)
   }
@@ -75,6 +84,8 @@ export default function ModelsPage() {
     const t = setTimeout(() => setFlash(''), 5000)
     return () => clearTimeout(t)
   }, [flash])
+
+  const madeFor = (m: EnModel) => (m.studentId != null ? students.find((s) => s.id === m.studentId)?.name : undefined)
 
   // ---------- results ----------
   const done = (mId: string) => results.filter((r) => r.studentId === studentId && r.modelId === mId)
@@ -181,7 +192,7 @@ export default function ModelsPage() {
                 return (
                   <li key={m.id}>
                     <button className={'en-list-item' + (m.id === model?.id ? ' active' : '')} onClick={() => setModelId(m.id)}>
-                      <span>{m.title}{m.origin && <span className="en-origin">{m.origin}</span>}</span>
+                      <span>{m.title}{m.origin && <span className="en-origin">{m.origin}</span>}{madeFor(m) && <span className="en-origin">pentru {madeFor(m)}</span>}</span>
                       {last && <span className="en-done" title={d.map((r) => `${r.date}${r.score != null ? `: ${r.score} p` : ''}`).join('\n')}>✓ {last.score != null ? `${last.score} p` : last.date}</span>}
                     </button>
                   </li>
@@ -195,7 +206,17 @@ export default function ModelsPage() {
               <div className="card-title">Model generat</div>
               <button className="btn small primary" onClick={newGenerated}>Generează un model</button>
             </div>
-            <p className="muted small">Un test nou, ca la Evaluarea Națională, din exercițiile aplicației, cu rezolvările ca barem. Rămâne în listă până îl ștergi.</p>
+            <label className="field">Exercițiile
+              <select value={genKind} onChange={(e) => setGenKind(e.target.value as GenKind)}>
+                {GEN_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+              </select>
+            </label>
+            <p className="muted small">
+              {genKind === 'books' ? 'Un test nou, ca la Evaluarea Națională: fiecare exercițiu e cel de pe același loc dintr-un model din cărți, ales la întâmplare, cu variantele, punctajele, baremul și figura lui.'
+                : genKind === 'mix' ? 'Un test nou, ca la Evaluarea Națională: cam jumătate din exerciții din modelele din cărți (de pe același loc), restul noi, din exercițiile aplicației.'
+                : 'Un test nou, ca la Evaluarea Națională, din exercițiile aplicației, cu rezolvările ca barem.'} Rămâne în listă până îl ștergi.
+              {genKind !== 'new' && (student ? ` Ocolește exercițiile din cărți primite deja de ${student.name}.` : ' Alege întâi elevul, ca să nu i se repete exercițiile din cărți.')}
+            </p>
           </section>
 
           <section className="card">
@@ -277,12 +298,12 @@ export default function ModelsPage() {
               <div className="muted small en-source">{model.origin ? `${model.origin} · ` : ''}{model.source}</div>
               {model.items.map((item, i) => (
                 <div key={i}>
-                  {startsSubject(i, model.starts) && <div dangerouslySetInnerHTML={{ __html: subjectHtml(subjectOf(i, model.starts), model.own, model.generated) }} />}
+                  {startsSubject(i, model.starts) && <div dangerouslySetInnerHTML={{ __html: subjectHtml(subjectOf(i, model.starts), model.own, answeredBy(model, subjectOf(i, model.starts))) }} />}
                   <div className="en-row">
                     <div dangerouslySetInnerHTML={{ __html: itemHtml(item, i, showBarem, model.starts) }} />
                     <span className="en-tosheet">
                       <button className="btn small" onClick={() => toSheet([i])} title="Pune exercițiul pe fișa de lucru">Pe fișă</button>
-                      <button className="btn small" onClick={() => (model.generated && item.gen ? anotherHere(i) : setFlash(addSimilar(itemText(item))))} title={model.generated ? "Schimbă exercițiul cu altul nou, de același fel" : "Pune pe fișă un exercițiu nou, generat, de același fel"}>Încă unul la fel</button>
+                      <button className="btn small" onClick={() => (model.generated && (item.gen || item.book) ? anotherHere(i) : setFlash(addSimilar(itemText(item))))} title={model.generated && item.book ? 'Schimbă exercițiul cu cel de pe același loc dintr-un alt model din cărți' : model.generated ? 'Schimbă exercițiul cu altul nou, de același fel' : 'Pune pe fișă un exercițiu nou, generat, de același fel'}>Încă unul la fel</button>
                     </span>
                   </div>
                 </div>

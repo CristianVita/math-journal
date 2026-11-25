@@ -40,6 +40,8 @@ describe('exercises from a photo', () => {
     expect(spacedLines('Calculați:\na) $1$\nb) $2$')).toBe('Calculați:\n\na) $1$\n\nb) $2$')
     expect(spacedLines('Fie:\n$$\\begin{cases} x = 1 \\\\\ny = 2 \\end{cases}$$\nAflați')).toBe('Fie:\n\n$$\\begin{cases} x = 1 \\\\\ny = 2 \\end{cases}$$\n\nAflați')
     expect(spacedLines('a)\n\nb)')).toBe('a)\n\nb)')
+    // a table keeps its rows together
+    expect(spacedLines('Fie:\n| $x$ | 1 |\n|---|---|\n| $y$ | 2 |\nAflați')).toBe('Fie:\n\n| $x$ | 1 |\n|---|---|\n| $y$ | 2 |\n\nAflați')
   })
 
   it('the instructions ask for what the splitter expects', () => {

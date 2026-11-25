@@ -44,6 +44,9 @@ import { KINDS as KPU3, CONTEST as CPU3 } from './grade5puisor3'
 import { KINDS as KPU4, CONTEST as CPU4 } from './grade5puisor4'
 import { KINDS as KB5 } from './grade5book5'
 import { KINDS as KB5FIG } from './grade5book5Figures'
+import { KINDS as K8A } from './grade8puisor1'
+import { KINDS as K8B } from './grade8puisor2'
+import { KINDS as K8C } from './grade8puisor3'
 import { KINDS as KFIG, CONTEST as CFIG } from './grade5drawn'
 
 export type Level = 1 | 2 | 3 | 4
@@ -1100,6 +1103,30 @@ GENERATORS.push(
   ...fromKinds(5, [...PUISOR.filter((k) => !k.joins), ...DRAWN.filter((k) => JOINED.has(k.id))]),
   ...[...CPU1, ...CPU2, ...CPU3, ...CPU4, ...CFIG].map((k) => contest(k.id, 5, k.label, k.forms)),
 )
+
+// grade VIII algebra after the workbook "cu puișorul" (pp. 9–55), photographed on 25 November 2026: new kinds, and forms
+// added after those of the existing kinds (so that the forms on saved sheets keep their numbers)
+/** Where each of these forms ended up: its kind, level and number (for the tests of the workbook, `tests8.ts`). */
+export const FORM8 = new Map<Form, { gen: string; level: Level; form: number }>()
+for (const k of [...K8A, ...K8B, ...K8C]) {
+  const i = k.joins ? GENERATORS.findIndex((g) => g.id === k.joins) : -1
+  const g = i < 0 ? null : GENERATORS[i]
+  for (const l of [1, 2, 3] as const) k.forms[l].forEach((f, n) => FORM8.set(f, { gen: g?.id ?? k.id, level: l, form: (g?.forms(l) ?? 0) + n }))
+  if (!g) {
+    GENERATORS.push(fromForms(k.id, k.label, k.topic, k.forms))
+    continue
+  }
+  const more = (l: Level): Form[] => (l === 4 ? [] : k.forms[l])
+  GENERATORS[i] = {
+    ...g,
+    forms: (l) => g.forms(l) + more(l).length,
+    make(rng, l, form) {
+      const own = g.forms(l), n = own + more(l).length
+      const f = (((form ?? Math.floor(rng() * n)) % n) + n) % n
+      return f < own ? g.make(rng, l, f) : more(l)[f - own](rng)
+    },
+  }
+}
 
 // ---------- high school, for the baccalaureate (from 12 November 2026) ----------
 

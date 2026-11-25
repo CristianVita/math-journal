@@ -43,7 +43,11 @@ export function splitExercises(raw: string): string[] {
 export function spacedLines(text: string): string {
   const blocks: string[] = []
   const kept = text.replace(/\$\$[\s\S]*?\$\$/g, (m) => `\u0000${blocks.push(m) - 1}\u0000`)
-  return kept.replace(/([^\n])\n(?=[^\n])/g, '$1\n\n').replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[Number(i)])
+  // the rows of a table stay together, or it is no longer a table (25 November 2026)
+  const row = (l: string) => /^\s*\|.*\|\s*$/.test(l)
+  const all = kept.split('\n')
+  const spaced = all.map((l, i) => (i + 1 === all.length ? l : l + (l && all[i + 1] && !(row(l) && row(all[i + 1])) ? '\n\n' : '\n'))).join('')
+  return spaced.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[Number(i)])
 }
 
 /** The formulas of a piece of text that KaTeX could not draw, for a warning beside the exercise. */

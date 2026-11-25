@@ -40,7 +40,7 @@ const BOOKS: EnModel[] = [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13
  * comes from (the book and its own name) is shown under it. The results of the students follow the id, not the name.
  */
 const originOf = (m: EnModel, i: number) =>
-  i < 9 ? 'culegerea de modele, ' + m.title.replace('Model E.N. ', 'modelul ') : i < 16 ? 'manualul, ' + m.title.replace('Testul', 'testul') : m.title.replace('Testul', 'testul')
+  i < 9 ? 'culegerea de modele, ' + m.title.replace('Model E.N. ', 'modelul ') : i < 16 ? 'manualul „Matematică. Clasa a VIII-a”, ' + m.title.replace('Testul', 'testul') : 'culegerea ' + m.title.replace('Testul', 'testul')
 export const BUILTIN: EnModel[] = BOOKS.map((m, i) => ({ ...m, title: `Model E.N. ${i + 1}`, origin: originOf(m, i) }))
 
 /** Kept in the database, in LOCAL_KEYS, so they go into the backup. */

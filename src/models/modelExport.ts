@@ -3,10 +3,13 @@
 import { renderMathMarkdown } from '../components/MathText'
 import { A4, pagePictures } from '../worksheets/worksheetExport'
 import { figureSvg } from './figure'
-import { LETTERS, SUBJECTS, choicesText, startsSubject, subjectOf, type EnItem, type EnModel } from './types'
+import { LETTERS, SUBJECTS, answerText, answeredBy, choicesText, startsSubject, subjectOf, type EnItem, type EnModel } from './types'
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 const md = (s: string) => renderMathMarkdown(s)
+
+/** In a generated model, where an exercise of a book comes from. */
+const fromBook = (it: EnItem) => (it.book ? ` <span class="en-from">(din ${esc(it.book.title)}, ex. ${it.book.n})</span>` : '')
 
 export function itemHtml(item: EnItem, i: number, withAnswer = false, starts?: [number, number]): string {
   const three = subjectOf(i, starts) === 2
@@ -19,14 +22,17 @@ export function itemHtml(item: EnItem, i: number, withAnswer = false, starts?: [
     const ans = item.sol ? item.sol : item.choices && item.ans != null
       ? `${LETTERS[item.ans]}) ${item.choices[item.ans]}`
       : (item.parts ?? []).map((p, k) => `${LETTERS[k]}) ${p.ans ?? '—'}`).join('<br>')
-    if (ans) body += `<div class="en-answer">${md('**Barem:** ' + ans)}</div>`
+    if (ans) body += `<div class="en-answer">${md('**Barem:** ' + ans)}${fromBook(item)}</div>`
   }
   const fig = item.fig ? `<div class="en-fig">${figureSvg(item.fig)}</div>` : ''
   return `<div class="en-item">${three ? '<span class="en-pts en-pts-none"></span>' : '<span class="en-pts">5p</span>'}<span class="en-num">${i + 1}.</span><div class="en-body">${body}</div>${fig}</div>`
 }
 
-export const subjectHtml = (s: number, own = false, generated = false) =>
-  `<div class="en-subject"><b>${SUBJECTS[s].title}.</b> <i>${generated && s < 2 ? 'Scrieți rezultatul, cu un calcul scurt.' : SUBJECTS[s].hint}</i> ${own ? '' : '<i>(30 de puncte)</i>'}</div>`
+const WRITTEN = { choices: '', written: 'Scrieți rezultatul, cu un calcul scurt.', both: 'Încercuiește litera răspunsului corect, unde sunt variante; altfel scrieți rezultatul, cu un calcul scurt.' }
+
+/** The title of a subject; `by`: how its exercises are answered (`answeredBy`). */
+export const subjectHtml = (s: number, own = false, by: 'choices' | 'written' | 'both' = 'choices') =>
+  `<div class="en-subject"><b>${SUBJECTS[s].title}.</b> <i>${WRITTEN[by] || SUBJECTS[s].hint}</i> ${own ? '' : '<i>(30 de puncte)</i>'}</div>`
 
 export interface PrintOptions {
   student: string
@@ -72,12 +78,12 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
     `<div class="ws-print-meta"><span>Nume: ${opt.student ? `<b>${esc(opt.student)}</b>` : '<span class="ws-print-blank"></span>'}</span><span>Data: ${esc(opt.date)}</span></div></div>`,
   )
   model.items.forEach((item, i) => {
-    if (startsSubject(i, model.starts)) place(subjectHtml(subjectOf(i, model.starts), model.own, model.generated), true)
+    if (startsSubject(i, model.starts)) place(subjectHtml(subjectOf(i, model.starts), model.own, answeredBy(model, subjectOf(i, model.starts))), true)
     place(itemHtml(item, i, false, model.starts))
   })
   if (!model.own) place('<div class="en-note">Toate subiectele sunt obligatorii. Se acordă 10 puncte din oficiu. Timp de lucru: 2 ore.</div>')
 
-  if (opt.barem && model.items.some((it) => it.ans != null || it.parts?.some((p) => p.ans))) {
+  if (opt.barem && model.items.some((it) => it.ans != null || it.sol || it.parts?.some((p) => p.ans))) {
     newPage()
     place(`<div class="ws-print-head"><div class="ws-print-title">Barem — ${esc(model.title)}</div></div>`)
     place(baremHtml(model))
@@ -87,7 +93,7 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
 
 /** The answer key: subjects I and II as letters in a row, subject III part by part. */
 export function baremHtml(model: EnModel): string {
-  if (model.generated) return `<div class="en-barem">${model.items.map((it, k) => `<div class="en-barem-item"><b>${k + 1}.</b> ${md(it.sol ?? '—')}</div>`).join('')}</div>`
+  if (model.generated) return `<div class="en-barem">${model.items.map((it, k) => `<div class="en-barem-item"><b>${k + 1}.</b> ${md(answerText(it).replace(/^Răspuns: /, '') || '—')}${fromBook(it)}</div>`).join('')}</div>`
   const [s2, s3] = model.starts ?? [6, 12]
   const grid = (from: number, to: number) =>
     `<div class="en-barem-row">${model.items.slice(from, to).map((it, k) =>

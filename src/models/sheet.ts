@@ -2,18 +2,20 @@
 import { readLocal, writeLocal } from '../db'
 import { SHEET_KEY, newExercise, type SheetItem } from '../worksheets/WorksheetsPage'
 import { matchName, similarForms } from '../worksheets/similar'
+import { DEFAULT_TITLE, headAfter } from '../worksheets/sheetTitle'
 
 const todayRo = () => new Date().toLocaleDateString('ro-RO')
 
 /** Adds the exercises at the end of the worksheet (the Fișe page reads it when it opens). */
 export function appendToSheet(made: SheetItem[]) {
-  let sheet: { items?: SheetItem[] } = {}
+  let sheet: { items?: SheetItem[]; title?: string; date?: string } = {}
   try {
     sheet = JSON.parse(readLocal(SHEET_KEY) ?? '{}')
   } catch {
     /* unreadable: the worksheet page starts a new one anyway */
   }
-  writeLocal(SHEET_KEY, JSON.stringify({ title: 'Fișă de lucru', studentId: null, date: todayRo(), space: 1, solutions: true, ...sheet, items: [...(sheet.items ?? []), ...made] }))
+  const head = headAfter({ title: sheet.title ?? DEFAULT_TITLE, date: sheet.date ?? todayRo(), items: sheet.items ?? [] }, null, todayRo())
+  writeLocal(SHEET_KEY, JSON.stringify({ studentId: null, space: 1, solutions: true, ...sheet, ...head, items: [...(sheet.items ?? []), ...made] }))
 }
 
 /**

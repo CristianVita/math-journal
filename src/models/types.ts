@@ -24,6 +24,8 @@ export interface EnItem {
   sol?: string
   /** a generated exercise: its kind and level, so that "Încă unul la fel" puts another of the same kind in its place */
   gen?: { id: string; level: 1 | 2 | 3 | 4 }
+  /** in a generated model, an exercise taken from a book model: which one, its number there and its name */
+  book?: { model: string; n: number; title: string }
   fig?: Fig
 }
 
@@ -40,6 +42,8 @@ export interface EnModel {
   starts?: [number, number]
   /** made by the app from its own kinds (`generated.ts`): written out, the key is the solutions */
   generated?: boolean
+  /** a generated model: the student it was made for, so that the next ones do not repeat its exercises (`seenBy`) */
+  studentId?: number
   /** where a model of a book comes from, shown under its name: "Perianu, testul 3" */
   origin?: string
 }
@@ -55,6 +59,15 @@ const STARTS: Starts = [6, 12]
 
 /** 0, 1 or 2: the subject of the exercise at this place. */
 export const subjectOf = (i: number, starts: Starts = STARTS) => (i < starts[0] ? 0 : i < starts[1] ? 1 : 2)
+
+/** How the exercises of a subject are answered: in a generated model, written out, chosen from a)–d), or some of each. */
+export function answeredBy(model: EnModel, s: number): 'choices' | 'written' | 'both' {
+  if (!model.generated || s === 2) return 'choices'
+  const [s2, s3] = model.starts ?? STARTS
+  const items = model.items.slice([0, s2, s3][s], [s2, s3, model.items.length][s])
+  const n = items.filter((it) => it.choices).length
+  return n === items.length ? 'choices' : n === 0 ? 'written' : 'both'
+}
 
 /** Whether a subject begins at this exercise. */
 export const startsSubject = (i: number, starts: Starts = STARTS) => i === 0 || i === starts[0] || i === starts[1]

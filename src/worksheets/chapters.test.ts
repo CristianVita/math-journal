@@ -15,7 +15,7 @@ describe('chapters', () => {
 
   it('puts the solids where they belong', () => {
     const book = bookExercises()
-    const cube = book.find((b) => b.where === 'Testul 1, ex. 18')!
+    const cube = book.find((b) => b.where === 'Model E.N. 10, ex. 18')!
     expect(cube.chapters).toContain('space')
   })
 })

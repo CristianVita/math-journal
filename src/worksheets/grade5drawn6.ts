@@ -123,7 +123,8 @@ function poolFence(rng: Rng): Made {
   return {
     text: lines(
       `O piscină $ACDB$, cu lungimea $AC = ${L}\\text{ m}$ și lățimea $AB = ${l}\\text{ m}$, trebuie împrejmuită ca în schema alăturată: gardul $MNPQ$ este paralel cu marginile piscinei, la distanța de $${dx(d)}\\text{ m}$ de ele. Pentru împrejmuire se folosesc panouri dreptunghiulare, toate cu aceeași lungime, care acoperă exact fiecare latură a gardului.`,
-      `a) Calculați perimetrul dreptunghiului $MNPQ$. b) Lungimea unui panou, exprimată printr-un număr întreg de centimetri, trebuie să fie cea mai mare posibilă. Aflați lungimea panoului și numărul de panouri.`,
+      `a) Calculați perimetrul dreptunghiului $MNPQ$.`,
+      `b) Lungimea unui panou, exprimată printr-un număr întreg de centimetri, trebuie să fie cea mai mare posibilă. Aflați lungimea panoului și numărul de panouri.`,
     ),
     solution: lines(
       `a) Fiecare latură a gardului este mai lungă cu $2 \\cdot ${dx(d)} = ${dx(2 * d)}\\text{ m}$ decât latura piscinei:`,
@@ -131,7 +132,7 @@ function poolFence(rng: Rng): Made {
       show(`\\mathcal{P}_{MNPQ} = 2 \\cdot (${dx(side1 / 100)} + ${dx(side2 / 100)}) = ${dx(per / 100)}\\text{ m}`),
       `b) În centimetri, laturile au $${side1}\\text{ cm}$ și $${side2}\\text{ cm}$. Panoul trebuie să încapă de un număr exact de ori în fiecare latură, deci lungimea lui este cel mai mare divizor comun:`,
       show(`(${side1}, ${side2}) = ${g} \\Rightarrow l = ${g}\\text{ cm}`),
-      show(`\\text{numarul de panouri} = ${per} : ${g} = ${n}`),
+      `Numărul de panouri este $${per} : ${g} = ${n}$.`,
     ),
     verify: () => side1 % g === 0 && side2 % g === 0 && gcd(side1 / g, side2 / g) === 1 && n * g === per,
     fig,

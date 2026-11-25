@@ -746,7 +746,7 @@ export function d3AxesTotal(rng: Rng): Made {
   const fig = shapesRow(sh.map((s, i) => ({ pts: s.pts, tag: tags[i] })), 130, 104, true)
   const total = sh.reduce((s, x) => s + x.axes, 0)
   return {
-    text: `În figura alăturată sunt desenate: a) ${sh[0].name}; b) ${sh[1].name}; c) ${sh[2].name}. Câte axe de simetrie are fiecare figură? Câte axe de simetrie au în total?`,
+    text: lines('În figura alăturată sunt desenate:', `a) ${sh[0].name};`, `b) ${sh[1].name};`, `c) ${sh[2].name}.`, 'Câte axe de simetrie are fiecare figură? Câte axe de simetrie au în total?'),
     solution: lines(
       ...sh.map((s, i) => `${tags[i]} ${s.axes === 0 ? 'Nu are nicio axă de simetrie.' : `${s.axes === 1 ? 'O axă' : `${s.axes} axe`} de simetrie: ${s.how}.`}`),
       show(`${sh.map((s) => s.axes).join(' + ')} = ${total}\\text{ axe de simetrie}`),
@@ -872,7 +872,7 @@ export function d3PolygonsPerimeter(rng: Rng): Made {
     return allEq ? `${ss.length} \\cdot ${T(ss[0])}` : terms.join(' + ')
   }
   return {
-    text: `În figura alăturată sunt desenate: a) ${sh[0].name}; b) ${sh[1].name}. Lungimile scrise pe figură sunt în centimetri. Aflați perimetrul fiecărei figuri.`,
+    text: lines('În figura alăturată sunt desenate:', `a) ${sh[0].name};`, `b) ${sh[1].name}.`, 'Lungimile scrise pe figură sunt în centimetri. Aflați perimetrul fiecărei figuri.'),
     solution: lines(
       'Perimetrul unui poligon este suma lungimilor tuturor laturilor (laturile egale ale pătratului, rombului, dreptunghiului, paralelogramului se iau de câte ori apar):',
       ...tags.map((tag, i) => show(`\\text{${tag} } P = ${how(sides[i])} = ${cm(P[i])}`)),

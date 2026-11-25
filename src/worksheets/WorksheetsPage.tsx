@@ -11,7 +11,9 @@ import { seeded } from './tex'
 import { sheetPictures } from './worksheetExport'
 import { PHOTO_PROMPT, brokenFormulas, spacedLines, splitExercises } from './fromPhoto'
 import { figureFor } from './figures'
-import { CHAPTERS, bookExercises, type BookExercise } from './chapters'
+import { TESTS8 } from './tests8'
+import { headAfter, titleWhenEmpty } from './sheetTitle'
+import { CHAPTERS, bookExercises, chapterForms, type BookExercise } from './chapters'
 import { figureSvg } from '../models/figure'
 import { isDesktop } from '../platform'
 import katex from 'katex'
@@ -181,7 +183,7 @@ export default function WorksheetsPage() {
       made.push(item)
       avoid.add(fingerprint(item.text))
     }
-    setSheet((s) => ({ ...s, items: [...s.items, ...made], recent: remember(s.recent, made) }))
+    if (made.length) setSheet((s) => ({ ...s, ...headAfter(s, genId === 'mix' ? null : ofGrade.find((g) => g.id === genId)?.label ?? null, todayRo()), items: [...s.items, ...made], recent: remember(s.recent, made) }))
     if (made.length < count) {
       await ask(`Am adăugat ${made.length} din ${count}: ${genId === 'mix' ? 'tipurile clasei nu mai au' : 'tipul ales nu mai are'}, la acest nivel, alte exerciții diferite de cele de pe fișă, iar exercițiile nu se repetă. Alege alt tip sau alt nivel pentru restul.`, '', true)
     }
@@ -200,7 +202,8 @@ export default function WorksheetsPage() {
     const fromBook = chBook
       ? bookExercises().filter((b) => b.chapters.includes(ch.id) && !onSheet.has(`${b.source.model}#${b.source.n}`)).sort(() => Math.random() - 0.5)
       : []
-    const gens = chGen ? GENERATORS.filter((g) => ch.gens.includes(g.id) && g.forms(chLevel) > 0) : []
+    const forms = chGen ? chapterForms(ch, chLevel) : []
+    const gens = [...new Set(forms.map((f) => f.gen))]
     const fromBookItem = (b: BookExercise): SheetItem => ({ id: uid(), text: b.text, solution: b.solution, source: b.source, grade: 8, figure: b.fig ? figureSvg(b.fig) : undefined })
     // half from the book and half generated, when both are wanted
     const nBook = gens.length ? (chBook ? Math.ceil(chCount / 2) : 0) : chCount
@@ -208,41 +211,70 @@ export default function WorksheetsPage() {
     let tries = 0
     while (made.length < chCount && gens.length && tries < chCount * 4) {
       const g = gens[tries++ % gens.length]
-      const item = makeFresh(g.id, chLevel, Math.floor(Math.random() * g.forms(chLevel)), avoid)
+      const own = forms.filter((f) => f.gen === g)
+      // only the forms of the chapter: another form of the kind may be about something else
+      const item = makeFresh(g, chLevel, own[Math.floor(Math.random() * own.length)].form, avoid, true)
       if (!item) continue
       made.push(item)
       avoid.add(fingerprint(item.text))
     }
     // when the generated ones run out, more from the book
     for (const b of fromBook.slice(nBook)) if (made.length < chCount) made.push(fromBookItem(b))
-    setSheet((s) => ({ ...s, items: [...s.items, ...made], recent: remember(s.recent, made.filter((x) => 'gen' in x.source)) }))
+    if (made.length) setSheet((s) => ({ ...s, ...headAfter(s, ch.title, todayRo()), items: [...s.items, ...made], recent: remember(s.recent, made.filter((x) => 'gen' in x.source)) }))
     if (made.length < chCount) {
       await ask(`Am adăugat ${made.length} din ${chCount}: pentru capitolul „${ch.title}” nu mai sunt alte exerciții${chBook && chGen ? '' : chBook ? ' în culegere' : ' generate'} diferite de cele de pe fișă.${!ch.gens.length ? ' Capitolul acesta are exerciții doar în culegere.' : ''}`, '', true)
     }
+  }
+
+  // ---------- a test of the grade VIII workbook, with new numbers (25 November 2026) ----------
+  const [testId, setTestId] = useState(TESTS8[0].id)
+  const fillTest = async () => {
+    const t = TESTS8.find((x) => x.id === testId)
+    if (!t) return
+    const avoid = new Set([...(sheet.recent ?? []), ...sheet.items.map((x) => fingerprint(x.text))])
+    const made: SheetItem[] = []
+    for (const it of t.items) {
+      const n = GENERATORS.find((g) => g.id === it.gen)?.forms(it.level) ?? 1
+      const item = makeFresh(it.gen, it.level, it.form ?? Math.floor(Math.random() * n), avoid)
+      if (!item) continue
+      made.push(item)
+      avoid.add(fingerprint(item.text))
+    }
+    if (made.length) setSheet((s) => ({ ...s, ...headAfter(s, t.title, todayRo()), items: [...s.items, ...made], recent: remember(s.recent, made) }))
+    if (made.length < t.items.length) await ask(`Am adăugat ${made.length} din ${t.items.length} exerciții: restul nu mai au numere diferite de cele folosite.`, '', true)
   }
 
   /** The fingerprints of the last RECENT exercises, after adding `made`. */
   const remember = (recent: string[] | undefined, made: SheetItem[]) => [...(recent ?? []), ...made.map((x) => fingerprint(x.text))].slice(-RECENT)
 
   // ---------- the sheet ----------
-  const patchItems = (f: (items: SheetItem[]) => SheetItem[]) => setSheet((s) => ({ ...s, items: f(s.items) }))
-  /** Another exercise of the same kind and level, in a different form when there is one. */
-  const another = (item: SheetItem) => {
+  const patchItems = (f: (items: SheetItem[]) => SheetItem[]) => setSheet((s) => {
+    const items = f(s.items)
+    return { ...s, items, title: items.length ? s.title : titleWhenEmpty(s.title) }
+  })
+  /**
+   * The same exercise with other numbers: the same form (asked for on 25 November 2026; before, it went to another
+   * form). Only when the form has nothing new left, and the user agrees, another form of the same kind.
+   */
+  const another = async (item: SheetItem) => {
     if (!('gen' in item.source)) return
     const { gen, level: lv, form } = item.source
-    const others = sheet.items.filter((x) => x.id !== item.id)
-    let f = nextForm(gen, lv, others)
-    const n = GENERATORS.find((x) => x.id === gen)?.forms(lv) ?? 1
-    if (n > 1 && f === form) f = (f + 1 + Math.floor(Math.random() * (n - 1))) % n
+    const f = form ?? nextForm(gen, lv, sheet.items.filter((x) => x.id !== item.id))
     const avoid = new Set([...(sheet.recent ?? []), ...sheet.items.map((x) => fingerprint(x.text))])
-    const next = makeFresh(gen, lv, f, avoid)
+    let next = makeFresh(gen, lv, f, avoid, true)
+    if (!next) {
+      const other = makeFresh(gen, lv, f, avoid)
+      if (other && !(await confirm('Exercițiul acesta nu mai are alte numere diferite de cele folosite. Pun în locul lui alt exercițiu din același tip?', 'Pune altul'))) return
+      next = other
+    }
     if (!next) return void ask('Tipul acesta nu mai are, la acest nivel, alt exercițiu diferit de cele de pe fișă.', '', true)
-    setSheet((s) => ({ ...s, items: s.items.map((x) => (x.id === item.id ? { ...next, id: item.id } : x)), recent: remember(s.recent, [next]) }))
+    const made = next
+    setSheet((s) => ({ ...s, items: s.items.map((x) => (x.id === item.id ? { ...made, id: item.id } : x)), recent: remember(s.recent, [made]) }))
   }
   const clearAll = async () => {
     if (!sheet.items.length) return
-    if (await confirm(`Scoți toate cele ${sheet.items.length} exerciții de pe fișă? Titlul, elevul și data rămân; exercițiile din bancă nu se ating.`, 'Golește lista')) {
-      setSheet((s) => ({ ...s, items: [], recent: [] }))
+    if (await confirm(`Scoți toate cele ${sheet.items.length} exerciții de pe fișă? Elevul și data rămân, la fel și titlul scris de tine; exercițiile din bancă nu se ating.`, 'Golește lista')) {
+      setSheet((s) => ({ ...s, title: titleWhenEmpty(s.title), items: [], recent: [] }))
     }
   }
   const move = (i: number, d: -1 | 1) => patchItems((items) => {
@@ -273,7 +305,7 @@ export default function WorksheetsPage() {
   const toBank = (item: SheetItem) => {
     setBank((b) => [{ id: uid(), grade: item.grade ?? null, text: item.text, solution: item.solution, createdAt: Date.now() }, ...b])
   }
-  const fromBank = (b: BankItem) => patchItems((items) => [...items, { id: uid(), text: b.text, solution: b.solution, source: { bank: b.id }, grade: b.grade ?? undefined }])
+  const fromBank = (b: BankItem) => setSheet((s) => ({ ...s, ...headAfter(s, null, todayRo()), items: [...s.items, { id: uid(), text: b.text, solution: b.solution, source: { bank: b.id }, grade: b.grade ?? undefined }] }))
 
   // ---------- from a photo of a workbook, through a free chat (12 November 2026) ----------
   const [photo, setPhoto] = useState<{ raw: string; items: string[] } | null>(null)
@@ -290,7 +322,7 @@ export default function WorksheetsPage() {
   const photoToSheet = () => {
     if (!photo?.items.length) return
     const made: SheetItem[] = photo.items.map((text) => ({ id: uid(), text, solution: '', source: { own: true }, grade }))
-    setSheet((s) => ({ ...s, items: [...s.items, ...made] }))
+    setSheet((s) => ({ ...s, ...headAfter(s, null, todayRo()), items: [...s.items, ...made] }))
     setPhoto(null)
     setCopied(null)
   }
@@ -405,6 +437,23 @@ export default function WorksheetsPage() {
               <label className="ws-check"><input type="checkbox" checked={chBook} onChange={(e) => setChBook(e.target.checked)} /> Din culegere (modele E.N., teste, recapitulare)</label>
               <label className="ws-check"><input type="checkbox" checked={chGen} onChange={(e) => setChGen(e.target.checked)} /> Generate de aplicație</label>
               <button className="btn primary" disabled={!chBook && !chGen} onClick={fillChapter}>Adaugă pe fișă</button>
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-title">Test de evaluare (clasa a VIII-a, algebră)</div>
+            <div className="ws-form">
+              <label className="field">Testul
+                <select value={testId} onChange={(e) => setTestId(e.target.value)}>
+                  {[...new Set(TESTS8.map((t) => t.group))].map((g) => (
+                    <optgroup key={g} label={g}>
+                      {TESTS8.filter((t) => t.group === g).map((t) => <option key={t.id} value={t.id}>{t.title} ({t.items.length} ex.)</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+              <p className="muted small">După testele culegerii, cu alte numere de fiecare dată.</p>
+              <button className="btn primary" onClick={fillTest}>Adaugă pe fișă</button>
             </div>
           </section>
 
@@ -543,7 +592,7 @@ export default function WorksheetsPage() {
                     {item.figure && <div className="ws-fig" dangerouslySetInnerHTML={{ __html: item.figure }} />}
                   </div>
                   <div className="ws-item-tools">
-                    {'gen' in item.source && <button className="btn small" onClick={() => another(item)} title="Un alt exercițiu de același fel">↻ Altul</button>}
+                    {'gen' in item.source && <button className="btn small" onClick={() => another(item)} title="Același fel de exercițiu, cu alte numere">↻ Altul</button>}
                     {item.figure
                       ? <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: undefined } : x)))} title="Scoate figura: elevul o desenează singur">Fără figură</button>
                       : canDraw(item) && <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: drawFor(x) } : x)))} title="Desenează figura după enunț">Figură</button>}

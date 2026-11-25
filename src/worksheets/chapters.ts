@@ -8,24 +8,33 @@ import { answerText, itemText } from '../models/types'
 import { recapAnswer, recapText } from '../models/recap'
 import type { Fig } from '../models/figure'
 import { similarForms } from './similar'
+import { GENERATORS, type Level } from './generators'
 
-export interface Chapter { id: string; title: string; gens: string[] }
+/** `skip`: forms of a kind that do not belong to the chapter, as "level/form" */
+export interface Chapter { id: string; title: string; gens: string[]; skip?: Record<string, string[]> }
 
 export const CHAPTERS: Chapter[] = [
-  { id: 'numbers', title: 'Numere: operații, puteri, fracții, divizibilitate', gens: ['v-ops', 'v-powers', 'v-fractions', 'v-decimals', 'vi-fractions', 'vi-integers', 'viii-numbers', 'v-division', 'v-divisibility', 'vi-sets', 'vi-gcd-lcm', 'vii-real-numbers', 'v-writing-numbers', 'v-compare-round', 'v-addition', 'v-subtraction', 'v-powers-digits', 'v-bases', 'v-add-sub', 'v-multiplication', 'v-division-exact', 'v-remainder', 'v-ops-brackets', 'v-power-rules', 'v-power-compare', 'v-perfect-squares', 'v-fraction-mult', 'v-fraction-order', 'v-fraction-props', 'v-decimal-writing', 'v-decimal-order', 'v-decimal-add-sub', 'v-decimal-multiply', 'v-decimal-powers', 'v-decimal-periodic', 'v-decimal-division', 'v-decimal-order-ops', 'v-final-naturals', 'v-final-fractions', 'v-final-tests', 'v-final-recap-numbers', 'v-number-line', 'v-fraction-figures'] },
+  { id: 'numbers', title: 'Numere: operații, puteri, fracții, divizibilitate', gens: ['v-ops', 'v-powers', 'v-fractions', 'v-decimals', 'vi-fractions', 'vi-integers', 'viii-numbers', 'viii-sets', 'viii-intervals', 'v-division', 'v-divisibility', 'vi-sets', 'vi-gcd-lcm', 'vii-real-numbers', 'v-writing-numbers', 'v-compare-round', 'v-addition', 'v-subtraction', 'v-powers-digits', 'v-bases', 'v-add-sub', 'v-multiplication', 'v-division-exact', 'v-remainder', 'v-ops-brackets', 'v-power-rules', 'v-power-compare', 'v-perfect-squares', 'v-fraction-mult', 'v-fraction-order', 'v-fraction-props', 'v-decimal-writing', 'v-decimal-order', 'v-decimal-add-sub', 'v-decimal-multiply', 'v-decimal-powers', 'v-decimal-periodic', 'v-decimal-division', 'v-decimal-order-ops', 'v-final-naturals', 'v-final-fractions', 'v-final-tests', 'v-final-recap-numbers', 'v-number-line', 'v-fraction-figures'] },
   { id: 'radicals', title: 'Radicali', gens: ['vii-radicals', 'viii-radicals'] },
   { id: 'percent', title: 'Rapoarte, proporții, procente', gens: ['vi-percent', 'vi-proportion', 'vi-ratios'] },
-  { id: 'data', title: 'Date, medii, probabilități', gens: ['viii-data', 'v-mean-units', 'v-mean-applied', 'v-statistics'] },
-  { id: 'algebra', title: 'Calcul algebric: expresii, descompuneri', gens: ['viii-expressions', 'viii-factoring', 'vii-algebra'] },
+  { id: 'data', title: 'Date, medii, probabilități', gens: ['viii-data', 'v-mean-units', 'v-mean-applied', 'v-statistics'],
+    // units of measure, journeys, shopping lists: not data (the user met a coach journey here, 25 November 2026)
+    skip: { 'v-mean-units': ['1/1', '1/2', '2/1', '2/2', '3/2'], 'v-statistics': ['1/6', '3/0', '3/2', '3/5', '3/6'], 'viii-data': ['3/3'] } },
+  { id: 'algebra', title: 'Calcul algebric: expresii, descompuneri', gens: ['viii-expressions', 'viii-factoring', 'vii-algebra', 'viii-literal', 'viii-formulas', 'viii-alg-fractions'] },
   { id: 'equations', title: 'Ecuații, inecuații, sisteme', gens: ['vii-linear', 'viii-inequality', 'viii-system', 'viii-quadratic', 'v-equations', 'vi-equations', 'vii-equations'] },
   { id: 'problems', title: 'Probleme cu text', gens: ['viii-problems', 'v-problems', 'v-recap-grade4', 'v-unit-method', 'v-comparison-method', 'v-figurative-method', 'v-backwards-method', 'v-false-hypothesis', 'v-recap-tests', 'v-everyday', 'v-decimal-methods', 'v-final-methods'] },
-  { id: 'function', title: 'Funcția liniară', gens: ['viii-function'] },
+  { id: 'function', title: 'Funcții. Funcția liniară', gens: ['viii-function', 'viii-functions'] },
   { id: 'triangles', title: 'Unghiuri și triunghiuri: Pitagora, Thales, trigonometrie', gens: ['vi-angles', 'vii-pythagoras', 'vii-thales', 'vii-trig', 'v-geometry', 'vi-triangle', 'vii-metric', 'v-points-lines', 'v-segment-length', 'v-midpoint-symmetric', 'v-angle-measure', 'v-angle-calc', 'v-symmetry-axis', 'v-final-geometry', 'v-count-figures'] },
   { id: 'quads', title: 'Patrulatere și arii', gens: ['v-rectangle', 'vii-areas', 'vii-quadrilaterals', 'v-length-perimeter', 'v-area-units', 'v-final-recap-figures'] },
   { id: 'circle', title: 'Cercul', gens: ['vi-lines-circle', 'vii-circle'] },
   { id: 'solids', title: 'Corpuri: arii și volume', gens: ['viii-solids', 'viii-cuboid', 'viii-prisms', 'viii-pyramids', 'viii-round', 'viii-frustums', 'viii-elements', 'v-volume-units', 'v-final-measures'] },
   { id: 'space', title: 'Distanțe și unghiuri în spațiu', gens: ['viii-space', 'viii-dihedral'] },
 ]
+
+/** The generated forms of a chapter at a level. */
+export const chapterForms = (c: Chapter, level: Level) => GENERATORS.filter((g) => c.gens.includes(g.id))
+  .map((g) => ({ gen: g.id, forms: Array.from({ length: g.forms(level) }, (_, f) => f).filter((f) => !c.skip?.[g.id]?.includes(`${level}/${f}`)) }))
+  .flatMap((x) => x.forms.map((form) => ({ gen: x.gen, form })))
 
 const byGen = new Map(CHAPTERS.flatMap((c) => c.gens.map((g) => [g, c.id] as const)))
 
@@ -40,15 +49,19 @@ export function chaptersOf(text: string): string[] {
     return out.length ? out : ['solids']
   }
   if (/\bcerc|\barc/.test(t)) return ['circle']
+  if (/imaginii funcției|tabelul de valori/.test(t)) return ['function']
+  if (/valoarea raportului/.test(t) && /\\sqrt/.test(text)) return ['radicals']
+  // two temperatures compared are integers, not data
+  if (/temperatur/.test(t) && !/medi[aei]|tabel|grafic|figur|diagram|temperaturi/.test(t)) return [/raportul/.test(t) ? 'percent' : 'numbers']
   if (/probabilit|media (?:aritmetică )?a (?:notelor|elevului)|tabel/.test(t) && !/patru elevi au calculat/.test(t)) return ['data']
   const m = similarForms(text, 1)[0]
-  if (m && byGen.has(m.gen)) return [byGen.get(m.gen)!]
+  if (m && byGen.has(m.gen) && (byGen.get(m.gen) !== 'data' || /medi|\bnot[ae]\b|notel|tabel|grafic|diagram|probabil/.test(t))) return [byGen.get(m.gen)!]
   if (/secant|drepte(?:le)? paralele|unghi|triunghi|simetric|coliniar|segment/.test(t) || /\\sphericalangle|\\triangle/.test(text)) return ['triangles']
   if (/paralelogram|dreptunghi(?!c)|pătrat|romb|trapez/.test(t)) return ['quads']
   // the short ones, which no kind is like: by what they ask
   if (/\\sqrt/.test(text)) return ['radicals']
   if (/soluția ecuației|ecuați/.test(t) || /\$[^$]*x[^$]*=[^$]*\$/.test(text)) return ['equations']
-  if (/minute|\bora\b|lei|km/.test(t)) return ['problems']
+  if (/minute|\bora\b|lei|km|probleme/.test(t)) return ['problems']
   return ['numbers']
 }
 
