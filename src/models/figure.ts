@@ -44,7 +44,9 @@ const OFF: Record<Exclude<Dir, 'c'>, Pt> = {
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 /** "A'" is written A′, as in the book. */
-const letter = (name: string) => esc(name.replace(/''/g, '″').replace(/'/g, '′'))
+/** A point's name as SVG text: primes as ′ and ″, the digits as an index (A1 → A₁). */
+const letter = (name: string) =>
+  esc(name.replace(/''/g, '″').replace(/'/g, '′')).replace(/(\d+)/g, '<tspan font-size="10" dy="3">$1</tspan>')
 
 function chains(spec: string | undefined, fig: Fig): Pt[][] {
   if (!spec) return []
@@ -134,13 +136,34 @@ export function figureSvg(fig: Fig): string {
     parts.push(`<circle cx="${fmt(x)}" cy="${fmt(y)}" r="2" fill="#111"/>`)
   }
 
-  // the letters: away from the middle of the figure, unless told where
+  // the letters: away from the middle of the figure, unless told where; a letter that would sit on a line, a circle,
+  // a point or another letter turns round its point to the nearest free place (26 November 2026, asked for)
   const names = Object.keys(fig.p)
   const mid: Pt = names.length ? [names.reduce((s, n) => s + fig.p[n][0], 0) / names.length, names.reduce((s, n) => s + fig.p[n][1], 0) / names.length] : [0, 0]
+  const lines: [Pt, Pt][] = []
+  for (const pts of [...chains(fig.s, fig), ...chains(fig.d, fig)]) for (let i = 1; i < pts.length; i++) lines.push([pts[i - 1], pts[i]])
+  if (fig.axes) {
+    const { o, x, y } = fig.axes
+    lines.push([[x[0], o[1]], [x[1], o[1]]], [[o[0], y[0]], [o[0], y[1]]])
+  }
+  const rings = (fig.c ?? []).map((c) => ({ o: at(fig, c.at), r: c.r }))
+  const placed: Pt[] = []
+  const dots = names.filter((n) => fig.l?.[n] !== '').map((n) => fig.p[n])
+  /** how much a letter centred at q is in the way (0: free) */
+  const clash = (q: Pt, own: Pt) => {
+    const R = 7.5
+    let bad = 0
+    for (const [a, b] of lines) bad += Math.max(0, R - distToSegment(q, a, b)) ** 2
+    for (const { o, r } of rings) bad += Math.max(0, R - Math.abs(Math.hypot(q[0] - o[0], q[1] - o[1]) - r)) ** 2
+    for (const d of dots) if (d !== own) bad += Math.max(0, R + 1 - Math.hypot(q[0] - d[0], q[1] - d[1])) ** 2
+    for (const p of placed) bad += Math.max(0, 2 * R - Math.hypot(q[0] - p[0], q[1] - p[1])) ** 2
+    return bad
+  }
   for (const name of names) {
     const want = fig.l?.[name]
     if (want === '') continue
-    const [x, y] = fig.p[name]
+    const own = fig.p[name]
+    const [x, y] = own
     let off: Pt
     if (want === 'c') off = [0, 0]
     else if (want) off = OFF[want]
@@ -149,9 +172,23 @@ export function figureSvg(fig: Fig): string {
       const dy = y - mid[1]
       const len = Math.hypot(dx, dy) || 1
       off = [dx / len, dy / len]
+      const away = off
+      const score = (o: Pt, k: number) => clash([x + o[0] * k, y + o[1] * k], own) * 4 - (o[0] * away[0] + o[1] * away[1]) - (k - 10) * 0.1
+      let best = { o: off, k: 10, s: score(off, 10) }
+      if (best.s > -1 + 1e-9) {
+        for (const k of [10, 13]) {
+          for (let i = 0; i < 24; i++) {
+            const o: Pt = [Math.cos((i * Math.PI) / 12), Math.sin((i * Math.PI) / 12)]
+            const s = score(o, k)
+            if (s < best.s) best = { o, k, s }
+          }
+        }
+      }
+      off = [best.o[0] * (best.k / 10), best.o[1] * (best.k / 10)]
     }
     const lx = x + off[0] * 10
     const ly = y + off[1] * 10 + 5
+    placed.push([lx, ly - 5])
     parts.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" text-anchor="middle" font-style="italic" font-size="14">${letter(name)}</text>`)
   }
   for (const t of fig.t ?? []) {
@@ -272,6 +309,13 @@ export function solid(p3: Record<string, P3>, faces: string, w: number, opt: Omi
     s: join(edges(true), segs.filter(segSeen).join(' '), more.s),
     d: join(edges(false), segs.filter((sg) => !segSeen(sg)).join(' '), more.d),
   }
+}
+
+function distToSegment(q: Pt, a: Pt, b: Pt): number {
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)))
+  return Math.hypot(q[0] - a[0] - t * dx, q[1] - a[1] - t * dy)
 }
 
 function unit(p: Pt, v: Pt): Pt {

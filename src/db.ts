@@ -138,8 +138,33 @@ export function readLocal(key: string): string | null {
   return cache.get(key) ?? null
 }
 
+// Several windows of the app (or tabs in the browser) share the database: what one writes is told to the others,
+// which take it into memory and tell their open pages (`onLocalChange`), so that none writes back an old copy.
+const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('math-journal:local')
+const listeners = new Map<string, Set<() => void>>()
+if (channel) {
+  channel.onmessage = (e: MessageEvent<{ key: string; value: string }>) => {
+    const { key, value } = e.data
+    if (cache.get(key) === value) return
+    // the window that wrote it saves it; here it is only taken into memory
+    cache.set(key, value)
+    dirty.delete(key)
+    listeners.get(key)?.forEach((f) => f())
+  }
+}
+
+/** Calls `f` when another window changed `key`; returns the way to stop. */
+export function onLocalChange(key: string, f: () => void): () => void {
+  if (!listeners.has(key)) listeners.set(key, new Set())
+  listeners.get(key)!.add(f)
+  return () => listeners.get(key)?.delete(f)
+}
+
 export function writeLocal(key: string, value: string) {
+  // the same as it is: nothing to save, nothing to tell (a page writing back what another window sent)
+  if (cache.get(key) === value) return
   cache.set(key, value)
+  channel?.postMessage({ key, value })
   if (fallback) {
     try {
       localStorage.setItem(key, value)

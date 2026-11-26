@@ -10,11 +10,11 @@ import NotebookPage from './notebook/NotebookPage'
 import WorksheetsPage from './worksheets/WorksheetsPage'
 import ModelsPage from './models/ModelsPage'
 import { emptyScene, type Scene } from './geometry/types'
-import { db, flushLocal, localSaveFailed, readLocal, writeLocal } from './db'
+import { db, flushLocal, localSaveFailed, onLocalChange, readLocal, writeLocal } from './db'
 import { autoBackup } from './backup'
 import './symbols/insert'
 import { usePrompt } from './components/PromptDialog'
-import { isDesktop } from './platform'
+import { isDesktop, isExtraWindow, openWindow } from './platform'
 
 type Page = 'journal' | 'board' | 'notebook' | 'worksheets' | 'models' | 'trig' | 'calculus' | 'symbols'
 
@@ -31,12 +31,14 @@ function loadBoard(): Scene {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>('journal')
+  // a window opened with "Fereastră nouă" starts on the page it was opened from
+  const [page, setPage] = useState<Page>(() => (new URLSearchParams(location.search).get('page') as Page | null) ?? 'journal')
   const [studentId, setStudentId] = useState<number>()
   const [sessionId, setSessionId] = useState<number>()
   const [board, setBoard] = useState<Scene>(loadBoard)
 
   useEffect(() => writeLocal(BOARD_KEY, JSON.stringify(board)), [board])
+  useEffect(() => onLocalChange(BOARD_KEY, () => setBoard(loadBoard())), [])
 
   // desktop app: ask before closing the window. Everything is saved as you go, so the question is only a
   // guard against closing by mistake; after "Închide" it waits a moment for saves still under way.
@@ -45,7 +47,8 @@ export default function App() {
   confirmRef.current = confirm
   // the automatic backup on the desktop: at the start, then checked every half hour
   useEffect(() => {
-    if (!isDesktop()) return
+    // one window does the backup: the main one
+    if (!isDesktop() || isExtraWindow()) return
     const first = setTimeout(autoBackup, 5000)
     const every = setInterval(autoBackup, 30 * 60 * 1000)
     return () => {
@@ -61,6 +64,13 @@ export default function App() {
       const win = getCurrentWindow()
       unlisten = await win.onCloseRequested(async (e) => {
         e.preventDefault()
+        // another window of the app: it closes without asking, once its saves are written
+        if (isExtraWindow()) {
+          await new Promise((r) => setTimeout(r, 500))
+          await flushLocal()
+          await win.destroy()
+          return
+        }
         if (asking) return
         asking = true
         const close = await confirmRef.current('Închizi aplicația?', 'Închide', false, {
@@ -123,6 +133,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button className="nav new-window" title="Deschide pagina aceasta într-o fereastră nouă (de exemplu pe celălalt ecran)" onClick={() => openWindow(page)}>
+          <span className="nav-icon">⧉</span> Fereastră nouă
+        </button>
       </header>
       <div className="main">
         {page === 'journal' && (

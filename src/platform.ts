@@ -2,6 +2,24 @@
 
 export const isDesktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
+/** A window opened with "Fereastră nouă" (the address says so): no backup, closes without asking. */
+export const isExtraWindow = () => typeof location !== 'undefined' && new URLSearchParams(location.search).has('window')
+
+/**
+ * Opens the app once more on `page`, for a second screen. Desktop: a new window of the app (label `extra-…`, allowed
+ * in `capabilities/default.json`); web: a new tab. Both share the data with this one (`onLocalChange` in `db.ts`).
+ */
+export async function openWindow(page: string) {
+  const url = `index.html?window=1&page=${encodeURIComponent(page)}`
+  if (!isDesktop()) {
+    window.open(new URL(url, location.href).href, '_blank')
+    return
+  }
+  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+  const win = new WebviewWindow(`extra-${Date.now()}`, { url, title: 'Jurnal Meditații', width: 1200, height: 800, minWidth: 900, minHeight: 600 })
+  win.once('tauri://error', (e) => console.error('Fereastra nouă nu s-a deschis', e))
+}
+
 /**
  * Save a file chosen by the user. Desktop: native "Save as" dialog; web: regular browser download.
  * Returns false when the user cancelled the dialog.

@@ -2,7 +2,7 @@
 // sheet with a title, the student and the date, and printed as PDF or Word, with the solutions on separate pages.
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, readLocal, writeLocal } from '../db'
+import { db, onLocalChange, readLocal, writeLocal } from '../db'
 import MathText from '../components/MathText'
 import { usePrompt } from '../components/PromptDialog'
 import { saveDocx, savePdf, today } from '../export/exportDoc'
@@ -132,6 +132,12 @@ export default function WorksheetsPage() {
   const [bank, setBank] = useState<BankItem[]>(() => load(BANK_KEY, () => ({ items: [] as BankItem[] })).items)
   useEffect(() => writeLocal(SHEET_KEY, JSON.stringify(sheet)), [sheet])
   useEffect(() => writeLocal(BANK_KEY, JSON.stringify({ items: bank })), [bank])
+  // another window changed them: take its version, so that this one does not write back an old copy
+  useEffect(() => {
+    const a = onLocalChange(SHEET_KEY, () => setSheet(load(SHEET_KEY, emptySheet)))
+    const b = onLocalChange(BANK_KEY, () => setBank(load(BANK_KEY, () => ({ items: [] as BankItem[] })).items))
+    return () => { a(); b() }
+  }, [])
   const students = useLiveQuery(() => db.students.orderBy('name').toArray(), []) ?? []
   const student = students.find((s) => s.id === sheet.studentId)
   const { ask, confirm, dialog } = usePrompt()
@@ -228,6 +234,7 @@ export default function WorksheetsPage() {
 
   // ---------- a test of the grade VIII workbook, with new numbers (25 November 2026) ----------
   const [testId, setTestId] = useState(TESTS8[0].id)
+  const testGroup = (TESTS8.find((t) => t.id === testId) ?? TESTS8[0]).group
   const fillTest = async () => {
     const t = TESTS8.find((x) => x.id === testId)
     if (!t) return
@@ -443,15 +450,19 @@ export default function WorksheetsPage() {
           <section className="card">
             <div className="card-title">Test de evaluare (clasa a VIII-a, algebră)</div>
             <div className="ws-form">
-              <label className="field">Testul
-                <select value={testId} onChange={(e) => setTestId(e.target.value)}>
-                  {[...new Set(TESTS8.map((t) => t.group))].map((g) => (
-                    <optgroup key={g} label={g}>
-                      {TESTS8.filter((t) => t.group === g).map((t) => <option key={t.id} value={t.id}>{t.title} ({t.items.length} ex.)</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-              </label>
+              {/* the chapter, then its tests by number (26 November 2026: one list of „Chapter, testul N (k ex.)” was too long) */}
+              <div className="field-row">
+                <label className="field">Capitolul
+                  <select value={testGroup} onChange={(e) => setTestId(TESTS8.find((t) => t.group === e.target.value)!.id)}>
+                    {[...new Set(TESTS8.map((t) => t.group))].map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </label>
+                <label className="field ws-test-n">Testul
+                  <select value={testId} onChange={(e) => setTestId(e.target.value)}>
+                    {TESTS8.filter((t) => t.group === testGroup).map((t, i) => <option key={t.id} value={t.id} title={`${t.items.length} exerciții`}>{i + 1}</option>)}
+                  </select>
+                </label>
+              </div>
               <p className="muted small">După testele culegerii, cu alte numere de fiecare dată.</p>
               <button className="btn primary" onClick={fillTest}>Adaugă pe fișă</button>
             </div>

@@ -7,9 +7,9 @@ import { saveFile } from '../platform'
 import { rasterize, saveDocx, savePdf, svgElementPicture, today } from '../export/exportDoc'
 import GeometryBoard, { SHEET_ORIGIN } from '../geometry/GeometryBoard'
 import { dist, resolve } from '../geometry/engine'
-import { emptyScene, type GObj, type Scene } from '../geometry/types'
+import { emptyScene, type GObj, type PointObj, type Scene } from '../geometry/types'
 import { usePrompt } from '../components/PromptDialog'
-import { readLocal, writeLocal } from '../db'
+import { onLocalChange, readLocal, writeLocal } from '../db'
 import { eraseLine } from './erase'
 import { boxOf, inside, rectOf, shifted, straightEnds, takesBox, takesLine, unionOf, type Rect } from './selection'
 import { defaultInstruments, InstrumentsLayer, PX_PER_CM, type Bounds, type Instruments } from './instruments'
@@ -17,6 +17,7 @@ import { SolidIcon, ToolIcon } from '../components/ToolIcon'
 import { InstrumentsBar, linePoints, round, useInstruments } from './useInstruments'
 import { SHAPES, shapePoints, shapeStrokes, type ShapeId } from './shapes'
 import { SOLIDS, solidObjects, solidStrokes, type SolidId } from './solids'
+import { fieldLabel, fitCorners, measureShape, SHAPE_FIELDS, solveShape } from './fitShape'
 
 type Tool = 'pen' | 'marker' | 'text' | 'shape' | 'geometry' | 'eraser' | 'select'
 type Paper = 'grid' | 'lines' | 'blank'
@@ -55,7 +56,10 @@ interface Notebook {
 }
 
 /** What the pointer is doing between pointerdown and pointerup; 'inst' = an instrument has it. */
-interface Active { pointerId: number; start: number[]; before: Item[]; sceneBefore?: Scene; mode: 'draw' | 'erase' | 'inst' | 'note' | 'shape' | 'lasso' | 'drag'; note?: Note }
+interface Active { pointerId: number; start: number[]; before: Item[]; sceneBefore?: Scene; mode: 'draw' | 'erase' | 'inst' | 'note' | 'shape' | 'lasso' | 'drag' | 'corner'; note?: Note
+  /** a corner of a figure being dragged: the figure (its group), which corner, and whether it has moved yet */
+  fig?: { group: string; index: number; moved: boolean }
+}
 
 /** The text being typed; id is null for a new one. */
 interface NoteEdit { page: number; id: string | null; color: string; size: number; x: number; y: number; text: string }
@@ -485,6 +489,75 @@ export default function NotebookPage() {
   const newStroke = (points: number[][], pressure: boolean): Stroke =>
     ({ id: uid(), tool: tool as Stroke['tool'], color: colors[tool as Stroke['tool']], size, points, pressure })
 
+  // ---------- the figures of a page fitted to the data, and their letters (26 November 2026, asked for by the user) ----------
+  const toWorld = (p: number[]): [number, number] => [(p[0] - SHEET_ORIGIN.x) / PX_PER_CM, (SHEET_ORIGIN.y - p[1]) / PX_PER_CM]
+  /** The corners of a figure drawn with Figuri, in order (A, B, C…). */
+  const figureCorners = (objects: GObj[], group: string) => objects
+    .filter((o): o is PointObj => o.type === 'point' && o.group === group && o.corner !== undefined && !o.hidden)
+    .sort((a, b) => a.corner! - b.corner!)
+  /** A corner of a figure at (x, y) on the sheet; not a solid's, a circle's or the ends of a ruler line. */
+  const cornerAt = (x: number, y: number): PointObj | null => {
+    const hit = scene.objects.find((o): o is PointObj => o.type === 'point' && !!o.group && !!o.locked && !o.hidden && !o.at3
+      && o.corner !== undefined && Math.hypot(toPx([o.x, o.y])[0] - x, toPx([o.x, o.y])[1] - y) <= 10)
+    if (!hit || scene.objects.some((o) => o.type === 'point' && o.group === hit.group && (o.rim || o.ball))) return null
+    return hit
+  }
+  /**
+   * The figure with its corners at `next` (on the sheet): its sides, which are ink, drawn again, and its points moved,
+   * with all that is built on them. Null when its sides are no longer on the page as they were drawn.
+   */
+  const reshape = (group: string, next: number[][], page: Item[], before: Scene): { page: Item[]; scene: Scene } | null => {
+    const pts = figureCorners(before.objects, group)
+    const old = pts.map((p) => toPx([p.x, p.y]))
+    const n = pts.length
+    const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 3
+    const redrawn = new Map<string, number[][]>()
+    for (let i = 0; i < (n === 2 ? 1 : n); i++) {
+      const [p, q] = [old[i], old[(i + 1) % n]]
+      const side = page.find((it) => it.tool !== 'text' && !redrawn.has(it.id) && it.points.length > 1
+        && ((near(it.points[0], p) && near(it.points[it.points.length - 1], q)) || (near(it.points[0], q) && near(it.points[it.points.length - 1], p))))
+      if (!side) return null
+      const to = next[(i + 1) % n]
+      redrawn.set(side.id, linePoints(next[i], to[0], to[1]))
+    }
+    const moved = new Map(pts.map((p, i) => [p.id, toWorld(next[i])]))
+    return {
+      page: page.map((it) => (it.tool !== 'text' && redrawn.has(it.id) ? { ...it, points: redrawn.get(it.id)! } : it)),
+      scene: { ...before, objects: before.objects.map((o) => (o.type === 'point' && moved.has(o.id) ? { ...o, x: moved.get(o.id)![0], y: moved.get(o.id)![1] } : o)) },
+    }
+  }
+  const showReshaped = (r: { page: Item[]; scene: Scene }) => setNb((n) => ({
+    ...n,
+    pages: n.pages.map((p, i) => (i === n.current ? r.page : p)),
+    scenes: n.scenes.map((sc, i) => (i === n.current ? r.scene : sc)),
+  }))
+  // the panel of a figure: its letters and, for the figures that have them, its data
+  const [figEdit, setFigEdit] = useState<{ group: string; values: string[]; error?: string } | null>(null)
+  useEffect(() => setFigEdit(null), [nb.current])
+  const numText = (x: number) => String(x).replace('.', ',')
+  const openFigure = (pts: PointObj[]) => {
+    const shape = pts[0]?.shape as ShapeId | undefined
+    const values = shape && SHAPE_FIELDS[shape] ? measureShape(shape, pts.map((q) => toPx([q.x, q.y])), PX_PER_CM) : []
+    setFigEdit({ group: pts[0].group!, values: values.map(numText) })
+  }
+  const renameCorner = (id: string, label: string) => setNb((n) => ({
+    ...n,
+    scenes: n.scenes.map((sc, i) => (i === n.current ? { ...sc, objects: sc.objects.map((o) => (o.id === id && o.type === 'point' ? { ...o, label } : o)) } : sc)),
+  }))
+  const fitFigure = () => {
+    if (!figEdit) return
+    const pts = figureCorners(scene.objects, figEdit.group)
+    const shape = pts[0]?.shape as ShapeId | undefined
+    if (!shape) return
+    const solved = solveShape(shape, figEdit.values.map((v) => Number(v.replace(',', '.').trim())))
+    if (typeof solved === 'string') return setFigEdit({ ...figEdit, error: solved })
+    const r = reshape(figEdit.group, fitCorners(solved, pts.map((q) => toPx([q.x, q.y]))), strokes, scene)
+    if (!r) return setFigEdit({ ...figEdit, error: 'Nu mai găsesc laturile figurii pe pagină (au fost mutate sau șterse cu radiera).' })
+    remember(nb.current, strokes, scene)
+    showReshaped(r)
+    setFigEdit({ ...figEdit, error: undefined })
+  }
+
   const instStroke = ({ points, thin }: { points: number[][]; thin?: boolean }): Stroke =>
     ({ id: uid(), tool: 'pen', color: colors.pen, size: thin ? 1.5 : SIZES.pen[sizeIdx.pen], points, pressure: true })
 
@@ -535,6 +608,8 @@ export default function NotebookPage() {
   const latest = useRef(nb)
   latest.current = nb
   useEffect(() => () => saveNotebook(latest.current), [])
+  // another window wrote the notebook: take its version
+  useEffect(() => onLocalChange(KEY, () => setNb(load())), [])
 
   const typing = editing !== null
   useEffect(() => {
@@ -736,8 +811,13 @@ export default function NotebookPage() {
       active.current = { ...base, start: (shape === 'segment' && segFrom.current) || p, mode: 'shape' }
       segFrom.current = null
     } else if (tool === 'select') {
-      // a press on the selection drags it; anywhere else it starts a new rectangle
-      if (selBox && inside(selBox, p[0], p[1])) active.current = { ...base, sceneBefore: nb.scenes[nb.current], mode: 'drag' }
+      // a press on a corner of a figure: a click opens its panel, a drag changes its shape; on the selection it drags
+      // the selection; anywhere else it starts a new rectangle
+      const corner = cornerAt(p[0], p[1])
+      if (corner) {
+        const index = figureCorners(nb.scenes[nb.current].objects, corner.group!).findIndex((q) => q.id === corner.id)
+        active.current = { ...base, sceneBefore: nb.scenes[nb.current], mode: 'corner', fig: { group: corner.group!, index, moved: false } }
+      } else if (selBox && inside(selBox, p[0], p[1])) active.current = { ...base, sceneBefore: nb.scenes[nb.current], mode: 'drag' }
       else {
         setSelected([])
         active.current = { ...base, mode: 'lasso' }
@@ -767,6 +847,16 @@ export default function NotebookPage() {
     if (!a || a.pointerId !== e.pointerId) return
     if (a.mode === 'inst') return inst.move(e.pointerId, px, py, e.shiftKey)
     if (a.mode === 'lasso') return setMarquee(rectOf(a.start, [px, py]))
+    if (a.mode === 'corner' && a.fig && a.sceneBefore) {
+      // a slip of the hand while clicking is not a move
+      if (!a.fig.moved && Math.hypot(px - a.start[0], py - a.start[1]) < 4) return
+      a.fig.moved = true
+      const next = figureCorners(a.sceneBefore.objects, a.fig.group).map((q) => toPx([q.x, q.y]))
+      next[a.fig.index] = [round(px), round(py)]
+      const r = reshape(a.fig.group, next, a.before, a.sceneBefore)
+      if (r) showReshaped(r)
+      return
+    }
     if (a.mode === 'drag') {
       const [dx, dy] = [px - a.start[0], py - a.start[1]]
       const sb = a.sceneBefore
@@ -811,6 +901,12 @@ export default function NotebookPage() {
     // the pointer may have left the instrument during the drag: don't keep its cursor until the next move
     const [ux, uy] = pointAt(e)
     inst.hoverAt(ux, uy, instDraw)
+    if (a.mode === 'corner') {
+      if (a.fig?.moved) {
+        if (nb.pages[nb.current] !== a.before) remember(nb.current, a.before, a.sceneBefore)
+      } else if (a.fig) openFigure(figureCorners(nb.scenes[nb.current].objects, a.fig.group))
+      return
+    }
     if (a.mode === 'shape') {
       // a click without a drag on Segment is its first point: the segment follows the mouse until the next click
       if (shape === 'segment' && e.type === 'pointerup' && Math.hypot(ux - a.start[0], uy - a.start[1]) < 4) {
@@ -834,6 +930,9 @@ export default function NotebookPage() {
         if (!solid) setPage(nb.current, [...a.before, ...shapeStrokes(shape as ShapeId, a.start, ux, uy).map((points): Stroke =>
           ({ id: uid(), tool: 'pen', color: colors.shape, size, points, pressure: true }))])
         setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? { ...s, objects: [...s.objects, ...added] } : s)) }))
+        // its letters and data, to fit it to the problem right away (round figures have nothing to fit)
+        const corners = added.filter((o): o is PointObj => o.type === 'point' && !o.hidden)
+        if (!solid && shape !== 'circle' && shape !== 'ellipse' && corners.length) openFigure(corners)
       }
       return
     }
@@ -999,6 +1098,41 @@ export default function NotebookPage() {
         <div ref={setGeometryBar} />
 
         <InstrumentsBar inst={inst} />
+
+        {figEdit && (() => {
+          const pts = figureCorners(scene.objects, figEdit.group)
+          if (!pts.length) return null
+          const shape = pts[0].shape as ShapeId | undefined
+          const fields = (shape && SHAPE_FIELDS[shape]) || []
+          const letters = pts.map((p) => p.label)
+          return (
+            // over the top of the sheet, so that the page does not jump when it opens
+            <div className="nb-figure-anchor"><div className="nb-figure-bar">
+              <b>{SHAPES.find((x) => x.id === shape)?.label ?? 'Figura'} {letters.join('')}</b>
+              <span className="muted">Literele:</span>
+              {pts.map((p) => (
+                <input key={p.id} className="nb-fig-letter" value={p.label} maxLength={3} aria-label={'Litera vârfului ' + (p.corner! + 1)}
+                  onChange={(e) => renameCorner(p.id, e.target.value)} />
+              ))}
+              {fields.length > 0 && (
+                <>
+                  <span className="muted">Datele:</span>
+                  {fields.map((f, i) => (
+                    <label key={i} className="nb-fig-field">{fieldLabel(f, letters)} =
+                      <input inputMode="decimal" value={figEdit.values[i] ?? ''}
+                        onChange={(e) => setFigEdit({ ...figEdit, values: figEdit.values.map((v, j) => (j === i ? e.target.value : v)), error: undefined })}
+                        onKeyDown={(e) => { if (e.key === 'Enter') fitFigure() }} />
+                    </label>
+                  ))}
+                  <button className="btn small primary" onClick={fitFigure} title="Desenează figura din nou cu aceste date, în proporție, în același loc">Potrivește figura</button>
+                </>
+              )}
+              <span className="muted">{fields.length ? 'sau trage de vârfuri cu Cursorul' : 'Trage de vârfuri cu Cursorul ca să-i schimbi forma.'}</span>
+              {figEdit.error && <span className="nb-fig-error">{figEdit.error}</span>}
+              <button className="btn small" onClick={() => setFigEdit(null)}>Închide</button>
+            </div></div>
+          )
+        })()}
 
         <div className="notebook-sheet-wrap" ref={wrapRef} onScroll={syncFloating}>
         <div style={frame ? { width: frame.w * zoom, height: frame.h * zoom } : { height: '100%' }}>

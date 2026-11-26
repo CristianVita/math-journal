@@ -1,13 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core APIs, closing the window after the in-app confirmation, save and folder dialogs, writing the file the user picked, and the automatic backup into the folder the user chose (written, listed, old copies removed)",
+  "description": "Main window and the windows opened with \"Fereastră nouă\" (extra-…), which the main window can create: core APIs, closing the window after the in-app confirmation, save and folder dialogs, writing the file the user picked, and the automatic backup into the folder the user chose (written, listed, old copies removed)",
   "windows": [
-    "main"
+    "main",
+    "extra-*"
   ],
   "permissions": [
     "core:default",
     "core:window:allow-destroy",
+    "core:webview:allow-create-webview-window",
     "dialog:allow-save",
     "dialog:allow-open",
     "fs:allow-write-file",

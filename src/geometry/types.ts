@@ -54,6 +54,8 @@ export interface PointObj {
   joins?: number[]
   /** the center of a circle of the solid: which two corners, from here, are its two axes */
   rim?: [number, number]
+  /** a corner of a figure drawn in the notebook (`SHAPES` in notebook/shapes.ts): which figure, to fit it to data */
+  shape?: string
   /** the center of a sphere: which three corners, from here, are its three axes */
   ball?: [number, number, number]
   /** a corner of the section of a solid: the holder of the solid's frame, and which edge it sits on */

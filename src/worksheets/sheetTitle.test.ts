@@ -110,7 +110,7 @@ describe('the exercises belong under the title', () => {
     expect(solid('O prismă triunghiulară are toate muchiile egale. Aflați aria laterală.')).toEqual(['solids'])
     for (const b of bookExercises()) {
       if (b.chapters.includes('radicals')) expect(b.text, b.where).not.toMatch(/\sphericalangle|\triangle|figura/)
-      if (b.chapters.includes('circle')) expect(b.text, b.where).toMatch(/cerc|hexagon|mathcal{C}|înscris/i)
+      if (b.chapters.includes('circle')) expect(b.text, b.where).toMatch(/cerc|hexagon|mathcal{C}|înscris|coard|arcul|arcele/i)
       if (b.chapters.includes('function')) expect(b.text, b.where).toMatch(/funcți|reper|axe/)
     }
   })

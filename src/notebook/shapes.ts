@@ -13,7 +13,8 @@ export const SHAPES = [
   { id: 'rectangle', label: 'Dreptunghi' },
   { id: 'parallelogram', label: 'Paralelogram' },
   { id: 'rhombus', label: 'Romb' },
-  { id: 'trapezoid', label: 'Trapez' },
+  { id: 'trapezoid', label: 'Trapez isoscel' },
+  { id: 'trapezoidAny', label: 'Trapez oarecare' },
   { id: 'rightTrapezoid', label: 'Trapez dreptunghic' },
   { id: 'kite', label: 'Zmeu' },
   { id: 'circle', label: 'Cerc' },
@@ -56,6 +57,8 @@ function shapeGeometry(shape: ShapeId, a: number[], x: number, y: number) {
     parallelogram: [[l + k, t], [r, t], [r - k, b], [l, b]],
     rhombus: [[mx, t], [r, my], [mx, b], [l, my]],
     trapezoid: [[l + k, t], [r - k, t], [r, b], [l, b]],
+    // a trapezoid that is neither isosceles nor right (asked for on 26 November 2026)
+    trapezoidAny: [[l + (r - l) * 0.12, t], [r - (r - l) * 0.38, t], [r, b], [l, b]],
     // the same for the right trapezoid: its right angles stay on the side where the drag started
     rightTrapezoid: x < ax ? [[r, t], [l + k, t], [l, b], [r, b]] : [[l, t], [r - k, t], [r, b], [l, b]],
     kite: [[mx, t], [r, t + (b - t) * 0.3], [mx, b], [l, t + (b - t) * 0.3]],
@@ -95,7 +98,7 @@ export function shapePoints(
   const { primed, letter } = labelMaker(objects)
   const point = (at: number[], label: string, corner: number, more: Partial<PointObj>): PointObj => {
     const [px, py] = place(at)
-    return { id: uid(), type: 'point', x: px, y: py, label, dep: { kind: 'free' }, corner, ...extra, ...more }
+    return { id: uid(), type: 'point', x: px, y: py, label, dep: { kind: 'free' }, corner, shape, ...extra, ...more }
   }
   if (g.center) {
     const [mx, my] = g.center

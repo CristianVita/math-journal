@@ -1,5 +1,5 @@
 // The solids that the figures use again and again: their points in space and their faces, for `solid`.
-import type { P3, Pt } from '../figure'
+import { plane, type Fig, type P3, type Pt } from '../figure'
 
 export const BOX = "A-B-C-D A'-B'-C'-D' A-B-B'-A' B-C-C'-B' C-D-D'-C' D-A-A'-D'"
 /** A rectangular box (or a cube): AB along x, BC into the page, AA′ up. */
@@ -29,3 +29,12 @@ export const TETRA = (x: string, y: string, z: string, t: string) => `${x}-${y}-
 
 /** A point on a circle, as in mathematics (y up): `deg` degrees, radius r, centre c. */
 export const pol = (deg: number, r = 1, c: Pt = [0, 0]): Pt => [c[0] + r * Math.cos((deg * Math.PI) / 180), c[1] + r * Math.sin((deg * Math.PI) / 180)]
+
+/**
+ * A function's graph on coordinate axes, as in mathematics (y up): the axes go from x0 to x1 and from y0 to y1, O is
+ * the origin; the other points and the rest are as for `plane`.
+ */
+export const graph = (pts: Record<string, Pt>, w: number, [x0, x1]: Pt, [y0, y1]: Pt, more: Omit<Fig, 'w' | 'h' | 'p'> = {}): Fig => {
+  const f = plane({ ...pts, O: [0, 0], ax0: [x0, 0], ax1: [x1, 0], ay0: [0, y0], ay1: [0, y1] }, w, { ...more, l: { O: 'sw', ax0: '', ax1: '', ay0: '', ay1: '', ...more.l } })
+  return { ...f, axes: { o: f.p.O, x: [f.p.ax0[0], f.p.ax1[0]], y: [f.p.ay0[1], f.p.ay1[1]], xl: 'x', yl: 'y' } }
+}

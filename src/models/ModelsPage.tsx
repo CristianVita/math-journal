@@ -3,7 +3,7 @@
 // exercise by exercise onto the worksheet (12 November 2026, asked for by the user).
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db'
+import { db, onLocalChange } from '../db'
 import MathText from '../components/MathText'
 import { usePrompt } from '../components/PromptDialog'
 import { saveDocx, savePdf, today } from '../export/exportDoc'
@@ -13,7 +13,7 @@ import { isDesktop } from '../platform'
 import katex from 'katex'
 import { figureSvg } from './figure'
 import { itemHtml, modelPictures, subjectHtml } from './modelExport'
-import { BUILTIN, loadOwn, loadResults, saveOwn, saveResults, type EnResult } from './store'
+import { BUILTIN, loadOwn, loadResults, OWN_KEY, RESULTS_KEY, saveOwn, saveResults, type EnResult } from './store'
 import { answerText, answeredBy, itemText, startsSubject, subjectOf, type EnModel } from './types'
 import RecapView from './RecapView'
 import { bookItem, bookKey, generateModel, GEN_KINDS, makeItem, seenBy, type GenKind } from './generated'
@@ -39,6 +39,18 @@ Reguli:
 - Nu rezolva exercițiile și nu adăuga comentarii sau explicații.
 - Dacă o parte din poză nu se citește, scrie [ilizibil] în locul ei.`
 
+/** The list of models, by book (26 November 2026, asked for: the long list buried the cards below it). */
+const GROUPS: { id: string; label: string; has: (m: EnModel) => boolean }[] = [
+  { id: 'models', label: 'Culegerea de modele', has: (m) => !m.own && !!m.origin?.startsWith('culegerea de modele') },
+  { id: 'manual', label: 'Manualul de clasa a VIII-a', has: (m) => !m.own && !!m.origin?.startsWith('manualul') },
+  { id: 'perianu', label: 'Culegerea Perianu', has: (m) => !m.own && !!m.origin?.startsWith('culegerea Perianu') },
+  { id: 'p45', label: 'Culegerea Paralela 45', has: (m) => !m.own && !!m.origin?.startsWith('culegerea Paralela 45') },
+  { id: 'own', label: 'Modelele tale', has: () => true },
+]
+const groupOf = (m: EnModel) => GROUPS.find((g) => g.has(m))!.id
+/** "culegerea Perianu, testul 3" → "testul 3": the book is already the group's name. */
+const shortOrigin = (m: EnModel) => m.origin?.replace(/^[^,]*,\s*/, '')
+
 export default function ModelsPage() {
   // the generated models before 23 November 2026 were all called "Model generat (date)": they get numbers
   const [own, setOwn] = useState<EnModel[]>(() => {
@@ -48,9 +60,25 @@ export default function ModelsPage() {
   const [results, setResults] = useState<EnResult[]>(loadResults)
   useEffect(() => saveOwn(own), [own])
   useEffect(() => saveResults(results), [results])
+  useEffect(() => {
+    const a = onLocalChange(OWN_KEY, () => setOwn(loadOwn()))
+    const b = onLocalChange(RESULTS_KEY, () => setResults(loadResults()))
+    return () => { a(); b() }
+  }, [])
   const models = useMemo(() => [...BUILTIN, ...own], [own])
   const [modelId, setModelId] = useState(models[0]?.id ?? '')
   const model = models.find((m) => m.id === modelId) ?? models[0]
+  // the groups shown open: the one of the chosen model, and the ones opened by hand
+  const [opened, setOpened] = useState<Set<string>>(() => new Set(model ? [groupOf(model)] : []))
+  useEffect(() => {
+    if (model) setOpened((o) => (o.has(groupOf(model)) ? o : new Set([...o, groupOf(model)])))
+  }, [model?.id])
+  const toggleGroup = (id: string) => setOpened((o) => {
+    const n = new Set(o)
+    if (n.has(id)) n.delete(id)
+    else n.add(id)
+    return n
+  })
   const students = useLiveQuery(() => db.students.orderBy('name').toArray(), []) ?? []
   const [studentId, setStudentId] = useState<number | null>(null)
   const student = students.find((s) => s.id === studentId)
@@ -185,20 +213,53 @@ export default function ModelsPage() {
                 {students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </label>
-            <ul className="en-list">
-              {models.map((m) => {
-                const d = done(m.id)
-                const last = d[d.length - 1]
+            <div className="en-groups">
+              {GROUPS.map((g) => {
+                const list = models.filter((m) => groupOf(m) === g.id)
+                if (!list.length) return null
+                const open = opened.has(g.id)
+                const solved = studentId != null ? list.filter((m) => done(m.id).length).length : 0
                 return (
-                  <li key={m.id}>
-                    <button className={'en-list-item' + (m.id === model?.id ? ' active' : '')} onClick={() => setModelId(m.id)}>
-                      <span>{m.title}{m.origin && <span className="en-origin">{m.origin}</span>}{madeFor(m) && <span className="en-origin">pentru {madeFor(m)}</span>}</span>
-                      {last && <span className="en-done" title={d.map((r) => `${r.date}${r.score != null ? `: ${r.score} p` : ''}`).join('\n')}>✓ {last.score != null ? `${last.score} p` : last.date}</span>}
+                  <div key={g.id} className="en-group">
+                    <button className={'en-group-head' + (open ? ' open' : '')} aria-expanded={open} onClick={() => toggleGroup(g.id)}>
+                      <span className="en-caret">{open ? '▾' : '▸'}</span>
+                      <span className="en-group-name">{g.label}</span>
+                      <span className="en-group-count">{solved ? `✓ ${solved} / ` : ''}{list.length}</span>
                     </button>
-                  </li>
+                    {open && g.id !== 'own' && (
+                      <div className="en-chips">
+                        {list.map((m) => {
+                          const d = done(m.id)
+                          const last = d[d.length - 1]
+                          const tip = `${m.title}, ${m.origin}` + (last ? `\nRezolvat: ${d.map((r) => `${r.date}${r.score != null ? ` (${r.score} p)` : ''}`).join(', ')}` : '')
+                          return (
+                            <button key={m.id} title={tip} className={'en-chip' + (m.id === model?.id ? ' active' : '') + (last ? ' done' : '')} onClick={() => setModelId(m.id)}>
+                              {shortOrigin(m)?.match(/\d+/)?.[0] ?? m.title}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {open && g.id === 'own' && (
+                      <ul className="en-list">
+                        {list.map((m) => {
+                          const d = done(m.id)
+                          const last = d[d.length - 1]
+                          return (
+                            <li key={m.id}>
+                              <button className={'en-list-item' + (m.id === model?.id ? ' active' : '')} onClick={() => setModelId(m.id)}>
+                                <span>{m.title}{m.origin && <span className="en-origin">{shortOrigin(m)}</span>}{madeFor(m) && <span className="en-origin">pentru {madeFor(m)}</span>}</span>
+                                {last && <span className="en-done" title={d.map((r) => `${r.date}${r.score != null ? `: ${r.score} p` : ''}`).join('\n')}>✓ {last.score != null ? `${last.score} p` : last.date}</span>}
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
                 )
               })}
-            </ul>
+            </div>
           </section>
 
           <section className="card">

@@ -69,7 +69,10 @@ export function chaptersOf(text: string): string[] {
   if (/temperatur/.test(t) && !/medi[aei]|tabel|grafic|figur|diagram|temperaturi/.test(t)) return [/raportul/.test(t) ? 'percent' : 'numbers']
   if (/probabilit|media (?:aritmetică )?a (?:notelor|elevului)|tabel/.test(t) && !/patru elevi au calculat/.test(t)) return ['data']
   const m = similarForms(text, 1)[0]
-  if (m && byGen.has(m.gen) && (byGen.get(m.gen) !== 'data' || /medi|\bnot[ae]\b|notel|tabel|grafic|diagram|probabil/.test(t))) return [byGen.get(m.gen)!]
+  // a kind of the circle (or of functions) is near to angles and distances too: that chapter only when the statement
+  // has a circle (or a function)
+  const near = m && byGen.get(m.gen)
+  if (near && (near !== 'data' || /medi|\bnot[ae]\b|notel|tabel|grafic|diagram|probabil/.test(t)) && (near !== 'circle' || /coard|tangent|\bdisc|înscris/.test(t)) && (near !== 'function' || /funcți|reper|axe|grafic/.test(t))) return [near]
   if (/secant|drepte(?:le)? paralele|unghi|triunghi|simetric|coliniar|segment/.test(t) || /\\sphericalangle|\\triangle/.test(text)) return ['triangles']
   if (/paralelogram|dreptunghi(?!c)|pătrat|romb|trapez/.test(t)) return ['quads']
   // the short ones, which no kind is like: by what they ask
