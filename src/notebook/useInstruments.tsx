@@ -298,6 +298,8 @@ export function useInstruments({ tools, setTools, bounds, onStrokeStart, onStrok
 
   /** What the pointer is over, for its cursor. */
   const hoverAt = (px: number, py: number, draw: boolean | 'compass') => setHover(hitTest(tools, px, py, draw, bounds)?.kind ?? null)
+  /** whether a press here would take an instrument */
+  const hits = (px: number, py: number, draw: boolean | 'compass') => !!hitTest(tools, px, py, draw, bounds)
 
   /** Show or hide an instrument; it appears in the visible part of the sheet. */
   const toggle = (id: InstId) => {
@@ -337,7 +339,7 @@ export function useInstruments({ tools, setTools, bounds, onStrokeStart, onStrok
     setTimeout(() => setHint(null), 2500)
   }
 
-  return { tools, hint, hover, setHover, down, move, up, hoverAt, setInst, toggle, drawCircle, drawAngle }
+  return { tools, hint, hover, setHover, down, move, up, hoverAt, hits, setInst, toggle, drawCircle, drawAngle }
 }
 
 /** The row of buttons that shows the instruments and sets them up. */

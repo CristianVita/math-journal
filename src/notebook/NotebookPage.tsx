@@ -790,13 +790,14 @@ export default function NotebookPage() {
     })
   }
 
-  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+  const onPointerDown = (e: React.PointerEvent<Element>) => {
     toOpen.current = null
     // a press outside the text box only ends the typing: the box loses the focus right after this
     if (typing || active.current || (e.pointerType === 'mouse' && e.button !== 0)) return
     try {
-      // keep receiving moves when the pen leaves the sheet mid-stroke
-      e.currentTarget.setPointerCapture(e.pointerId)
+      // keep receiving moves when the pen leaves the sheet mid-stroke (also a press handed over by the
+      // constructions layer: the sheet takes the pointer from it)
+      svgRef.current?.setPointerCapture(e.pointerId)
     } catch {
       /* pointer already gone: draw without capture */
     }
@@ -1160,14 +1161,25 @@ export default function NotebookPage() {
             <circle className="eraser-cursor" cx={cursor.x} cy={cursor.y} r={size} fill="rgba(255,255,255,.6)" stroke="#6b7280" strokeDasharray="3 3" />
           )}
         </svg>
-        <div className={'sheet-constructions' + (tool === 'geometry' ? ' active' : '')}>
+        <div className={'sheet-constructions' + (tool === 'geometry' || tool === 'select' ? ' active' : '')}>
           <GeometryBoard
             scene={scene}
             height="100%"
             onChange={(next) => setNb((n) => ({ ...n, scenes: n.scenes.map((s, i) => (i === n.current ? next : s)) }))}
             sheet={{
               toolbar: geometryBar,
-              active: tool === 'geometry',
+              // the Cursor works on the constructions too: one Cursor on the page (27 November 2026)
+              active: tool === 'geometry' || tool === 'select',
+              cursor: tool === 'select',
+              toPage: (e, empty) => {
+                if (!empty) {
+                  const [x, y] = pointAt(e)
+                  if (!inst.hits(x, y, instDraw) && !cornerAt(x, y) && !(selBox && inside(selBox, x, y))) return false
+                }
+                onPointerDown(e)
+                return true
+              },
+              onCursor: () => setTool('select'),
               page: nb.current,
               onActivate: () => setTool('geometry'),
               onRemember: (before) => remember(nb.current, strokes, before),

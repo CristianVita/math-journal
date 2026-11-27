@@ -56,7 +56,7 @@ Installerul de Windows nu e semnat digital. Dacă apare SmartScreen, apasă „M
 - Punctele și literele unui corp sau ale unei figuri se pot ascunde, când desenul e doar o ilustrație
 - Ștergerea unui corp ia și ce e desenat în interiorul lui (Ctrl+Z le aduce înapoi)
 - **Corpuri lipite**, ca rigla de echer: tragi un corp cu baza lângă o față de aceeași formă a altuia (o piramidă pe o prismă, un con pe un cilindru, un cub lângă alt cub) și se așază singur, la mărimea feței; apoi se mută și se rotesc împreună, iar muchiile ascunse se calculează pentru tot corpul
-- **Corp în corp**, din panou: sfera înscrisă sau circumscrisă, conul în cilindru, piramida în prismă, cilindrul în cub, prisma în cilindru, pe aceeași axă
+- **Orice corp în orice corp**, din panou: unde manualul are o poziție exactă se pune direct acolo (sfera înscrisă sau circumscrisă, conul în cilindru sau în trunchiul de con, piramida în prismă sau în trunchi, cilindrul în prisma regulată, prisma în cilindru); altfel apare la jumătate, în mijloc, iar două glisoare îi aleg mărimea și înălțimea; „Potrivește” îl readuce într-o poziție exactă
 - **Secțiune paralelă cu baza**, la orice corp: un glisor sau butoanele 1/2, 1/3, 2/3, 1/4, 3/4 aleg înălțimea, iar colțurile secțiunii primesc litere (A′B′C′… sau A″B″C″…, O′), pe care se poate construi; secțiunea rămâne la rotire
 
 **Caiet**

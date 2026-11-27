@@ -1000,7 +1000,10 @@ export const INSIDE = [
 ] as const
 export type InsideId = (typeof INSIDE)[number]['id']
 
-const PYRAMID_OF: Partial<Record<SolidId, SolidId>> = { prism3: 'pyramid3', prism4: 'pyramid4', cube: 'pyramid4', prism6: 'pyramid6' }
+const PYRAMID_OF: Partial<Record<SolidId, SolidId>> = {
+  prism3: 'pyramid3', prism4: 'pyramid4', cube: 'pyramid4', prism6: 'pyramid6',
+  frustum3: 'pyramid3', frustum4: 'pyramid4', frustum6: 'pyramid6',
+}
 const PYRAMIDS: SolidId[] = ['pyramid3', 'pyramid4', 'pyramid6', 'tetrahedron']
 
 /**
@@ -1057,17 +1060,19 @@ export function insidePart(frame: SolidFrame, what: InsideId): SolidPart | strin
     return sphere(Math.hypot(y + h / 2, lo), y)
   }
   if (what === 'cone') {
-    if (solid !== 'cylinder') return 'Conul cu aceeași bază se pune într-un cilindru.'
+    if (solid !== 'cylinder' && solid !== 'frustumCone') return 'Conul cu aceeași bază se pune într-un cilindru sau într-un trunchi de con.'
     return { solid: 'cone', w, h, rot: ID, at: [0, 0, 0], inside: true }
   }
   if (what === 'pyramid') {
     const p = PYRAMID_OF[solid]
-    if (!p) return 'Piramida cu aceeași bază se pune într-o prismă regulată sau într-un cub.'
+    if (!p) return 'Piramida cu aceeași bază se pune într-o prismă regulată, într-un cub sau într-un trunchi de piramidă.'
     return { solid: p, w, h, rot: ID, at: [0, 0, 0], inside: true }
   }
   if (what === 'cylinder') {
-    if (solid !== 'cube' && solid !== 'prism4') return 'Cilindrul înscris se pune într-un cub sau într-o prismă patrulateră regulată.'
-    return { solid: 'cylinder', w, h, rot: ID, at: [0, 0, 0], inside: true }
+    // the diameter is twice the apothem of the base: the side of a square, w√3/2 for the hexagon, w/√3 for the triangle
+    const d = solid === 'cube' || solid === 'prism4' ? w : solid === 'prism6' ? (w * Math.sqrt(3)) / 2 : solid === 'prism3' ? w / Math.sqrt(3) : 0
+    if (!d) return 'Cilindrul înscris se pune într-o prismă regulată sau într-un cub.'
+    return { solid: 'cylinder', w: d, h, rot: ID, at: [0, 0, 0], inside: true }
   }
   if (solid !== 'cylinder') return 'Prisma înscrisă se pune într-un cilindru.'
   // a square in the circle: its corners on the circle, its sides at 45°
@@ -1085,4 +1090,55 @@ export function addInside(objects: GObj[], holderId: string, what: InsideId): GO
   const cleared = holder.frame.cut != null ? setSolidCut(objects, holderId, null) : objects
   const now = cleared.find((o): o is PathObj => o.id === holderId && o.type === 'path')!
   return rebuild(cleared, holderId, { ...now.frame!, parts: [...(now.frame!.parts ?? []), part] })
+}
+
+/** The exact ways (from INSIDE) a body `solid` fits in `frame`, with a short name for the button. */
+export function fitsOf(frame: SolidFrame, solid: SolidId): { id: InsideId; label: string }[] {
+  const short: Record<InsideId, string> = {
+    inSphere: 'Înscrisă', outSphere: 'Circumscrisă', cone: 'Aceeași bază', pyramid: 'Aceeași bază', cylinder: 'Înscris', prism: 'Înscrisă',
+  }
+  return INSIDE.flatMap((o) => {
+    const p = insidePart(frame, o.id)
+    return typeof p !== 'string' && p.solid === solid ? [{ id: o.id, label: short[o.id] }] : []
+  })
+}
+
+/**
+ * Puts any body inside `holderId`: in the exact place when there is one (the sphere inscribed in a cube, the cone in a
+ * cylinder), otherwise half as big, in the middle, to be made bigger and moved up or down by hand.
+ */
+export function addInsideSolid(objects: GObj[], holderId: string, solid: SolidId): GObj[] | string {
+  const holder = objects.find((o) => o.id === holderId)
+  if (holder?.type !== 'path' || !holder.frame) return objects
+  const fit = fitsOf(holder.frame, solid)[0]
+  if (fit) return addInside(objects, holderId, fit.id)
+  if (holder.frame.parts?.some((p) => !p.inside)) return 'Un corp se pune în interiorul unui corp simplu, nu al unuia lipit din mai multe.'
+  const { w, h } = holder.frame
+  const ball = solid === 'sphere'
+  const part: SolidPart = { solid, w: ball ? Math.min(w, h) / 2 : w / 2, h: ball ? Math.min(w, h) / 2 : h / 2, rot: ID, at: [0, 0, 0], inside: true }
+  const cleared = holder.frame.cut != null ? setSolidCut(objects, holderId, null) : objects
+  const now = cleared.find((o): o is PathObj => o.id === holderId && o.type === 'path')!
+  return rebuild(cleared, holderId, { ...now.frame!, parts: [...(now.frame!.parts ?? []), part] })
+}
+
+/** Puts the part `index` (a body inside) in the exact place `what` says. */
+export function fitSolidPart(objects: GObj[], holderId: string, index: number, what: InsideId): GObj[] | string {
+  const holder = objects.find((o) => o.id === holderId)
+  if (holder?.type !== 'path' || !holder.frame?.parts?.[index]) return objects
+  const part = insidePart(holder.frame, what)
+  if (typeof part === 'string') return part
+  return rebuild(objects, holderId, { ...holder.frame, parts: holder.frame.parts.map((p, i) => (i === index ? part : p)) })
+}
+
+/**
+ * The body inside, part `index`, made `w` wide (the same shape), with its middle at `y` on the axis of the holder
+ * (0 the middle of the holder, −h/2 its base).
+ */
+export function tuneSolidPart(objects: GObj[], holderId: string, index: number, w: number, y: number): GObj[] {
+  const holder = objects.find((o) => o.id === holderId)
+  const p = holder?.type === 'path' ? holder.frame?.parts?.[index] : undefined
+  if (holder?.type !== 'path' || !p?.inside || !(w > 0)) return objects
+  const k = w / p.w
+  const part: SolidPart = { ...p, w: p.w * k, h: p.h * k, at: [p.at[0], y, p.at[2]] }
+  return rebuild(objects, holderId, { ...holder.frame!, parts: holder.frame!.parts!.map((q, i) => (i === index ? part : q)) })
 }

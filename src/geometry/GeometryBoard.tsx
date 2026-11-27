@@ -54,7 +54,7 @@ import { LabelSpace, alongSegment, aroundPoint, boxAt, clearance, directionsFrom
 import { circleEquation, explicitForm, generalForm, lengthText, lineThrough, numText, parseTyped, signedArea, slope, vectorText } from './analytic'
 import { usePrompt } from '../components/PromptDialog'
 import { SolidIcon, ToolIcon } from '../components/ToolIcon'
-import { addInside, defaultView, frameIn, glueSolid, INSIDE, removeSolidPart, setSolidCut, setSolidView, type InsideId, solidLines, solidObjects, SOLIDS, type SolidId } from '../notebook/solids'
+import { addInsideSolid, defaultView, fitSolidPart, fitsOf, frameIn, glueSolid, removeSolidPart, setSolidCut, setSolidView, type InsideId, solidLines, solidObjects, SOLIDS, type SolidId, tuneSolidPart } from '../notebook/solids'
 import { saveFile } from '../platform'
 import { createPortal } from 'react-dom'
 import { type Triangle, solveTriangle, triangleExtras, triangleVertices } from '../trig/trigMath'
@@ -206,6 +206,16 @@ interface Props {
     zoom?: number
     /** whether there is ink on the page next to this point of the sheet (pixels): the edges of the solids drawn as ink */
     inkNear?: (x: number, y: number) => boolean
+    /**
+     * The page's own Cursor is chosen (27 November 2026, asked for by the user: one Cursor on the page, not two).
+     * The board then works as its Cursor on what is drawn in it (solids, points, lines: moving them glues the solids),
+     * and hands the page what is the page's: `toPage(e, false)` is asked first (a press on handwriting, an
+     * instrument or a figure corner: true when the page took it), `toPage(e, true)` gets a press on an empty spot.
+     */
+    cursor?: boolean
+    toPage?: (e: React.PointerEvent, empty: boolean) => boolean
+    /** the board went back to its Cursor by itself (Esc): the page's Cursor is chosen */
+    onCursor?: () => void
   }
 }
 
@@ -1675,9 +1685,18 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     }
     const ws = toWorld(s)
     if (boxSel.length && boxSelRect && inside(boxSelRect, ws.x, ws.y)) return startMove(boxSel, s)
+    // on a page with its Cursor: handwriting, instruments and figure corners are the page's
+    if (sheet?.cursor && sheet.toPage?.(e, false)) {
+      setSelected(null)
+      return
+    }
     const hit = hitTest(s)
     setSelected(hit?.id ?? null)
     setBoxSel([])
+    if (!hit && sheet?.cursor && sheet.toPage) {
+      sheet.toPage(e, true)
+      return
+    }
     if (!hit) {
       drag.current = { mode: 'lasso', start: ws }
       setMarquee(rectOf([ws.x, ws.y], [ws.x, ws.y]))
@@ -1981,6 +2000,18 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
     setPending([])
     setGhost(null)
   }
+
+  // one Cursor on a page: the page's Cursor makes the board its Cursor, and the board back on its Cursor (Esc)
+  // chooses the page's
+  const sheetCursor = sheet?.cursor
+  const onSheetCursor = sheet?.onCursor
+  useEffect(() => {
+    if (sheetCursor) changeTool('move')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetCursor])
+  useEffect(() => {
+    if (sheetActive && !sheetCursor && tool === 'move') onSheetCursor?.()
+  }, [sheetActive, sheetCursor, tool, onSheetCursor])
 
   const addFunction = async () => {
     const expr = await ask('Funcția f(x) — ex: sin(x), 2*cos(3x), tan(x), x^2 - 1', 'sin(x)')
@@ -2770,7 +2801,7 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
   const toolbar = !readOnly && (
       <div className="board-toolbar">
         {sheet && <span className="muted">Construcții:</span>}
-        {TOOLS.filter((t) => t.id !== 'solid' && (!sheet || t.id !== 'pan')).map((t) => (
+        {TOOLS.filter((t) => t.id !== 'solid' && (!sheet || (t.id !== 'pan' && t.id !== 'move'))).map((t) => (
           <button
             key={t.id}
             className={'tool' + (tool === t.id && (!sheet || sheet.active) ? ' active' : '') + (t.id === 'move' || t.id === 'pan' ? ' wide labeled' : '')}
@@ -2976,7 +3007,27 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
             },
             cut: figure.holder.frame.cut,
             setCut: (cut) => cutSolid(figure.holder!.id, cut),
-            parts: (figure.holder.frame.parts ?? []).map((p) => ({ label: SOLIDS.find((x) => x.id === p.solid)?.label ?? p.solid, inside: !!p.inside })),
+            parts: (figure.holder.frame.parts ?? []).map((p) => ({
+              label: SOLIDS.find((x) => x.id === p.solid)?.label ?? p.solid,
+              inside: !!p.inside,
+              size: Math.round((p.w / figure.holder!.frame!.w) * 100),
+              y: Math.round((p.at[1] / figure.holder!.frame!.h) * 100),
+              fits: p.inside ? fitsOf(figure.holder!.frame!, p.solid) : [],
+            })),
+            fitPart: (i, what) => {
+              const out = fitSolidPart(sceneRef.current.objects, figure.holder!.id, i, what)
+              if (typeof out === 'string') return flash(out)
+              remember()
+              const next = { ...sceneRef.current, objects: out }
+              sceneRef.current = next
+              onChange(next)
+            },
+            tunePart: (i, size, y) => {
+              const f = figure.holder!.frame!
+              const next = { ...sceneRef.current, objects: tuneSolidPart(sceneRef.current.objects, figure.holder!.id, i, (size / 100) * f.w, (y / 100) * f.h) }
+              sceneRef.current = next
+              onChange(next)
+            },
             removePart: (i) => {
               remember()
               const objects = removeSolidPart(sceneRef.current.objects, figure.holder!.id, i)
@@ -2986,13 +3037,13 @@ export default function GeometryBoard({ scene, onChange, height = 560, readOnly 
               setSelected(null)
             },
             putInside: (what) => {
-              const out = addInside(sceneRef.current.objects, figure.holder!.id, what)
+              const out = addInsideSolid(sceneRef.current.objects, figure.holder!.id, what)
               if (typeof out === 'string') return flash(out)
               remember()
               const next = { ...sceneRef.current, objects: out }
               sceneRef.current = next
               onChange(next)
-              setSelected(null)
+              // the panel stays open: the body just put in may need its size and place
             },
           },
         } : undefined} resolvedLen={(id) => {
@@ -3143,9 +3194,13 @@ interface FigureTools {
     cut?: number
     setCut: (cut: number | null) => void
     /** the bodies glued to it or inside it */
-    parts: { label: string; inside: boolean }[]
+    parts: { label: string; inside: boolean; size: number; y: number; fits: { id: InsideId; label: string }[] }[]
     removePart: (index: number) => void
-    putInside: (what: InsideId) => void
+    putInside: (what: SolidId) => void
+    /** puts a body inside in its exact place */
+    fitPart: (index: number, what: InsideId) => void
+    /** a body inside: its width and the height of its middle, in % of the holder's (0 in the middle) */
+    tunePart: (index: number, size: number, y: number) => void
   }
 }
 
@@ -3197,15 +3252,29 @@ function FigurePanel({ t }: { t: FigureTools }) {
               <button className="btn small" onClick={() => { t.solid!.begin(); t.solid!.setCut(null) }} title="Scoate secțiunea, cu punctele ei și ce e construit pe ele">Scoate secțiunea</button>
             </>}
           <div className="insp-sub">Corp în corp</div>
-          <select value="" onChange={(e) => e.target.value && t.solid!.putInside(e.target.value as InsideId)} title="Pune un corp în interiorul acestuia, pe aceeași axă; se rotește împreună cu el">
+          <select value="" onChange={(e) => e.target.value && t.solid!.putInside(e.target.value as SolidId)} title="Pune un corp în interiorul acestuia, pe aceeași axă; se rotește împreună cu el. Unde manualul are o poziție exactă (sfera înscrisă, conul cu aceeași bază), se pune direct acolo.">
             <option value="">Pune înăuntru…</option>
-            {INSIDE.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            {SOLIDS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
           <div className="muted small">Ca să lipești un corp de o față (de exemplu o piramidă pe o prismă), trage-l cu baza lângă fața aceea: se potrivește singur.</div>
           {t.solid.parts.map((p, i) => (
-            <div key={i} className="insp-row">
-              <span className="small">{p.inside ? 'În interior: ' : 'Lipit: '}{p.label}</span>
-              <button className="btn small" onClick={() => t.solid!.removePart(i)} title="Scoate acest corp, cu vârfurile lui care nu sunt comune și ce e construit pe ele">Scoate</button>
+            <div key={i}>
+              <div className="insp-row">
+                <span className="small">{p.inside ? 'În interior: ' : 'Lipit: '}{p.label}</span>
+                <button className="btn small" onClick={() => t.solid!.removePart(i)} title="Scoate acest corp, cu vârfurile lui care nu sunt comune și ce e construit pe ele">Scoate</button>
+              </div>
+              {p.inside && <>
+                {p.fits.length > 0 && <div className="insp-row">
+                  <span className="small">Potrivește:</span>
+                  {p.fits.map((f) => <button key={f.id} className="btn small" onClick={() => t.solid!.fitPart(i, f.id)} title="Pune corpul în poziția exactă din manual">{f.label}</button>)}
+                </div>}
+                <label className="insp-row">Mărime {p.size}%
+                  <input type="range" min={5} max={200} value={p.size} onPointerDown={t.solid!.begin} onChange={(e) => t.solid!.tunePart(i, Number(e.target.value), p.y)} />
+                </label>
+                <label className="insp-row">Jos – sus
+                  <input type="range" min={-60} max={60} value={p.y} onPointerDown={t.solid!.begin} onChange={(e) => t.solid!.tunePart(i, p.size, Number(e.target.value))} />
+                </label>
+              </>}
             </div>
           ))}
         </>

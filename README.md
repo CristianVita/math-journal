@@ -62,7 +62,7 @@ The Windows installer is not code-signed yet. If SmartScreen shows "Windows prot
 - Hide the corners and letters of a solid or a figure drawn only as an illustration
 - Deleting a solid also deletes what is drawn inside it (Ctrl+Z brings it back)
 - **Glued solids**, like the ruler and the set square: drag a solid with its base next to a face of the same shape on another (a pyramid on a prism, a cone on a cylinder, a cube next to a cube) and it settles there by itself, sized to the face; then they move and turn together, and the hidden edges are worked out for the whole body
-- **A solid inside another**, from the panel: the inscribed or circumscribed sphere, a cone in a cylinder, a pyramid in a prism, a cylinder in a cube, a prism in a cylinder, on the same axis
+- **Any solid inside any other**, from the panel: where the textbook has an exact place it goes straight there (the inscribed or circumscribed sphere, a cone in a cylinder or a frustum of a cone, a pyramid in a prism or a frustum, a cylinder in a regular prism, a prism in a cylinder); otherwise it starts half as big in the middle, and two sliders set its size and height; "Potrivește" puts it back in an exact place
 - **Cut any solid with a plane parallel to its base**: a slider or the buttons 1/2, 1/3, 2/3, 1/4, 3/4 choose the height, and the corners of the section get letters (A′B′C′… or A″B″C″…, O′) to build on; the cut stays when the solid turns
 
 **Notebook**

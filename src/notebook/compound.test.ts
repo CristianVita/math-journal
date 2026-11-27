@@ -1,7 +1,7 @@
 // Bodies made of several (asked for on 11 November 2026): glued to a face of another, or put inside it.
 import { describe, expect, it } from 'vitest'
 import type { GObj, PathObj, PointObj } from '../geometry/types'
-import { addInside, glueSolid, removeSolidPart, setSolidView, solidObjects, type SolidId } from './solids'
+import { addInside, addInsideSolid, fitSolidPart, fitsOf, tuneSolidPart, glueSolid, removeSolidPart, setSolidView, solidObjects, type SolidId } from './solids'
 
 const make = (id: SolidId, x0: number, group: string, objects: GObj[] = []) => solidObjects(id, x0, 0, x0 + 4, 4, objects, { color: '#000', group })
 const holderOf = (objs: GObj[], group: string) => objs.find((o): o is PathObj => o.type === 'path' && !!o.frame && o.group === group)!
@@ -102,5 +102,41 @@ describe('a body inside another', () => {
   it('says why a sphere does not fit', () => {
     const cyl = solidObjects('cylinder', 0, 0, 4, 9, [], { color: '#000', group: 'c' })
     expect(typeof addInside(cyl, holderOf(cyl, 'c').id, 'inSphere')).toBe('string')
+  })
+})
+
+describe('any body inside any other', () => {
+  it('a body with no exact place goes in the middle, half as big, and can be made bigger and moved', () => {
+    const cube = make('cube', 0, 'c')
+    const now = addInsideSolid(cube, holderOf(cube, 'c').id, 'tetrahedron') as GObj[]
+    const frame = holderOf(now, 'c').frame!
+    expect(frame.parts![0]).toMatchObject({ solid: 'tetrahedron', inside: true, at: [0, 0, 0] })
+    expect(frame.parts![0].w).toBeCloseTo(frame.w / 2, 9)
+    const tuned = tuneSolidPart(now, holderOf(now, 'c').id, 0, frame.w, -frame.h / 4)
+    const part = holderOf(tuned, 'c').frame!.parts![0]
+    expect(part.w).toBeCloseTo(frame.w, 9)
+    expect(part.h).toBeCloseTo(frame.h, 9)
+    expect(part.at[1]).toBeCloseTo(-frame.h / 4, 9)
+  })
+
+  it('a body with an exact place goes there at once, and the other exact place is a button away', () => {
+    const cube = make('cube', 0, 'c')
+    const now = addInsideSolid(cube, holderOf(cube, 'c').id, 'sphere') as GObj[]
+    const frame = holderOf(now, 'c').frame!
+    expect(frame.parts![0].w).toBeCloseTo(frame.w, 9)
+    expect(fitsOf(frame, 'sphere').map((f) => f.id)).toEqual(['inSphere', 'outSphere'])
+    const out = fitSolidPart(now, holderOf(now, 'c').id, 0, 'outSphere') as GObj[]
+    expect(holderOf(out, 'c').frame!.parts![0].w).toBeCloseTo(frame.w * Math.sqrt(3), 9)
+  })
+
+  it('the pyramid with the same base fits in a frustum, the cone in a frustum of a cone, the cylinder in a hexagonal prism', () => {
+    const fr = make('frustum6', 0, 'f')
+    expect(fitsOf(holderOf(fr, 'f').frame!, 'pyramid6')).toHaveLength(1)
+    const fc = make('frustumCone', 0, 'k')
+    expect(fitsOf(holderOf(fc, 'k').frame!, 'cone')).toHaveLength(1)
+    const pr = make('prism6', 0, 'p')
+    const now = addInsideSolid(pr, holderOf(pr, 'p').id, 'cylinder') as GObj[]
+    const frame = holderOf(now, 'p').frame!
+    expect(frame.parts![0].w).toBeCloseTo((frame.w * Math.sqrt(3)) / 2, 9)
   })
 })
