@@ -3,6 +3,9 @@
 // wording, worked solutions in Romanian; every `verify` rebuilds the figure in coordinates or recomputes the numbers.
 import type { Made } from './generators'
 import type { Form, Kind8 } from './alg8'
+import { along3, foot as footOnPlane, plane, type P3, type Pt } from '../models/figure'
+import { BOX, PRISM3, TETRA, box, prism3 } from '../models/data/shapes'
+import { hexPrismPathFigure, roundSection, solidSketch } from './figures'
 import { addExact, exact, exactTex, frac, gcd, int, pick, rightTriangle, root, rootParts, shuffle, surd, type Rng } from './tex'
 
 const lines = (...l: string[]) => l.filter(Boolean).join('\n\n')
@@ -205,6 +208,17 @@ export function squarePrismSine(rng: Rng): Made {
   const [ac, h, d] = [q * t, p * t, r * t]
   const sinTex = r === 5 ? `$0{,}${2 * p}$` : `$${frac(p, r)}$`
   const at = exactTex(addExact(exact(ac * ac, 1), exact(2 * ac * h, 1, 2)))
+  const s = ac / Math.SQRT2, am = s / k, mb = s - am
+  const P: P3 = [0, am, 0], R: P3 = [0, -am, 0], Q: P3 = [s, -mb, 0], N: P3 = [s, mb, 0]
+  const prismHeight = Math.max(0.55 * s, Math.min(h, 1.18 * s))
+  const fig = solidSketch(box(s, s, prismHeight), BOX, 120, { seg: "A-C A-C' B-C'" })
+  fig.detail = plane({
+    A: [0, 0], B: [s, 0], C: [s, s], D: [0, s], M: [am, 0],
+    P: [P[0], P[1]], R: [R[0], R[1]], Q: [Q[0], Q[1]], N: [N[0], N[1]],
+  }, 105, {
+    s: 'A-B-C-D-A P-N-Q-R-P', d: 'R-M-N P-M-Q', dot: 'M',
+    l: { A: 'w', B: 'e', C: 'ne', D: 'nw', P: 'w', R: 'sw', Q: 'se', N: 'e', M: 'n' },
+  })
   return {
     text: `O prismă patrulateră regulată $ABCDA'B'C'D'$ are diagonala bazei de ${ac} cm și sinusul unghiului format de diagonala prismei cu planul bazei de ${sinTex}. Să se afle: a) aria totală; b) tangenta unghiului dintre diagonala prismei și o față laterală; c) aria patrulaterului $PRQN$, unde $M \\in [AB]$, cu $AB = ${k} \\cdot AM$, iar paralelele prin $M$ la $AC$ și $BD$ intersectează dreapta $BC$ în $N$, respectiv $Q$, și dreapta $AD$ în $R$, respectiv $P$.`,
     solution: lines(
@@ -215,13 +229,13 @@ export function squarePrismSine(rng: Rng): Made {
       `c) $AM = \\frac{\\ell}{${k}}$, $MB = \\frac{${k - 1}\\ell}{${k}}$. Triunghiurile $MBN$, $MAR$, $MAP$, $MBQ$ sunt dreptunghice isoscele (laturile fac unghiuri de $45^\\circ$ cu $AB$), deci $BN = BQ = MB$ și $AR = AP = AM$. Patrulaterul $PRQN$ este un trapez cu bazele $PR = 2AM$ și $NQ = 2MB$ (pe dreptele paralele $AD$ și $BC$) și înălțimea $AB = \\ell$:`,
       show(`\\mathcal{A}_{PRQN} = \\frac{(2AM + 2MB) \\cdot \\ell}{2} = \\ell^2 = ${frac(ac * ac, 2)}\\text{ cm}^2`),
     ),
+    fig: solidSketch(box(s, s, prismHeight), BOX, 120),
+    solutionFig: fig,
     verify: () => {
-      const s = ac / Math.SQRT2
       const pts = boxPts(s, s, h)
       const sn = sinLP(pts[0], pts[6], pts[1], pts[2], pts[6])
       // the trapezoid, by the shoelace formula, with A(0, 0), B(s, 0), D(0, s)
-      const am = s / k
-      const quad = [[0, am], [0, -am], [s, -(s - am)], [s, s - am]]
+      const quad = [P, R, Q, N]
       const shoe = Math.abs(quad.reduce((sum, [x, y], i) => sum + x * quad[(i + 1) % 4][1] - quad[(i + 1) % 4][0] * y, 0)) / 2
       return close(sinLP(pts[0], pts[6], pts[0], pts[1], pts[2]), p / r) && close(sn / Math.sqrt(1 - sn * sn), q / Math.sqrt(q * q + 2 * p * p))
         && close(shoe, (ac * ac) / 2) && close(2 * s * s + 4 * s * h, ac * ac + 2 * Math.SQRT2 * ac * h)
@@ -271,6 +285,7 @@ export function hexPrismPath(rng: Rng): Made {
       show(`BM = \\frac{h}{3} = ${frac(h, 3)}\\text{ cm}, \\qquad CN = \\frac{2h}{3} = ${frac(2 * h, 3)}\\text{ cm}`),
       `Atunci $AM + MN + ND' = \\sqrt{(3\\ell)^2 + h^2} = \\sqrt{${9 * a * a} + ${h * h}} = ${root(9 * a * a + h * h)}$ cm, iar perimetrul minim este $${per}$ cm.`,
     ),
+    solutionFig: hexPrismPathFigure(a, h),
     verify: () => {
       const b = polygon(6, a)
       const path = (dm: number) => {
@@ -287,6 +302,14 @@ export function hexPrismPath(rng: Rng): Made {
 export function squarePrismRhombus(rng: Rng): Made {
   const a = int(rng, 2, 15), h = int(rng, 2, 20)
   const [k, m] = rootParts(4 * a * a + h * h)
+  const p = box(a, a, h), M = mid(p.B, p["B'"]), N = mid(p.D, p["D'"])
+  const body = box(a, a, Math.max(0.55 * a, Math.min(h, 1.18 * a)))
+  const fig = solidSketch({ ...body, M: mid(body.B, body["B'"]), N: mid(body.D, body["D'"]) }, BOX, 120, {
+    seg: "A'-C", dot: 'M N', l: { M: 'w', N: 'e' },
+  })
+  fig.detail = plane({ "A'": [0, 50], M: [45, 0], C: [0, -50], N: [-45, 0] }, 100, {
+    s: "A'-M-C-N-A'", d: "A'-C M-N", l: { "A'": 'n', M: 'e', C: 's', N: 'w' },
+  })
   return {
     text: `Prisma patrulateră regulată dreaptă $ABCDA'B'C'D'$ are $\\mathcal{A}_\\ell = ${4 * a * h}$ cm² și $V = ${a * a * h}$ cm³. a) Calculați diagonala prismei. b) Aflați aria și perimetrul patrulaterului $A'MCN$, unde $M$ și $N$ sunt mijloacele muchiilor $[BB']$ și $[DD']$.`,
     solution: lines(
@@ -295,11 +318,11 @@ export function squarePrismRhombus(rng: Rng): Made {
       `b) Din triunghiurile dreptunghice $A'B'M$, $MBC$, $CDN$, $ND'A'$ (catete $\\ell$ și $\\frac{h}{2}$): $A'M = MC = CN = NA' = \\sqrt{${a * a} + ${frac(h * h, 4)}} = ${sqrtFrac(4 * a * a + h * h, 4)}$ cm. $MB \\parallel ND$ și $MB = ND$, deci $MBDN$ este paralelogram și $MN = BD = ${a}\\sqrt{2}$ cm. Segmentele $A'C$ și $MN$ au același mijloc (centrul prismei), deci $A'MCN$ este un paralelogram cu laturile egale, adică un romb:`,
       show(`\\mathcal{A}_{A'MCN} = \\frac{A'C \\cdot MN}{2} = \\frac{${root(2 * a * a + h * h)} \\cdot ${a}\\sqrt{2}}{2} = ${sqrtFrac(2 * a * a * (2 * a * a + h * h), 4)}\\text{ cm}^2, \\qquad \\mathcal{P}_{A'MCN} = 4 \\cdot ${sqrtFrac(4 * a * a + h * h, 4)} = ${surd(2 * k, 1, m)}\\text{ cm}`),
     ),
+    fig: solidSketch(body, BOX, 120),
+    solutionFig: fig,
     verify: () => {
-      const p = boxPts(a, a, h)
-      const [M, N] = [mid(p[1], p[5]), mid(p[3], p[7])]
-      return close(dist(p[0], p[6]), Math.sqrt(2 * a * a + h * h)) && close(triArea(p[4], M, p[2]) + triArea(p[4], p[2], N), Math.sqrt((2 * a * a * (2 * a * a + h * h)) / 4))
-        && close(4 * dist(p[4], M), 2 * Math.sqrt(4 * a * a + h * h)) && close(dist(p[4], M), dist(M, p[2]))
+      return close(dist(p.A, p["C'"]), Math.sqrt(2 * a * a + h * h)) && close(triArea(p["A'"], M, p.C) + triArea(p["A'"], p.C, N), Math.sqrt((2 * a * a * (2 * a * a + h * h)) / 4))
+        && close(4 * dist(p["A'"], M), 2 * Math.sqrt(4 * a * a + h * h)) && close(dist(p["A'"], M), dist(M, p.C))
     },
   }
 }
@@ -337,6 +360,20 @@ export function triPyrCutMin(rng: Rng): Made {
   while (3 * h * h <= 2 * m * m)
   const pct = pick(rng, [25, 50, 75])
   const kn = (100 - pct) / 25 // the small pyramid is kn/4 of the whole
+  const { A, B, C } = prism3(2 * m, 0)
+  const O: P = [m, (2 * m) / S3, 0], V = up(O, h)
+  const M = mid(A, C), N = foot(M, V, B)
+  const apex = up(O, Math.max(1.4 * m, Math.min(h, 2.2 * m)))
+  const [aCut, bCut, cCut] = [A, B, C].map((point) => along3(apex, point, kn / 4))
+  const fig = solidSketch({ A, B, C, V: apex, M, aCut, bCut, cCut }, TETRA('A', 'B', 'C', 'V'), 128, {
+    seg: 'aCut-bCut bCut-cCut cCut-aCut', dot: 'M',
+    l: { aCut: '', bCut: '', cCut: '' },
+  })
+  const profileApex: Pt = [35, 91], profileBase: Pt = [105, 0], profileMid: Pt = [0, 0]
+  fig.detail = plane({ V: profileApex, B: profileBase, M: profileMid, O: [35, 0], N: footOnPlane(profileMid, profileApex, profileBase) }, 110, {
+    s: 'M-V-B-M M-N', d: 'V-O', ra: ['MNB', 'VOB'], dot: 'N O',
+    l: { M: 'sw', V: 'n', N: 'e', B: 'se', O: 's' },
+  })
   return {
     text: `Piramida triunghiulară regulată $VABC$ are $\\mathcal{A}_b = ${surd(m * m, 1, 3)}$ cm² și $h = ${h}$ cm. Se secționează piramida cu un plan paralel cu baza, la o distanță egală cu ${pct}% din înălțime față de bază. Aflați: a) volumul trunchiului de piramidă format; b) $\\cos(\\angle((NAC), (ABC)))$, unde $N \\in [VB]$ este punctul pentru care aria triunghiului $NAC$ este minimă.`,
     solution: lines(
@@ -346,11 +383,9 @@ export function triPyrCutMin(rng: Rng): Made {
       `În triunghiul $VMB$, $\\angle NMB = 90^\\circ - \\angle VBM$, deci $\\cos(\\angle NMB) = \\sin(\\angle VBO) = \\frac{VO}{VB}$. $OB = \\frac{\\ell\\sqrt{3}}{3} = ${surd(2 * m, 3, 3)}$ cm, $VB = \\sqrt{${h * h} + ${frac(4 * m * m, 3)}} = ${sqrtFrac(3 * h * h + 4 * m * m, 3)}$ cm:`,
       show(`\\cos(\\angle((NAC), (ABC))) = \\frac{VO}{VB} = ${sqrtFrac(3 * h * h, 3 * h * h + 4 * m * m)}`),
     ),
+    fig: solidSketch({ A, B, C, V: apex }, TETRA('A', 'B', 'C', 'V'), 120),
+    solutionFig: fig,
     verify: () => {
-      const [A, B, C] = polygon(3, (2 * m) / S3)
-      const V: P = [0, 0, h]
-      const M = mid(A, C)
-      const N = foot(M, V, B)
       const area = (t: number) => triArea(add(V, [t * (B[0] - V[0]), t * (B[1] - V[1]), t * (B[2] - V[2])]), A, C)
       const tn = dist(V, N) / dist(V, B)
       const vol = (triArea(A, B, C) * h) / 3
@@ -365,7 +400,9 @@ const BASE = { 3: 'triunghiulară', 4: 'patrulateră', 6: 'hexagonală' } as con
 /** The lateral area of a regular frustum from the sides of its bases and its apothem. (Test p. 101, 2.3) */
 export function frustumLateral(rng: Rng): Made {
   const n = pick(rng, [3, 4, 6] as const)
-  const l = int(rng, 2, 15), L = int(rng, l + 1, 30), at = int(rng, 2, 25)
+  const l = int(rng, 2, 15), L = int(rng, l + 1, 30)
+  const offset = (L - l) / (2 * Math.tan(Math.PI / n))
+  const at = Math.max(int(rng, 2, 25), Math.floor(offset) + 1)
   return {
     text: `Completați: aria laterală a unui trunchi de piramidă ${BASE[n]} regulată, având $\\ell = ${l}$ cm, $L = ${L}$ cm și $a_t = ${at}$ cm, este de $\\ldots$ cm².`,
     solution: lines(
@@ -375,7 +412,7 @@ export function frustumLateral(rng: Rng): Made {
     verify: () => {
       // one face, by coordinates: the trapezoid with bases L and l and height at
       const T: P[] = [[0, 0, 0], [L, 0, 0], [(L + l) / 2, at, 0], [(L - l) / 2, at, 0]]
-      return close(n * (triArea(T[0], T[1], T[2]) + triArea(T[0], T[2], T[3])), (n * (L + l) * at) / 2)
+      return at > offset && close(n * (triArea(T[0], T[1], T[2]) + triArea(T[0], T[2], T[3])), (n * (L + l) * at) / 2)
     },
   }
 }
@@ -391,7 +428,7 @@ export function hexFrustumAll(rng: Rng): Made {
       `Din $\\frac{3\\ell^2\\sqrt{3}}{2} = ${surd(3 * l * l, 2, 3)}$ rezultă $\\ell = ${l}$ cm. Fie $O$, $O'$ centrele bazelor și $M$, $M'$ mijloacele a două laturi paralele ale lor, $BC$ și $B'C'$. Apotemele bazelor: $OM = \\frac{L\\sqrt{3}}{2} = ${surd(L, 2, 3)}$ cm, $O'M' = \\frac{\\ell\\sqrt{3}}{2} = ${surd(l, 2, 3)}$ cm. În trapezul dreptunghic $OO'M'M$, cu $M'K \\perp OM$: $KM = ${surd(L - l, 2, 3)}$ cm, $MM' = a_t = ${2 * d}$ cm, deci $h = M'K = \\sqrt{${4 * d * d} - ${3 * d * d}} = ${d}$ cm și $\\cos(\\angle M'MK) = \\frac{${surd(d, 1, 3)}}{${2 * d}} = \\frac{\\sqrt{3}}{2}$, adică $m(\\angle M'MK) = 30^\\circ$.`,
       `a) Cu $\\mathcal{A}_B = \\frac{3L^2\\sqrt{3}}{2}$ și $\\mathcal{A}_b = \\frac{3\\ell^2\\sqrt{3}}{2}$:`,
       show(`V = \\frac{h}{3}\\left(\\mathcal{A}_B + \\mathcal{A}_b + \\sqrt{\\mathcal{A}_B \\cdot \\mathcal{A}_b}\\right) = \\frac{h\\sqrt{3}}{2}(L^2 + L\\ell + \\ell^2) = ${surd(d * (L * L + L * l + l * l), 2, 3)}\\text{ cm}^3`),
-      `b) Apotema piramidei: $VM = \\frac{OM}{\\cos 30^\\circ} = L = ${L}$ cm, deci $\\mathcal{A}_\\ell = 6 \\cdot \\frac{L \\cdot VM}{2} = ${3 * L * L}$ cm² și $\\mathcal{A}_t = ${atP}$ cm².`,
+      `b) Fie $V$ vârful piramidei din care provine trunchiul. Apotema piramidei: $VM = \\frac{OM}{\\cos 30^\\circ} = L = ${L}$ cm, deci $\\mathcal{A}_\\ell = 6 \\cdot \\frac{L \\cdot VM}{2} = ${3 * L * L}$ cm² și $\\mathcal{A}_t = ${atP}$ cm².`,
       `c) Fața laterală face cu planul bazei mari un unghi de $30^\\circ$ ($MM' \\perp BC$, $OM \\perp BC$). Planul bazei mici este paralel cu baza mare, iar unghiul diedru dintre fața laterală și baza mică, în interiorul trunchiului, este $\\angle O'M'M = 180^\\circ - 30^\\circ = 150^\\circ$ (planele lor formează un unghi de $30^\\circ$).`,
       `d) $BC \\perp (VOM)$, deci perpendiculara $OT$ pe $VM$ este perpendiculară pe fața $(BCC')$:`,
       show(`d(O, (BCC')) = OT = OM \\cdot \\sin 30^\\circ = ${surd(L, 4, 3)}\\text{ cm}`),
@@ -415,6 +452,9 @@ export function triFrustumOrigin(rng: Rng): Made {
     const K = (k * U) / (U - u)
     const ap = Math.sqrt(3 * K * K + (U * U) / 4)
     if (!Number.isInteger(ap) || K > 40) continue
+    const side = U * S3
+    const { A, B, C } = prism3(side, 0)
+    const V: P = [side / 2, U, K * S3]
     return {
       text: `Fie trunchiul de piramidă triunghiulară regulată $ABCA'B'C'$ care are $AB = ${surd(U, 1, 3)}$ cm, $A'B' = ${surd(u, 1, 3)}$ cm și înălțimea de $${surd(k, 1, 3)}$ cm. a) Desenați trunchiul și aflați volumul. b) Calculați aria laterală a piramidei $VABC$ din care provine trunchiul. c) Calculați $\\sin(\\angle(VA, (VBC)))$.`,
       solution: lines(
@@ -425,6 +465,10 @@ export function triFrustumOrigin(rng: Rng): Made {
         `c) $BC \\perp AM$ și $BC \\perp VM$, deci $BC \\perp (VAM)$ și $(VBC) \\perp (VAM)$. Perpendiculara $AT$ pe $VM$ este perpendiculară pe $(VBC)$, iar unghiul cerut este $\\angle AVT$. $AM = \\frac{AB\\sqrt{3}}{2} = ${frac(3 * U, 2)}$ cm, $AT = \\frac{AM \\cdot VO}{VM} = ${surd(3 * U * K, 2 * ap, 3)}$ cm, $OA = \\frac{AB\\sqrt{3}}{3} = ${U}$ cm, $VA = \\sqrt{${3 * K * K} + ${U * U}} = ${root(3 * K * K + U * U)}$ cm:`,
         show(`\\sin(\\angle(VA, (VBC))) = \\frac{AT}{VA} = ${sqrtFrac(27 * U * U * K * K, 4 * ap * ap * (3 * K * K + U * U))}`),
       ),
+      solutionFig: solidSketch({
+        A, B, C, V,
+        "A'": along3(V, A, u / U), "B'": along3(V, B, u / U), "C'": along3(V, C, u / U),
+      }, PRISM3, 160, { d: "A'-V B'-V C'-V", dot: 'V', l: { V: 'n' } }),
       verify: () => {
         const [A, B, C] = polygon(3, U)
         const V: P = [0, 0, K * S3]
@@ -450,7 +494,7 @@ export function hexPyrCutFaces(rng: Rng): Made {
       `a) $\\mathcal{A}_b = 6 \\cdot \\frac{\\ell^2\\sqrt{3}}{4} = ${surd(3 * a * a, 2, 3)}$ cm².`,
       `b) Secțiunea și baza sunt hexagoane asemenea, cu raportul ariilor $${frac(p * p, q * q)}$, deci raportul de asemănare al piramidei mici cu cea mare este $${frac(p, q)}$ și raportul volumelor $${frac(p ** 3, q ** 3)}$. $V = \\frac{\\mathcal{A}_b \\cdot h}{3} = \\frac{${surd(3 * a * a, 2, 3)} \\cdot ${surd(c, 1, 3)}}{3} = ${frac(3 * a * a * c, 2)}$ cm³:`,
       show(`V_{tr} = V\\left(1 - ${frac(p ** 3, q ** 3)}\\right) = ${frac(3 * a * a * c * (q ** 3 - p ** 3), 2 * q ** 3)}\\text{ cm}^3`),
-      `c) $AB \\parallel ED$, deci intersecția planelor $(VAB)$ și $(VED)$ este dreapta $d$ prin $V$, paralelă cu $AB$. Fie $M$, $N$ mijloacele lui $[AB]$ și $[ED]$: $VM \\perp AB$ și $VN \\perp ED$, deci $VM \\perp d$, $VN \\perp d$ și unghiul planelor are sinusul egal cu $\\sin(\\angle MVN)$. $MN = \\ell\\sqrt{3} = ${surd(a, 1, 3)}$ cm, $OM = ${surd(a, 2, 3)}$ cm, $VM = VN = \\sqrt{${3 * c * c} + ${frac(3 * a * a, 4)}} = ${sqrtFrac(12 * c * c + 3 * a * a, 4)}$ cm. Din aria triunghiului $VMN$, $MN \\cdot VO = VM \\cdot VN \\cdot \\sin(\\angle MVN)$:`,
+      `c) $AB \\parallel ED$, deci intersecția planelor $(VAB)$ și $(VED)$ este dreapta $d$ prin $V$, paralelă cu $AB$. Fie $O$ centrul bazei, iar $M$, $N$ mijloacele lui $[AB]$ și $[ED]$. $VM \\perp AB$ și $VN \\perp ED$, deci $VM \\perp d$, $VN \\perp d$ și unghiul planelor are sinusul egal cu $\\sin(\\angle MVN)$. $MN = \\ell\\sqrt{3} = ${surd(a, 1, 3)}$ cm, $OM = ${surd(a, 2, 3)}$ cm, $VM = VN = \\sqrt{${3 * c * c} + ${frac(3 * a * a, 4)}} = ${sqrtFrac(12 * c * c + 3 * a * a, 4)}$ cm. Din aria triunghiului $VMN$, $MN \\cdot VO = VM \\cdot VN \\cdot \\sin(\\angle MVN)$:`,
       show(`\\sin(\\angle MVN) = \\frac{MN \\cdot VO}{VM^2} = \\frac{${surd(a, 1, 3)} \\cdot ${surd(c, 1, 3)}}{${frac(12 * c * c + 3 * a * a, 4)}} = ${frac(4 * a * c, 4 * c * c + a * a)}`),
     ),
     verify: () => {
@@ -504,9 +548,10 @@ export function sectorConeCut(rng: Rng): Made {
       `Raza sectorului este generatoarea conului, $G = ${G}$ cm, iar aria sectorului este aria laterală: $\\pi r G = ${pi(r * G)}$, deci $r = ${r}$ cm și $h = \\sqrt{${G * G} - ${r * r}} = ${h}$ cm.`,
       `a) $V = \\frac{\\pi r^2 h}{3} = \\frac{\\pi \\cdot ${r * r} \\cdot ${h}}{3} = ${pi(r * r * h, 3)}$ cm³.`,
       `b) Conul mic are înălțimea de $${frac(k, fd)}$ din înălțimea conului, deci raza $r' = ${frac(r * k, fd)}$ cm, iar generatoarea trunchiului este $g = ${frac(fn, fd)} \\cdot G = ${frac(G * fn, fd)}$ cm:`,
-      show(`\\mathcal{A}_t = \\pi\\left[(R + r')g + R^2 + r'^2\\right] = ${pi(atNum, fd * fd)}\\text{ cm}^2`),
+      show(`\\mathcal{A}_t = \\pi\\left[(r + r')g + r^2 + r'^2\\right] = ${pi(atNum, fd * fd)}\\text{ cm}^2`),
       `c) Dacă conul mic are raportul de asemănare $k$ față de con, aria lui laterală este $k^2 \\mathcal{A}_\\ell$, iar a trunchiului $(1 - k^2)\\mathcal{A}_\\ell$. Din $1 - k^2 = ${n}k^2$ rezultă $k^2 = ${frac(1, n + 1)}$, $k = ${frac(1, s)}$: conul mic are înălțimea $\\frac{h}{${s}} = ${frac(h, s)}$ cm, deci planul se duce la $${frac(h * (s - 1), s)}$ cm de bază.`,
     ),
+    solutionFig: roundSection(r, r * k / fd, fn * h / fd, 'cut'),
     verify: () => {
       const kk = k / fd
       const [r1, g] = [kk * r, (fn / fd) * G]
@@ -533,6 +578,7 @@ export function coneLateralRatio(rng: Rng): Made {
         `b) $\\frac{\\pi r^2 \\cdot ${h}}{3} = ${pi(r * r * h, 3)}$, deci $r^2 = ${r * r}$, $r = ${r}$ cm și $G = \\sqrt{${r * r} + ${h * h}} = ${G}$ cm.`,
         show(`\\mathcal{A}_t = \\pi r(G + r) = \\pi \\cdot ${r} \\cdot ${G + r} = ${pi(r * (G + r))}\\text{ cm}^2`),
       ),
+      solutionFig: roundSection(r, r * s / t, h * (1 - s / t), 'cut'),
       verify: () => {
         const k = s / t
         return close((k * k) / (1 - k * k), (s * s) / (t * t - s * s)) && close(Math.sqrt(r * r + h * h), G)
@@ -553,6 +599,7 @@ export function semicircleConeCut(rng: Rng): Made {
       show(`V = \\frac{\\pi r^2 h}{3} = \\frac{\\pi \\cdot ${(G * G) / 4} \\cdot ${surd(G, 2, 3)}}{3} = ${withPi(surd(G ** 3, 24, 3))}\\text{ cm}^3`),
       `b) Dacă $k$ este raportul de asemănare al conului mic cu conul, aria laterală a conului mic este $k^2\\mathcal{A}_\\ell$, iar a trunchiului $(1 - k^2)\\mathcal{A}_\\ell$. Din $1 - k^2 = ${n}k^2$ rezultă $k = ${frac(1, s)}$, deci secțiunea trece prin punctul înălțimii aflat la $\\frac{h}{${s}} = ${surd(G, 2 * s, 3)}$ cm de vârf (adică la $${surd(G * (s - 1), 2 * s, 3)}$ cm de bază).`,
     ),
+    solutionFig: roundSection(G / 2, G / (2 * s), (G * S3 / 2) * (1 - 1 / s), 'cut'),
     verify: () => {
       const r = G / 2, h = Math.sqrt(G * G - r * r)
       const k = 1 / s
@@ -597,6 +644,7 @@ export function coneCentroidCut(rng: Rng): Made {
       `c) Centrul de greutate al triunghiului isoscel $VAB$ se află pe înălțimea $VO$, la $\\frac{1}{3}$ din ea față de bază, deci conul mic are înălțimea de $\\frac{2}{3}$ din înălțimea conului: raza bazei mici $r' = \\frac{2r}{3} = ${frac(2 * r, 3)}$ cm și generatoarea trunchiului $g = \\frac{G}{3} = ${frac(G, 3)}$ cm.`,
       show(`\\mathcal{A}_t = \\pi\\left[(r + r')g + r^2 + r'^2\\right] = \\pi\\left(${frac(5 * r, 3)} \\cdot ${frac(G, 3)} + ${r * r} + ${frac(4 * r * r, 9)}\\right) = ${pi(13 * r * r + 5 * r * G, 9)}\\text{ cm}^2`),
     ),
+    solutionFig: roundSection(r, 2 * r / 3, h / 3, 'cut'),
     verify: () => {
       const V: P = [0, 0, h], A: P = [-r, 0, 0], B: P = [r, 0, 0]
       const g = [(V[0] + A[0] + B[0]) / 3, (V[1] + A[1] + B[1]) / 3, (V[2] + A[2] + B[2]) / 3]
@@ -614,12 +662,13 @@ export function coneFrustumPerpDiag(rng: Rng): Made {
   return {
     text: `Fie trunchiul de con cu ${byR ? `raza bazei mari $R = ${G}$ cm` : `$G = ${G}$ cm`}, măsura unghiului dintre generatoare și planul bazei de $60^\\circ$ și diagonala secțiunii axiale perpendiculară pe generatoare. a) Desenați trunchiul și secțiunea axială. b) Aflați volumul trunchiului. c) Determinați volumul sferei circumscrise trunchiului.`,
     solution: lines(
-      'a) Secțiunea axială este trapezul isoscel $ABCD$, cu $AB = 2R$ (baza mare), $CD = 2r$ și generatoarele $AD = BC = G$.',
-      `b) În triunghiul $ACB$, dreptunghic în $C$, $m(\\angle B) = 60^\\circ$, deci $m(\\angle CAB) = 30^\\circ$ și $AB = 2BC$, adică $2R = 2G$: $${byR ? `G = R = ${G}` : `R = G = ${G}`}$ cm. Proiecția lui $BC$ pe $AB$ are $\\frac{G}{2}$, deci $2r = 2R - G$, $r = ${frac(G, 2)}$ cm, iar $h = G \\sin 60^\\circ = ${surd(G, 2, 3)}$ cm.`,
+      "a) Secțiunea axială este trapezul isoscel $ABB'A'$, cu $AB = 2R$ (baza mare), $A'B' = 2r$ (baza mică) și generatoarele $AA' = BB' = G$.",
+      `b) În triunghiul $AB'B$, dreptunghic în $B'$, $m(\\angle B) = 60^\\circ$, deci $m(\\angle B'AB) = 30^\\circ$ și $AB = 2BB'$, adică $2R = 2G$: $${byR ? `G = R = ${G}` : `R = G = ${G}`}$ cm. Proiecția lui $BB'$ pe $AB$ are $\\frac{G}{2}$, deci $2r = 2R - G$, $r = ${frac(G, 2)}$ cm, iar $h = G \\sin 60^\\circ = ${surd(G, 2, 3)}$ cm.`,
       show(`V = \\frac{\\pi h}{3}(R^2 + Rr + r^2) = \\frac{\\pi}{3} \\cdot ${surd(G, 2, 3)} \\cdot \\left(${G * G} + ${frac(G * G, 2)} + ${frac(G * G, 4)}\\right) = ${withPi(surd(7 * G ** 3, 24, 3))}\\text{ cm}^3`),
-      `c) Fie $O$ mijlocul lui $AB$ (centrul bazei mari): $OA = OB = R = ${G}$ cm, iar $OC = \\frac{AB}{2} = ${G}$ cm (mediana din unghiul drept); la fel $OD = ${G}$ cm. Toate punctele celor două cercuri ale bazelor sunt la ${G} cm de $O$, deci sfera circumscrisă are centrul $O$ și raza de ${G} cm:`,
+      `c) Fie $O$ mijlocul lui $AB$ (centrul bazei mari): $OA = OB = R = ${G}$ cm, iar $OB' = \\frac{AB}{2} = ${G}$ cm (mediana din unghiul drept); la fel $OA' = ${G}$ cm. Toate punctele celor două cercuri ale bazelor sunt la ${G} cm de $O$, deci sfera circumscrisă are centrul $O$ și raza de ${G} cm:`,
       show(`V_s = \\frac{4\\pi R^3}{3} = ${pi(4 * G ** 3, 3)}\\text{ cm}^3`),
     ),
+    solutionFig: roundSection(G, G / 2, G * S3 / 2, 'perpendicular'),
     verify: () => {
       const A: P = [-G, 0, 0], B: P = [G, 0, 0], C: P = [G / 2, 0, (G * S3) / 2], D: P = [-G / 2, 0, (G * S3) / 2]
       const h = C[2], r = G / 2
@@ -645,10 +694,11 @@ export function frustumProportional(rng: Rng): Made {
       solution: lines(
         `a) Fie $r = ${a === 1 ? '' : a}x$, $h = ${b}x$, $R = ${c}x$. Atunci $G = \\sqrt{h^2 + (R - r)^2} = \\sqrt{${b * b}x^2 + ${dif * dif}x^2} = ${g}x$ și $\\mathcal{A}_\\ell = \\pi G(R + r) = ${pi((a + c) * g)} x^2 = ${pi((a + c) * g * k * k)}$, deci $x = ${k}$: $r = ${r}$ cm, $h = ${h}$ cm, $R = ${R}$ cm.`,
         show(`V = \\frac{\\pi h}{3}(R^2 + Rr + r^2) = \\frac{\\pi \\cdot ${h}}{3}(${R * R} + ${R * r} + ${r * r}) = ${pi(h * (R * R + R * r + r * r), 3)}\\text{ cm}^3`),
-        `b) În secțiunea axială $ABCD$ ($AB = 2R$ jos, $CD = 2r$ sus, $C$ deasupra lui $B$), generatoarea $MA$ a conului mare trebuie să continue generatoarea $MC$ a conului mic, deci $M$ este pe diagonala $AC$; la fel, pe $BD$. Așadar $M$ este intersecția diagonalelor, care se află pe înălțimea $OO'$. Din $CD \\parallel AB$: $\\frac{MO'}{MO} = \\frac{O'C}{OA} = \\frac{r}{R}$, iar $MO' + MO = h$:`,
+        `b) În secțiunea axială $ABB'A'$ ($AB = 2R$ jos, $A'B' = 2r$ sus, $B'$ deasupra lui $B$), generatoarea $MA$ a conului mare trebuie să continue generatoarea $MB'$ a conului mic, deci $M$ este pe diagonala $AB'$; la fel, pe $BA'$. Așadar $M$ este intersecția diagonalelor, care se află pe înălțimea $OO'$. Din $A'B' \\parallel AB$: $\\frac{MO'}{MO} = \\frac{O'B'}{OB} = \\frac{r}{R}$, iar $MO' + MO = h$:`,
         show(`MO' = \\frac{h \\cdot r}{R + r} = ${frac(h * r, R + r)}\\text{ cm}, \\qquad MO = \\frac{h \\cdot R}{R + r} = ${frac(h * R, R + r)}\\text{ cm}`),
         `Punctul $M$ se află pe înălțime, la $${frac(h * r, R + r)}$ cm de baza mică.`,
       ),
+      solutionFig: roundSection(R, r, h, 'diagonals'),
       verify: () => {
         const A: P = [-R, 0, 0], C: P = [r, 0, h]
         // where AC meets the axis x = 0

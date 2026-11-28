@@ -7,8 +7,7 @@ import type { PageImage } from '../export/exportDoc'
 /** A4 at 96 dpi, in CSS pixels, and the margin inside it. */
 export const A4 = { w: 794, h: 1123, margin: 56 }
 
-/** `figure`: an SVG drawn beside the statement (an exercise taken from a national evaluation model) */
-export interface PrintItem { text: string; solution: string; figure?: string }
+export interface PrintItem { text: string; solution: string; figure?: string; solutionFigure?: string }
 export interface PrintSheet {
   title: string
   student: string
@@ -100,7 +99,8 @@ export function layoutSheet(host: HTMLElement, sheet: PrintSheet): HTMLElement[]
     place(block(`<div class="ws-print-title">Rezolvări — ${escape(sheet.title || 'Fișă de lucru')}</div>`, 'ws-print-head'))
     sheet.items.forEach((item, i) => {
       if (!item.solution.trim()) return
-      const sol = block(`<div class="ws-print-num">${i + 1}.</div><div class="ws-print-text">${renderMathMarkdown(item.solution)}</div>`, 'ws-print-item solution')
+      const drawing = item.solutionFigure ? `<div class="ws-solution-figure">${item.solutionFigure}</div>` : ''
+      const sol = block(`<div class="ws-print-num">${i + 1}.</div><div class="ws-print-text">${drawing}${renderMathMarkdown(item.solution)}</div>`, 'ws-print-item solution')
       splitLines(sol)
       place(sol)
     })

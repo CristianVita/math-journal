@@ -11,6 +11,7 @@ const md = (s: string) => renderMathMarkdown(s)
 
 /** In a generated model, where an exercise of a book comes from. */
 const fromBook = (it: EnItem) => (it.book ? ` <span class="en-from">(din ${esc(it.book.title)}, ex. ${it.book.n})</span>` : '')
+const solutionDrawing = (item: EnItem) => item.solutionFig ? `<div class="ws-solution-figure">${figureSvg(item.solutionFig)}</div>` : ''
 
 export function itemHtml(item: EnItem, i: number, withAnswer = false, starts?: [number, number]): string {
   const three = subjectOf(i, starts) === 2
@@ -23,7 +24,7 @@ export function itemHtml(item: EnItem, i: number, withAnswer = false, starts?: [
     const ans = item.sol ? item.sol : item.choices && item.ans != null
       ? `${LETTERS[item.ans]}) ${item.choices[item.ans]}`
       : (item.parts ?? []).map((p, k) => `${LETTERS[k]}) ${p.ans ?? '—'}`).join('<br>')
-    if (ans) body += `<div class="en-answer">${md('**Barem:** ' + ans)}${fromBook(item)}</div>`
+    if (ans) body += `<div class="en-answer">${solutionDrawing(item)}${md('**Barem:** ' + ans)}${fromBook(item)}</div>`
   }
   const fig = item.fig ? `<div class="en-fig">${figureSvg(item.fig)}</div>` : ''
   return `<div class="en-item">${three ? '<span class="en-pts en-pts-none"></span>' : '<span class="en-pts">5p</span>'}<span class="en-num">${i + 1}.</span><div class="en-body">${body}</div>${fig}</div>`
@@ -88,14 +89,18 @@ export function layoutModel(host: HTMLElement, model: EnModel, opt: PrintOptions
   if (opt.barem && model.items.some((it) => it.ans != null || it.sol || it.parts?.some((p) => p.ans))) {
     newPage()
     place(`<div class="ws-print-head"><div class="ws-print-title">Barem — ${esc(model.title)}</div></div>`)
-    place(baremHtml(model))
+    if (model.generated) model.items.forEach((item, i) => place(`<div class="en-barem">${generatedAnswer(item, i)}</div>`))
+    else place(baremHtml(model))
   }
   return pages
 }
 
+const generatedAnswer = (it: EnItem, i: number) =>
+  `<div class="en-barem-item"><b>${i + 1}.</b> ${solutionDrawing(it)}${md(answerText(it).replace(/^Răspuns: /, '') || '—')}${fromBook(it)}</div>`
+
 /** The answer key: subjects I and II as letters in a row, subject III part by part. */
 export function baremHtml(model: EnModel): string {
-  if (model.generated) return `<div class="en-barem">${model.items.map((it, k) => `<div class="en-barem-item"><b>${k + 1}.</b> ${md(answerText(it).replace(/^Răspuns: /, '') || '—')}${fromBook(it)}</div>`).join('')}</div>`
+  if (model.generated) return `<div class="en-barem">${model.items.map(generatedAnswer).join('')}</div>`
   const [s2, s3] = model.starts ?? [6, 12]
   const grid = (from: number, to: number) =>
     `<div class="en-barem-row">${model.items.slice(from, to).map((it, k) =>

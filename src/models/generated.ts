@@ -2,7 +2,7 @@
 // own exercise kinds, new numbers at every press. First version: the exercises are written out, without the four
 // answers to choose from; the key is the worked solution of each one.
 import { GENERATORS, type Level } from '../worksheets/generators'
-import { figureFor } from '../worksheets/figures'
+import { statementFigure } from '../worksheets/figures'
 import { seeded, type Rng } from '../worksheets/tex'
 import { BUILTIN, type EnResult } from './store'
 import type { EnItem, EnModel } from './types'
@@ -39,8 +39,7 @@ export function makeItem(id: string, level: Level, seed: number): EnItem {
   const g = GENERATORS.find((x) => x.id === id)!
   const rng = seeded(seed)
   const m = g.make(rng, level, Math.floor(rng() * g.forms(level)))
-  const fig = m.fig ?? (g.topic === 'Geometrie' ? figureFor(m.text) : undefined)
-  return { text: m.text, sol: m.solution, gen: { id, level }, ...(fig ? { fig } : {}) }
+  return { text: m.text, sol: m.solution, gen: { id, level }, fig: statementFigure(m, g.topic === 'Geometrie'), solutionFig: m.solutionFig }
 }
 
 /** Where the exercises come from (23 November 2026, asked for by the user): the books, half and half, or all new. */

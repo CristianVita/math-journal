@@ -4,6 +4,8 @@
 // Own numbers and wording, worked solutions in Romanian. Every `verify` rebuilds the figure in coordinates and
 // measures the answer there, so a wrong formula in a solution makes the tests fail.
 import type { Made } from './generators'
+import { along, plane, type Pt } from '../models/figure'
+import { spaceSketch } from './figures'
 import { frac, int, pick, rightTriangle, root, rootParts, surd, type Rng } from './tex'
 
 const lines = (...l: string[]) => l.join('\n\n')
@@ -71,6 +73,11 @@ export function projectionRatio(rng: Rng): Made {
     const s = p + q
     if (p === q || (s * u) % v !== 0) continue
     const r = (s * u) / v
+    const c = r / s
+    const pt = (x: number): P => [x * c, 0, s / 5 + x * Math.sqrt(1 - c * c)]
+    const [A, B, C] = [pt(0), pt(p), pt(s)]
+    const a: Pt = [0, 25], end: Pt = [140, 108 - 38 * c]
+    const b = along(a, end, 0.18 + 0.64 * p / s)
     return {
       text: `Punctele $A$, $B$, $C$ sunt coliniare, în această ordine, și nu se află în planul $\\alpha$, iar $A'$, $B'$, $C'$ sunt proiecțiile lor pe $\\alpha$. Dacă $AB = ${p}$ cm, $BC = ${q}$ cm și $A'C' = ${r}$ cm, calculați lungimile segmentelor $A'B'$ și $B'C'$.`,
       solution: lines(
@@ -78,11 +85,11 @@ export function projectionRatio(rng: Rng): Made {
         show(`\\frac{A'B'}{AB} = \\frac{B'C'}{BC} = \\frac{A'C'}{AC} = \\frac{${r}}{${s}}${frac(r, s) === `\\frac{${r}}{${s}}` ? '' : ` = ${frac(r, s)}`}`),
         show(`A'B' = ${p} \\cdot ${frac(r, s)} = ${frac(p * r, s)}\\text{ cm}, \\qquad B'C' = ${q} \\cdot ${frac(r, s)} = ${frac(q * r, s)}\\text{ cm}`),
       ),
+      solutionFig: plane({ A: a, B: b, C: end, "A'": [0, 0], "B'": [b[0], 0], "C'": [end[0], 0] }, 160, {
+        s: "A-B-C A'-B'-C'", d: "A-A' B-B' C-C'", dot: "A B C A' B' C'",
+        l: { A: 'nw', B: 'nw', C: 'n', "A'": 's', "B'": 's', "C'": 's' },
+      }),
       verify: () => {
-        // the line rises at the angle whose cosine is r/s
-        const c = r / s
-        const pt = (x: number): P => [x * c, 0, 3 + x * Math.sqrt(1 - c * c)]
-        const [A, B, C] = [pt(0), pt(p), pt(s)]
         return close(Math.abs(B[0] - A[0]), (p * r) / s) && close(Math.abs(C[0] - B[0]), (q * r) / s)
       },
     }
@@ -101,6 +108,10 @@ export function projectionParallelSide(rng: Rng): Made {
       `Cum $BC \\parallel \\alpha$, punctele $B$ și $C$ sunt la aceeași distanță de $\\alpha$: $BB' = CC' = ${h}$ cm. Proiecția lui $AB$ este $AB'$, din triunghiul $ABB'$, dreptunghic în $B'$:`,
       show(`AB' = \\sqrt{${b * b} - ${h * h}} = ${root(b * b - h * h)}\\text{ cm}`),
     ),
+    solutionFig: plane({ A: [60, 0], B: [0, 98], C: [148, 98], "B'": [0, 33], "C'": [148, 33] }, 164, {
+      s: "B-A-C-B B'-A-C'", d: "B-B' C-C' B'-C'", dot: "B' C'",
+      l: { A: 's', B: 'nw', C: 'ne', "B'": 'sw', "C'": 'se' },
+    }),
     verify: () => r * r + h * h === c * c && b > h,
   }
 }
@@ -110,6 +121,8 @@ export function projectedTriangleArea(rng: Rng): Made {
   const [x, c, hh] = rightTriangle(rng, 50)
   const b = 2 * int(rng, 2, 20)
   const S = (b * hh) / 2
+  const d = b * 0.42
+  const A: P = [0, 0, 0], B: P = [b, 0, 0], C: P = [d, x, c], Cp: P = [d, x, 0]
   return {
     text: `Triunghiul $ABC$ are latura $AB$ inclusă în planul $\\alpha$, iar $C \\notin \\alpha$. Proiecția lui $C$ pe $\\alpha$ este $C'$, cu $CC' = ${c}$ cm. Dacă $AB = ${b}$ cm și aria triunghiului $ABC$ este ${S} cm², calculați distanța de la $C'$ la dreapta $AB$ și aria triunghiului $ABC'$.`,
     solution: lines(
@@ -117,10 +130,11 @@ export function projectedTriangleArea(rng: Rng): Made {
       "Cum $CC' \\perp \\alpha$, $CD \\perp AB$ și $AB \\subset \\alpha$, din reciproca teoremei celor trei perpendiculare $C'D \\perp AB$, deci $d(C', AB) = C'D$:",
       show(`C'D = \\sqrt{${hh * hh} - ${c * c}} = ${x}\\text{ cm}, \\qquad \\mathcal{A}_{ABC'} = \\frac{${b} \\cdot ${x}}{2} = ${(b * x) / 2}\\text{ cm}^2`),
     ),
-    verify: () => {
-      const C: P = [3, x, c]
-      return close(toLine(C, [0, 0, 0], [b, 0, 0]), hh) && close(toLine([3, x, 0], [0, 0, 0], [b, 0, 0]), x)
-    },
+    solutionFig: plane({ A: [0, 0], B: [144, 0], C: [79, 100], "C'": [79, 34], D: [57, 0] }, 158, {
+      s: "A-B-C-A A-C'-B", d: "C-C' C-D C'-D", dot: "C' D",
+      l: { C: 'n', "C'": 'e', D: 's' },
+    }),
+    verify: () => close(toLine(C, A, B), hh) && close(toLine(Cp, A, B), x),
   }
 }
 
@@ -141,6 +155,11 @@ export function twoPerpendicularsSegment(rng: Rng): Made {
         show(`OA'^2 = ${u * u} + ${p * p}, \\quad OC'^2 = ${u * u} + x^2, \\quad A'C'^2 = ${4 * u * u} + (${p} - x)^2`),
         `Unghiul $A'OC'$ este drept exact când $OA'^2 + OC'^2 = A'C'^2$: $${2 * u * u + p * p} + x^2 = ${4 * u * u + p * p} - ${2 * p}x + x^2$, deci $${2 * p}x = ${2 * u * u}$ și $x = ${frac(u * u, p)}$ cm.`,
       ),
+      solutionFig: spaceSketch({ A: [-60, 0, 0], B: [0, -39, 0], C: [60, 0, 0], D: [0, 39, 0], O: [0, 0, 0],
+        "A'": [-60, 0, 30 + 62 * p / Math.max(p, q)], "C'": [60, 0, 30 + 62 * q / Math.max(p, q)] }, {
+        s: "A-B-C-D-A A-A'-C'-C", d: "A-C B-D A'-O-C'", dot: 'O',
+        l: { A: 'w', B: 's', C: 'e', D: 'ne', O: 'sw', "A'": 'nw', "C'": 'ne' },
+      }, [0.28, 0.72]),
       verify: () => {
         const [A1, C1, C2]: P[] = [[-u, 0, p], [u, 0, q], [u, 0, x]]
         return close(dist(A1, C1), Math.sqrt(4 * u * u + (p - q) ** 2)) && Math.abs(dot(A1, C2)) < 1e-9
@@ -547,6 +566,7 @@ export function equilateralTilted(rng: Rng): Made {
   const variant = pick(rng, [30, 45, 0] as const)
   if (variant === 0) {
     const c = 2 * int(rng, 1, 30)
+    const [B, C, A]: P[] = [[0, 0, 0], [c / Math.SQRT2, 0, 0], [0, c / 2, c / 2]]
     return {
       text: `Triunghiul dreptunghic isoscel $ABC$, cu $AB = BC$ și $AC = ${c}$ cm, are latura $BC$ inclusă în planul $\\alpha$. Știind că $m(\\angle(AC, \\alpha)) = 30^\\circ$, aflați distanța de la $A$ la $\\alpha$ și $m(\\angle(AB, \\alpha))$.`,
       solution: lines(
@@ -554,18 +574,17 @@ export function equilateralTilted(rng: Rng): Made {
         `$AB = \\frac{AC}{\\sqrt{2}} = ${surd(c, 2, 2)}$ cm, iar unghiul lui $AB$ cu $\\alpha$ este $\\angle ABA'$:`,
         show(`\\sin(\\angle ABA') = \\frac{AA'}{AB} = \\frac{${c / 2}}{${surd(c, 2, 2)}} = \\frac{\\sqrt{2}}{2} \\Rightarrow m(\\angle(AB, \\alpha)) = 45^\\circ`),
       ),
-      verify: () => {
-        const ab = c / Math.SQRT2
-        const phi = Math.asin(c / 2 / ab)
-        const A: P = [0, ab * Math.cos(phi), ab * Math.sin(phi)]
-        const [B, C]: P[] = [[0, 0, 0], [ab, 0, 0]]
-        return close(sinLP(A, C, B, C, [0, 1, 0]), 0.5) && close(sinLP(A, B, B, C, [0, 1, 0]), Math.SQRT1_2)
-      },
+      solutionFig: spaceSketch({ A, B, C, "A'": [0, A[1], 0] }, {
+        s: "A-B-C-A B-A'-C", d: "A-A'", dot: "A'", l: { A: 'n', B: 'sw', C: 'se', "A'": 'ne' },
+      }),
+      verify: () => close(sinLP(A, C, B, C, [0, 1, 0]), 0.5) && close(sinLP(A, B, B, C, [0, 1, 0]), Math.SQRT1_2),
     }
   }
   const l = 2 * int(rng, 1, 30)
   const s30 = variant === 30
   const d = s30 ? String(l / 2) : surd(l, 2, 2)
+  const aa = l * Math.sin(rad(variant))
+  const [B, C, M, A]: P[] = [[-l / 2, 0, 0], [l / 2, 0, 0], [0, 0, 0], [0, Math.sqrt(3 * l * l / 4 - aa * aa), aa]]
   return {
     text: `Triunghiul echilateral $ABC$, cu latura de ${l} cm, are latura $BC$ inclusă în planul $\\alpha$. Dacă $m(\\angle(AB, \\alpha)) = ${variant}^\\circ$, calculați distanța de la $A$ la planul $\\alpha$ și sinusul și cosinusul unghiului dintre dreapta $AM$ și planul $\\alpha$, unde $M$ este mijlocul lui $BC$.`,
     solution: lines(
@@ -573,14 +592,10 @@ export function equilateralTilted(rng: Rng): Made {
       `$AM = ${surd(l, 2, 3)}$ cm (înălțime în triunghiul echilateral), iar unghiul lui $AM$ cu $\\alpha$ este $\\angle AMA'$:`,
       show(`\\sin(\\angle AMA') = \\frac{AA'}{AM} = ${s30 ? '\\frac{\\sqrt{3}}{3}' : '\\frac{\\sqrt{6}}{3}'}, \\qquad \\cos(\\angle AMA') = \\sqrt{1 - \\sin^2} = ${s30 ? '\\frac{\\sqrt{6}}{3}' : '\\frac{\\sqrt{3}}{3}'}`),
     ),
-    verify: () => {
-      const am = (l * Math.sqrt(3)) / 2
-      const aa = l * Math.sin(rad(variant))
-      const phi = Math.asin(aa / am)
-      const A: P = [0, am * Math.cos(phi), am * Math.sin(phi)]
-      const [B, C, M]: P[] = [[-l / 2, 0, 0], [l / 2, 0, 0], [0, 0, 0]]
-      return close(sinLP(A, B, B, C, [0, 1, 0]), Math.sin(rad(variant))) && close(sinLP(A, M, B, C, [0, 1, 0]), s30 ? Math.sqrt(3) / 3 : Math.sqrt(6) / 3)
-    },
+    solutionFig: spaceSketch({ A, B, C, M, "A'": [0, A[1], 0] }, {
+      s: "A-B-C-A B-A'-C", d: "A-A' A-M M-A'", dot: "M A'", l: { A: 'n', M: 's', "A'": 'ne' },
+    }),
+    verify: () => close(sinLP(A, B, B, C, [0, 1, 0]), Math.sin(rad(variant))) && close(sinLP(A, M, B, C, [0, 1, 0]), s30 ? Math.sqrt(3) / 3 : Math.sqrt(6) / 3),
   }
 }
 
@@ -675,8 +690,10 @@ export function foldedSquare(rng: Rng): Made {
   const a = 2 * int(rng, 1, 25)
   const g = pick(rng, [60, 90])
   const right = g === 90
+  const h = a / Math.SQRT2
+  const [C, D, B]: P[] = [[h, 0, 0], [0, h, 0], [0, h * Math.cos(rad(g)), h * Math.sin(rad(g))]]
   return {
-    text: `Pătratul $ABCD$, cu latura de ${a} cm și centrul $O$, se îndoaie după diagonala $AC$ astfel încât planele $(ADC)$ și $(ABC)$ să ${right ? 'fie perpendiculare' : `formeze un unghi de $60^\\circ$`}. Calculați lungimea segmentului $DB$ după îndoire și aria triunghiului $DOB$${right ? ', apoi distanța de la $B$ la dreapta $CD$' : ''}.`,
+    text: `Pătratul $ABCD$, cu latura de ${a} cm și centrul $O$, se îndoaie după diagonala $AC$ astfel încât unghiul diedru dintre semiplanele delimitate de $AC$ care conțin punctele $D$ și $B$ să măsoare $${g}^\\circ$. Calculați lungimea segmentului $DB$ după îndoire și aria triunghiului $DOB$${right ? ', apoi distanța de la $B$ la dreapta $CD$' : ''}.`,
     solution: lines(
       `Diagonalele pătratului sunt perpendiculare, deci după îndoire $DO \\perp AC$ și $BO \\perp AC$: unghiul planelor este $\\angle DOB$. Iar $DO = BO = \\frac{AC}{2} = ${surd(a, 2, 2)}$ cm.`,
       right
@@ -687,10 +704,10 @@ export function foldedSquare(rng: Rng): Made {
         show(`d(B, CD) = BE = \\sqrt{BO^2 + OE^2} = \\sqrt{${a * a / 2} + ${a * a / 4}} = ${surd(a, 2, 3)}\\text{ cm}`),
       ] : []),
     ),
+    solutionFig: spaceSketch({ A: [-h, 0, 0], B, C, D, O: [0, 0, 0] }, {
+      s: 'A-B-C-D-A A-C', d: 'D-O-B B-D', dot: 'O', l: { B: 'n', D: 's', O: 'sw' },
+    }, [0.24, -0.48]),
     verify: () => {
-      const h = a / Math.SQRT2
-      const [C, D]: P[] = [[h, 0, 0], [0, h, 0]]
-      const B: P = [0, h * Math.cos(rad(g)), h * Math.sin(rad(g))]
       const ok = close(dist(D, B), right ? a : h)
       return right ? ok && close(toLine(B, C, D), (a * Math.sqrt(3)) / 2) : ok
     },

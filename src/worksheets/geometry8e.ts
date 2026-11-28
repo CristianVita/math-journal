@@ -6,6 +6,9 @@
 // worked solutions in Romanian; every `verify` rebuilds the figure in coordinates.
 import type { Made } from './generators'
 import type { Form, Kind8 } from './alg8'
+import { along, plane, type Pt } from '../models/figure'
+import { BOX, box } from '../models/data/shapes'
+import { roundSection, solidSketch } from './figures'
 import { de, frac, gcd, int, pick, rightTriangle, root, rootParts, shuffle, surd, type Rng } from './tex'
 
 const lines = (...l: string[]) => l.filter(Boolean).join('\n\n')
@@ -338,6 +341,8 @@ export function cubeFromEdgeSum(rng: Rng): Made {
 /** {Q} = B'C ∩ BC': AQ, the sine of ∠(AQ, AD') and four perpendicular or parallel positions. (Test p. 72, 2.3) */
 export function cubeFaceCenter(rng: Rng): Made {
   const a = int(rng, 2, 30)
+  const cube = box(a, a, a)
+  const Q = mid(cube["B'"], cube.C)
   return {
     text: `Cubul $ABCDA'B'C'D'$ are muchia de ${a} cm, iar $\\{Q\\} = B'C \\cap BC'$. Calculați lungimea segmentului $AQ$ și $\\sin(\\angle(AQ, AD'))$, apoi demonstrați că: a) $AB \\perp (BCC')$; b) $AB' \\perp (BCD')$; c) $(ACD') \\parallel (BC'A')$; d) $A'D \\perp AQ$.`,
     solution: lines(
@@ -350,9 +355,9 @@ export function cubeFaceCenter(rng: Rng): Made {
       "c) $AC \\parallel A'C'$ și $CD' \\parallel BA'$ (din dreptunghiurile $ACC'A'$ și $A'BCD'$). Planul $(ACD')$ conține două drepte concurente paralele cu planul $(BC'A')$, deci $(ACD') \\parallel (BC'A')$.",
       "d) $A'D \\perp AD'$ (diagonalele pătratului $ADD'A'$) și $A'D \\perp AB$ (pentru că $AB \\perp (ADD')$), deci $A'D \\perp (ABC')$. Punctul $Q$ se află pe $BC'$, deci $AQ \\subset (ABC'D')$ și $A'D \\perp AQ$.",
     ),
+    fig: solidSketch({ ...cube, Q }, BOX, 170, { seg: "B'-C B-C' A-Q A-D' A'-D", dot: 'Q', l: { Q: 'e' } }),
     verify: () => {
       const p = boxPts(a, a, a)
-      const Q = mid(p[5], p[2])
       const s = Math.sin((angle(sub(Q, p[0]), sub(p[7], p[0])) * Math.PI) / 180)
       return close(dist(p[0], Q), (a * Math.sqrt(6)) / 2) && close(s, Math.sqrt(6) / 3) && close(dot(sub(p[3], p[4]), sub(Q, p[0])), 0)
         && zero(cross(dOf(p, [0, 5]), normal(p[1], p[2], p[7]))) && zero(cross(normal(p[0], p[2], p[7]), normal(p[1], p[6], p[4])))
@@ -455,17 +460,19 @@ export function cylinderAxialDiagonals(rng: Rng): Made {
   const tall = rng() < 0.5
   // tall: AA' > AB, so AB = h√3/3 and R² = h²/12; otherwise AB = h√3 and R² = 3h²/4
   const [rp, rq] = tall ? [1, 12] : [3, 4]
+  const radius = Math.sqrt((rp * h * h) / rq)
   return {
     text: `Un cilindru circular drept are diametrele bazelor $AB$ și $A'B'$, generatoarele $AA' = BB' = ${h}$ cm și $m(\\angle(AB', A'B)) = 60^\\circ$. Aflați aria bazei și volumul cilindrului, știind că $AA' ${tall ? '>' : '<'} AB$.`,
     solution: lines(
-      "Secțiunea axială $ABB'A'$ este un dreptunghi. Diagonalele lui, $AB'$ și $A'B$, sunt congruente și se înjumătățesc în punctul $O$, iar unghiul ascuțit dintre ele, de $60^\\circ$, se află în fața laturii mai mici.",
+      "Secțiunea axială $ABB'A'$ este un dreptunghi. Diagonalele lui, $AB'$ și $A'B$, sunt congruente și se înjumătățesc în punctul $M$, iar unghiul ascuțit dintre ele, de $60^\\circ$, se află în fața laturii mai mici.",
       tall
-        ? `Latura mai mică este $AB$: triunghiul $AOB$ este isoscel, cu un unghi de $60^\\circ$, deci echilateral, și $AB' = 2AB$. În triunghiul $ABB'$, dreptunghic în $B$: $BB'^2 = AB'^2 - AB^2 = 3AB^2$, deci $AB = \\frac{${h}}{\\sqrt{3}} = ${surd(h, 3, 3)}$ cm și $R = ${surd(h, 6, 3)}$ cm.`
-        : `Latura mai mică este $AA'$: triunghiul $AOA'$ este isoscel, cu un unghi de $60^\\circ$, deci echilateral, și $AB' = 2AA' = ${2 * h}$ cm. În triunghiul $ABB'$, dreptunghic în $B$: $AB = \\sqrt{${4 * h * h} - ${h * h}} = ${surd(h, 1, 3)}$ cm, deci $R = ${surd(h, 2, 3)}$ cm.`,
+        ? `Latura mai mică este $AB$: triunghiul $AMB$ este isoscel, cu un unghi de $60^\\circ$, deci echilateral, și $AB' = 2AB$. În triunghiul $ABB'$, dreptunghic în $B$: $BB'^2 = AB'^2 - AB^2 = 3AB^2$, deci $AB = \\frac{${h}}{\\sqrt{3}} = ${surd(h, 3, 3)}$ cm și $R = ${surd(h, 6, 3)}$ cm.`
+        : `Latura mai mică este $AA'$: triunghiul $AMA'$ este isoscel, cu un unghi de $60^\\circ$, deci echilateral, și $AB' = 2AA' = ${2 * h}$ cm. În triunghiul $ABB'$, dreptunghic în $B$: $AB = \\sqrt{${4 * h * h} - ${h * h}} = ${surd(h, 1, 3)}$ cm, deci $R = ${surd(h, 2, 3)}$ cm.`,
       show(`\\mathcal{A}_b = \\pi R^2 = ${pi(rp * h * h, rq)}\\text{ cm}^2, \\qquad V = \\mathcal{A}_b \\cdot G = ${pi(rp * h * h, rq)} \\cdot ${h} = ${pi(rp * h ** 3, rq)}\\text{ cm}^3`),
     ),
+    solutionFig: roundSection(radius, radius, h, 'diagonals'),
     verify: () => {
-      const w = 2 * Math.sqrt((rp * h * h) / rq)
+      const w = 2 * radius
       const [A, B, A1, B1]: P[] = [[0, 0, 0], [w, 0, 0], [0, 0, h], [w, 0, h]]
       return close(angle(sub(B1, A), sub(B, A1)), 60) && (tall ? h > w : h < w)
     },
@@ -509,6 +516,7 @@ for (let b = 5; b <= 30; b++) for (let h = 2; h < b; h++) {
 export function trapezoidTriangleSpace(rng: Rng): Made {
   const [b, h, w, ea, e] = pick(rng, TRAP)
   const ac2 = h * h + (b + w) ** 2
+  const [A, B, C, D, E]: P[] = [[0, 0, 0], [b, 0, 0], [b + w, h, 0], [0, h, 0], [0, 0, ea]]
   return {
     text: `Fie trapezul dreptunghic $ABCD$, cu $AB \\parallel CD$, $AB < CD$, $m(\\angle A) = 90^\\circ$, și triunghiul $AEB$, dreptunghic în $A$, situate în plane diferite, astfel încât $EA \\perp BC$. Dacă $AC$ este bisectoarea unghiului $C$, $AD = ${h}$ cm, $AB = ${b}$ cm și $d(E, B) = ${e}$ cm: a) arătați că $AB \\parallel (EDC)$; b) arătați că $EA \\perp (ABC)$; c) calculați $\\sin(\\angle(EB, DC))$; d) demonstrați că $AB \\perp (EAD)$; e) calculați $d(E, C)$.`,
     solution: lines(
@@ -522,8 +530,11 @@ export function trapezoidTriangleSpace(rng: Rng): Made {
       `Cum $EA \\perp (ABC)$, avem $EA \\perp AC$:`,
       show(`d(E, C) = EC = \\sqrt{EA^2 + AC^2} = \\sqrt{${ea * ea} + ${ac2}} = ${root(ea * ea + ac2)}\\text{ cm}`),
     ),
+    solutionFig: plane({ A: [0, 0], B: [106, 0], C: [172, 45], D: [32, 45], E: [0, 105], F: [138, 45] }, 174, {
+      s: 'A-B-C-D-A A-E-B', d: 'A-C E-C E-D B-F', dot: 'F', ra: ['EAB', 'BFC'],
+      l: { A: 'sw', B: 's', C: 'e', D: 'w', E: 'n' },
+    }),
     verify: () => {
-      const [A, B, C, D, E]: P[] = [[0, 0, 0], [b, 0, 0], [b + w, h, 0], [0, h, 0], [0, 0, ea]]
       const bis = close(angle(sub(A, C), sub(D, C)), angle(sub(A, C), sub(B, C)))
       return bis && close(dist(B, C), b) && close(dist(E, B), e) && close(dot(sub(E, A), sub(C, B)), 0) && close(dist(E, C), Math.sqrt(ea * ea + ac2))
         && close(Math.sin((angle(sub(B, E), sub(C, D)) * Math.PI) / 180), ea / e)
@@ -537,6 +548,21 @@ export function trapezoidProjections(rng: Rng): Made {
   const i = int(rng, 1, 4)
   let j = int(rng, 1, 3)
   if (j >= i) j++
+  const depth = Math.max(i, j) * p * 0.9
+  const A: P = [0, 0, 0], D: P = [0, depth, 0]
+  const E: P = [i * x, 0, 0], F: P = [j * x, depth, 0]
+  const B: P = [E[0], E[1], i * s], C: P = [F[0], F[1], j * s]
+  const maxBase = Math.max(i, j)
+  const [ab, dc] = [i, j].map((base) => 48 + 61 * base / maxBase)
+  // Open the two faces on opposite sides of the common edge AD.
+  const fig = plane({
+    A: [0, 0], D: [72, 33], B: [ab, 0.95 * ab], C: [72 + dc, 33 + 0.95 * dc],
+    E: [ab, 0], F: [72 + dc, 33],
+  }, 186, {
+    s: 'A-B-C-D-A A-E-F-D', d: 'B-E C-F', ra: ['BEA', 'CFD'], dot: 'E F',
+    l: { A: 'sw', B: 'nw', C: 'ne', E: 'se', F: 'e' },
+    t: [{ at: [46, 10], s: 'α', italic: true }],
+  })
   return {
     text: `Un trapez $ABCD$, cu $AB \\parallel CD$, are latura $AD$ inclusă în planul $\\alpha$, iar vârfurile $B$ și $C$ se află de aceeași parte a lui $\\alpha$. Perpendicularele duse din $B$ și $C$ pe planul $\\alpha$ îl intersectează în punctele $E$ și $F$. a) Arătați că $ADFE$ este trapez. b) Dacă $AB = ${i * p}$ cm, $CD = ${j * p}$ cm și $BE = ${i * s}$ cm, aflați lungimile segmentelor $CF$, $AE$ și $DF$.`,
     solution: lines(
@@ -545,10 +571,8 @@ export function trapezoidProjections(rng: Rng): Made {
       show(`\\text{b) } AE = \\sqrt{${(i * p) ** 2} - ${(i * s) ** 2}} = ${i * x}\\text{ cm}, \\qquad \\frac{CF}{BE} = \\frac{DF}{AE} = \\frac{DC}{AB} = ${frac(j, i)}`),
       show(`CF = ${i * s} \\cdot ${frac(j, i)} = ${j * s}\\text{ cm}, \\qquad DF = ${i * x} \\cdot ${frac(j, i)} = ${j * x}\\text{ cm}`),
     ),
+    solutionFig: fig,
     verify: () => {
-      const A: P = [0, 0, 0], D: P = [0, 7, 0], u: P = [x, 0, s]
-      const B = add(A, [i * u[0], 0, i * u[2]]), C = add(D, [j * u[0], 0, j * u[2]])
-      const E: P = [B[0], B[1], 0], F: P = [C[0], C[1], 0]
       return close(dist(A, B), i * p) && close(dist(C, D), j * p) && close(dist(C, F), j * s) && close(dist(A, E), i * x) && close(dist(D, F), j * x) && zero(cross(sub(E, A), sub(F, D)))
     },
   }
@@ -588,6 +612,9 @@ export function parallelSquare(rng: Rng): Made {
   const s = int(rng, 2, 30)
   const shape = square ? `pătratului $ABCD$, cu latura de ${p} cm` : `dreptunghiului $ABCD$, cu $AB = ${p}$ cm și $BC = ${q}$ cm`
   const [P2, A2] = [2 * (p + q), p * q]
+  const base = box(p, q, s)
+  const points = Object.fromEntries(Object.entries(base).map(([name, point]) =>
+    [name, name.endsWith("'") ? add(point, [s / 4, s / 8, -s / 4]) : point]))
   return {
     text: `Prin vârfurile ${shape}, se duc, de aceeași parte a planului său, segmentele $AA'$, $BB'$, $CC'$, $DD'$, paralele între ele și neconținute în planul $(ABC)$. a) Arătați că $AB \\parallel (DD'C')$ și $(AA'B) \\parallel (DD'C')$. b) Dacă $AA' = BB' = CC' = DD' = ${s}$ cm, arătați că $(ABC) \\parallel (A'B'C')$ și calculați perimetrul și aria patrulaterului $A'B'C'D'$.`,
     solution: lines(
@@ -596,6 +623,7 @@ export function parallelSquare(rng: Rng): Made {
       `Patrulaterul $A'B'C'D'$ are laturile egale și paralele cu ale lui $ABCD$ (unghiurile cu laturile paralele sunt congruente), deci este ${square ? 'un pătrat' : 'un dreptunghi'} congruent cu $ABCD$:`,
       show(`\\mathcal{P}_{A'B'C'D'} = ${square ? `4 \\cdot ${p}` : `2(${p} + ${q})`} = ${P2}\\text{ cm}, \\qquad \\mathcal{A}_{A'B'C'D'} = ${square ? `${p}^2` : `${p} \\cdot ${q}`} = ${A2}\\text{ cm}^2`),
     ),
+    fig: solidSketch(points, BOX, 170),
     verify: () => {
       const t: P = [1, 2, 0.5 * s]
       const base: P[] = [[0, 0, 0], [p, 0, 0], [p, q, 0], [0, q, 0]]
@@ -622,21 +650,40 @@ export function rightTrapezoidPerp(rng: Rng): Made {
     // as in the book, the distance to BC and the diagonal DB come out with small radicals
     if (rootParts(md2 * r * r + q * q * ad2)[1] > 30 || rootParts(db2)[1] > 30) continue
     const tgName = deg === 30 ? '\\frac{\\sqrt{3}}{3}' : deg === 45 ? '1' : '\\sqrt{3}'
+    const ad = Math.sqrt(ad2), md = Math.sqrt(md2)
+    const [A, B, C, D, M]: P[] = [[0, ad, 0], [p, ad, 0], [q, 0, 0], [0, 0, 0], [0, 0, md]]
+    const shortBase = 76 + 40 * p / q
+    const frontRight: Pt = [174, 0], backRight: Pt = [51 + shortBase, 46]
+    const backLeft: Pt = [51, 46], top: Pt = [0, 123]
+    const t = q * w / (r * r)
+    const coincides = q * w === r * r
+    // Keep E on the correct part of BC even for a very short or long projection.
+    const placement = t < 1 ? 0.18 + 0.64 * t : 1 + Math.min(0.65, t - 0.78)
+    const footOnSide = along(frontRight, backRight, coincides ? 1 : placement)
+    const fig = plane({
+      A: backLeft, B: backRight, C: frontRight, D: [0, 0], M: top,
+      E: footOnSide, N: along(backLeft, top, ad2 / ma2), F: [shortBase, 0],
+    }, 190, {
+      s: 'D-A-B-C-D D-M-A M-B',
+      d: `D-B D-N B-F ${coincides ? '' : 'D-E M-E'}${t > 1 ? ' B-E' : ''}`.trim(),
+      dot: coincides ? 'F N' : 'E F N',
+      l: { A: 'w', B: coincides ? '' : 'e', C: 'se', D: 'sw', M: 'n', E: coincides ? '' : 'e', F: 's', N: 'e' },
+      t: coincides ? [{ at: [backRight[0] + 6, backRight[1] + 2], s: 'B = E', anchor: 'start', italic: true, size: 14 }] : undefined,
+    })
     return {
       text: `Fie trapezul dreptunghic $ABCD$, cu $AB \\parallel CD$, $m(\\angle A) = m(\\angle D) = 90^\\circ$, $AB = ${p}$ cm, $CD = ${q}$ cm și $BC = ${r}$ cm. Pe planul trapezului se ridică perpendiculara $MD$, cu $MD = ${root(md2)}$ cm. Calculați: a) $d(M, AB)$; b) $m(\\angle((MAB), (ABC)))$; c) $d(M, BC)$; d) $\\operatorname{tg}(\\angle(MB, (ABC)))$; e) $\\sin(\\angle(DB, (AMB)))$.`,
       solution: lines(
         `Ducem $BF \\perp CD$, $F \\in CD$: $ABFD$ este dreptunghi, $FC = ${q} - ${p} = ${w}$ cm și $AD = BF = \\sqrt{${r * r} - ${w * w}} = ${root(ad2)}$ cm.`,
         `a) $DA \\perp AB$ și $MD \\perp (ABC)$, deci, din teorema celor trei perpendiculare, $MA \\perp AB$: $d(M, AB) = MA = \\sqrt{${md2} + ${ad2}} = ${root(ma2)}$ cm.`,
         `b) $(MAB) \\cap (ABC) = AB$, $MA \\perp AB$ și $DA \\perp AB$, deci unghiul planelor este $\\angle MAD$: $\\operatorname{tg}(\\angle MAD) = \\frac{MD}{AD} = ${tgName}$, adică $${deg}^\\circ$.`,
-        `c) Fie $DE \\perp BC$, $E \\in BC$; din teorema celor trei perpendiculare $ME \\perp BC$. Din aria triunghiului $DBC$: $\\frac{DC \\cdot AD}{2} = \\frac{BC \\cdot DE}{2}$, deci $DE = \\frac{${q} \\cdot ${root(ad2)}}{${r}} = ${sqrtFrac(q * q * ad2, r * r)}$ cm și`,
+        `c) Fie $E$ piciorul perpendicularei din $D$ pe dreapta $BC$. Din teorema celor trei perpendiculare, $ME \\perp BC$. Din aria triunghiului $DBC$: $\\frac{DC \\cdot AD}{2} = \\frac{BC \\cdot DE}{2}$, deci $DE = \\frac{${q} \\cdot ${root(ad2)}}{${r}} = ${sqrtFrac(q * q * ad2, r * r)}$ cm și`,
         show(`d(M, BC) = ME = \\sqrt{MD^2 + DE^2} = ${sqrtFrac(md2 * r * r + q * q * ad2, r * r)}\\text{ cm}`),
         `d) Proiecția lui $MB$ pe $(ABC)$ este $DB = \\sqrt{${ad2} + ${p * p}} = ${root(db2)}$ cm, deci $\\operatorname{tg}(\\angle MBD) = \\frac{MD}{DB} = ${sqrtFrac(md2, db2)}$.`,
         `e) $AB \\perp AD$ și $AB \\perp MD$, deci $AB \\perp (MAD)$. Ducem $DN \\perp MA$, $N \\in MA$; cum $DN \\subset (MAD)$, $DN \\perp AB$, deci $DN \\perp (AMB)$ și proiecția lui $DB$ pe $(AMB)$ este $NB$. În triunghiul $MDA$: $DN = \\frac{MD \\cdot AD}{MA} = ${sqrtFrac(md2 * ad2, ma2)}$ cm.`,
         show(`\\sin(\\angle DBN) = \\frac{DN}{DB} = ${sqrtFrac(md2 * ad2, ma2 * db2)}`),
       ),
+      solutionFig: fig,
       verify: () => {
-        const ad = Math.sqrt(ad2), md = Math.sqrt(md2)
-        const [A, B, C, D, M]: P[] = [[0, ad, 0], [p, ad, 0], [q, 0, 0], [0, 0, 0], [0, 0, md]]
         const s = sinLP(M, B, A, B, C)
         return close(dist(B, C), r) && close(toLine(M, A, B), Math.sqrt(ma2)) && close(cosPP(M, A, B, A, B, C), Math.cos((deg * Math.PI) / 180))
           && close(toLine(M, B, C), Math.sqrt(md2 + (q * q * ad2) / (r * r))) && close(s / Math.sqrt(1 - s * s), Math.sqrt(md2 / db2))

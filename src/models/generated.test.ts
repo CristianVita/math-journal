@@ -4,10 +4,20 @@ import { GENERATORS } from '../worksheets/generators'
 import { bookItem, bookItemAt, bookKey, generateModel, seenBy, SLOTS } from './generated'
 import { BUILTIN } from './store'
 import { seeded } from '../worksheets/tex'
+import { baremHtml, itemHtml } from './modelExport'
+import { trapezoidProjections } from '../worksheets/geometry8e'
 
 const formulas = (md: string) => [...md.matchAll(/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g)].map((m) => m[1] ?? m[2])
 
 describe('the generated national evaluation model', () => {
+  it('shows the construction only with the answer and in the answer key', () => {
+    const made = trapezoidProjections(seeded(25))
+    const item = { text: made.text, sol: made.solution, solutionFig: made.solutionFig }
+    expect(itemHtml(item, 0)).not.toContain('<svg')
+    expect(itemHtml(item, 0, true)).toContain('class="ws-solution-figure"><svg')
+    expect(baremHtml({ id: 'test', title: '', source: '', generated: true, items: [item] })).toContain('class="ws-solution-figure"><svg')
+  })
+
   it('every place has kinds that exist at its level', () => {
     expect(SLOTS.length).toBe(18)
     for (const s of SLOTS) for (const id of s.gens) expect(GENERATORS.find((g) => g.id === id)?.forms(s.level), id).toBeGreaterThan(0)

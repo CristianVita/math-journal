@@ -35,6 +35,8 @@ export interface Fig {
   t?: { at: Pt; s: string; anchor?: 'start' | 'middle' | 'end'; size?: number; italic?: boolean }[]
   /** coordinate axes with arrows, from the origin's pixel: x from x0 to x1, y from y0 (bottom) to y1 (top) */
   axes?: { o: Pt; x: [number, number]; y: [number, number]; xl?: string; yl?: string }
+  /** A separate view of the construction, with its own point labels. */
+  detail?: Omit<Fig, 'detail'>
 }
 
 const OFF: Record<Exclude<Dir, 'c'>, Pt> = {
@@ -76,7 +78,7 @@ function splitAngle(a: string): string[] {
 const fmt = (n: number) => Number(n.toFixed(1))
 const line = (pts: Pt[]) => pts.map((q, i) => `${i ? 'L' : 'M'}${fmt(q[0])} ${fmt(q[1])}`).join(' ')
 
-export function figureSvg(fig: Fig): string {
+function figureBody(fig: Fig): string {
   const parts: string[] = []
   const stroke = 'stroke="#111" stroke-width="1.3" fill="none" stroke-linejoin="round"'
   const dash = 'stroke-dasharray="5 4"'
@@ -198,9 +200,20 @@ export function figureSvg(fig: Fig): string {
   const defs = hatchUsed
     ? '<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#111" stroke-width="0.9"/></pattern></defs>'
     : ''
+  return defs + parts.join('')
+}
+
+export function figureSvg(fig: Fig): string {
   // a margin all round, so that a letter by the edge is never cut
   const pad = 10
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="en-fig" width="${fig.w + 2 * pad}" height="${fig.h + 2 * pad}" viewBox="${-pad} ${-pad} ${fig.w + 2 * pad} ${fig.h + 2 * pad}" font-family="'Times New Roman', Times, serif" fill="#111">${defs}${parts.join('')}</svg>`
+  const { detail } = fig
+  const height = Math.max(fig.h, detail?.h ?? 0)
+  const width = fig.w + 2 * pad + (detail ? detail.w + 2 * pad : 0)
+  const main = figureBody(fig)
+  const body = detail
+    ? `<g transform="translate(0 ${(height - fig.h) / 2})">${main}</g><g transform="translate(${fig.w + 2 * pad} ${(height - detail.h) / 2})">${figureBody(detail)}</g>`
+    : main
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="en-fig" width="${width}" height="${height + 2 * pad}" viewBox="${-pad} ${-pad} ${width} ${height + 2 * pad}" font-family="'Times New Roman', Times, serif" fill="#111">${body}</svg>`
 }
 
 // ---------- helpers for writing the figures ----------

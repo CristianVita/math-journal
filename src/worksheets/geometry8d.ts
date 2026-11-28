@@ -732,7 +732,7 @@ export function triPyrBasic(rng: Rng): Made {
   return {
     text: `Într-o piramidă triunghiulară regulată, latura bazei este de $${surd(2 * m, 1, 3)}$ cm și ${byH ? `înălțimea de ${h} cm` : `apotema piramidei de ${ap} cm`}. Aflați ${byH ? 'apotema piramidei' : 'înălțimea piramidei'}, aria totală și volumul.`,
     solution: lines(
-      `Apotema bazei (raza cercului înscris) este $a_b = \\frac{\\ell\\sqrt{3}}{6} = ${m}$ cm. În triunghiul $VOM$, dreptunghic în $O$:`,
+      `Fie $O$ centrul bazei și $M$ mijlocul lui $BC$. Apotema bazei (raza cercului înscris) este $a_b = OM = \\frac{\\ell\\sqrt{3}}{6} = ${m}$ cm. În triunghiul $VOM$, dreptunghic în $O$:`,
       show(byH ? `a_p = \\sqrt{${h * h} + ${m * m}} = ${ap}${cm}` : `h = \\sqrt{${ap * ap} - ${m * m}} = ${h}${cm}`),
       show(`\\mathcal{A}_b = \\frac{\\ell^2\\sqrt{3}}{4} = ${surd(3 * m * m, 1, 3)}${cm2}, \\qquad \\mathcal{A}_l = \\frac{3\\ell \\cdot a_p}{2} = ${surd(3 * m * ap, 1, 3)}${cm2}`),
       show(`\\mathcal{A}_t = ${surd(3 * m * m + 3 * m * ap, 1, 3)}${cm2}, \\qquad V = \\frac{\\mathcal{A}_b \\cdot h}{3} = ${surd(m * m * h, 1, 3)}${cm3}`),
@@ -767,7 +767,7 @@ export function quadPyrFromEdgeAp(rng: Rng): Made {
   return {
     text: `O piramidă patrulateră regulată are muchia laterală de $${root(e2)}$ cm și apotema de ${ap} cm. Aflați: a) aria totală și volumul; b) sinusul unghiului format de muchia laterală cu planul bazei.`,
     solution: lines(
-      `a) Fața $VBC$ este un triunghi isoscel, iar apotema $VM$ este și mediană: $BM = \\sqrt{${e2} - ${ap * ap}} = ${half}$ cm, deci $\\ell = ${l}$ cm. Înălțimea: $VO = \\sqrt{VM^2 - OM^2} = \\sqrt{${ap * ap} - ${half * half}} = ${h}$ cm.`,
+      `a) Fie $O$ centrul bazei și $M$ mijlocul lui $BC$. Fața $VBC$ este un triunghi isoscel, iar apotema $VM$ este și mediană: $BM = \\sqrt{${e2} - ${ap * ap}} = ${half}$ cm, deci $\\ell = ${l}$ cm. Înălțimea: $VO = \\sqrt{VM^2 - OM^2} = \\sqrt{${ap * ap} - ${half * half}} = ${h}$ cm.`,
       show(`\\mathcal{A}_t = ${l * l} + ${2 * l * ap} = ${l * l + 2 * l * ap}${cm2}, \\qquad V = \\frac{${l * l} \\cdot ${h}}{3} = ${frac(l * l * h, 3)}${cm3}`),
       'b) Proiecția muchiei $VB$ pe bază este $OB$, deci unghiul este $\\angle VBO$:',
       show(`\\sin(\\angle VBO) = \\frac{VO}{VB} = ${over(h, e2)}`),
@@ -834,7 +834,7 @@ export function quadPyrAngle30(rng: Rng): Made {
   return {
     text: `În piramida patrulateră regulată $VABCD$, măsura unghiului dintre înălțime și planul $(VAB)$ este de $30^\\circ$. Dacă aria bazei este de ${l * l} cm², aflați: a) aria totală și volumul; b) aria secțiunii diagonale; c) $d(A, VC)$.`,
     solution: lines(
-      `$\\ell = ${l}$ cm. Fie $M$ mijlocul lui $AB$. $AB \\perp (VOM)$, deci proiecția înălțimii $VO$ pe $(VAB)$ este pe $VM$, iar unghiul este $\\angle OVM = 30^\\circ$. În triunghiul $VOM$, dreptunghic în $O$, cateta $OM = \\frac{\\ell}{2}$ se opune unghiului de $30^\\circ$:`,
+      `$\\ell = ${l}$ cm. Fie $O$ centrul bazei și $M$ mijlocul lui $AB$. $AB \\perp (VOM)$, deci proiecția înălțimii $VO$ pe $(VAB)$ este pe $VM$, iar unghiul este $\\angle OVM = 30^\\circ$. În triunghiul $VOM$, dreptunghic în $O$, cateta $OM = \\frac{\\ell}{2}$ se opune unghiului de $30^\\circ$:`,
       show(`a_p = VM = 2 \\cdot OM = ${l}${cm}, \\qquad h = VO = OM\\sqrt{3} = ${surd(l, 2, 3)}${cm}`),
       show(`\\text{a) } \\mathcal{A}_t = ${l * l} + 2 \\cdot ${l} \\cdot ${l} = ${3 * l * l}${cm2}, \\qquad V = \\frac{${l * l} \\cdot ${surd(l, 2, 3)}}{3} = ${surd(l ** 3, 6, 3)}${cm3}`),
       `b) Secțiunea diagonală $VAC$ are baza $AC = ${surd(l, 1, 2)}$ cm și înălțimea $VO$: $\\mathcal{A} = ${surd(l * l, 4, 6)}$ cm².`,

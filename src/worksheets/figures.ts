@@ -4,8 +4,9 @@
 // pătratului ABCD se ridică perpendiculara AM"), the points it defines (midpoints, the centre O, the foot of an
 // altitude) and the segments and planes it names. Lengths written as plain numbers set the proportions; the others
 // keep a usual shape, as the figures in a book do. Nothing is drawn when the statement is not understood.
-import { foot, foot3, mid, mid3, plane, solid, type Fig, type P3, type Pt } from '../models/figure'
+import { along3, foot, foot3, mid, mid3, plane, solid, type Fig, type P3, type Pt } from '../models/figure'
 import { BOX, PRISM3, PYR4, TETRA, box, prism3, pyr4, tetra } from '../models/data/shapes'
+import type { Made } from './generators'
 
 type Pts = Record<string, Pt>
 type Lens = Record<string, number>
@@ -132,9 +133,11 @@ function cylinder(text: string, sphere = false): Fig {
   const ratio = sphere ? 2 : R && height ? clamp(height / R, 0.8, 3) : 2
   const rx = 55, ry = 13, m = 10, h = rx * ratio
   const p: Pts = { "O'": [m + rx, m + ry], O: [m + rx, m + ry + h], "A'": [m, m + ry], "B'": [m + 2 * rx, m + ry], A: [m, m + ry + h], B: [m + 2 * rx, m + ry + h] }
+  const axisDiagonal = /diagonal\S* secțiunii axiale/.test(text)
   return {
     w: 2 * (m + rx), h: Math.ceil(h + 2 * m + 2 * ry), p, l: { O: 'n', "O'": 'n' },
-    e: [{ at: 'O', rx, ry, back: true }, { at: "O'", rx, ry }], s: "A-A' B-B' A'-B'", d: "A-B O-O'", dot: "O O'",
+    e: [{ at: 'O', rx, ry, back: true }, { at: "O'", rx, ry }], s: "A-A' B-B' A'-B'",
+    d: axisDiagonal ? "A-B O-O' A-B'" : "A-B O-O'", dot: "O O'",
     c: sphere ? [{ at: [m + rx, m + ry + h / 2], r: rx }] : undefined,
   }
 }
@@ -158,7 +161,7 @@ function coneFrustum(text: string): Fig {
   const apexH = h / (1 - k)
   const top = withApex ? m + apexH - h : m + ry
   const base = top + h
-  const [c, dd] = /\$CD\$|\$AC\$/.test(text) ? ['C', 'D'] : ["A'", "B'"]
+  const [c, dd] = /(?<![A-Z'])CD(?![A-Z'])|ACDB/.test(math(text)) ? ['C', 'D'] : ["A'", "B'"]
   const p: Pts = {
     O: [m + rx, base], A: [m, base], B: [m + 2 * rx, base], "O'": [m + rx, top], [c]: [m + rx - k * rx, top], [dd]: [m + rx + k * rx, top],
   }
@@ -168,6 +171,31 @@ function coneFrustum(text: string): Fig {
     e: [{ at: 'O', rx, ry, back: true }, { at: "O'", rx: k * rx, ry: k * ry }],
     s: `A-${c} B-${dd} ${c}-${dd}`, d: `A-B O-O'${withApex ? ` ${c}-V-${dd} O'-V` : ''}`, dot: "O O'",
   }
+}
+
+/** A cone/frustum and its axial construction share the same diameters and height. */
+export function roundSection(R: number, r: number, h: number, construction: 'cut' | 'perpendicular' | 'diagonals'): Fig {
+  // Give the axial-diagonal labels room even when one of the bases is very small.
+  const upper = construction === 'diagonals' ? Math.max(r, 0.35 * R) : r
+  const minHeight = construction === 'diagonals' ? R * 0.87 : R * 0.55
+  const height = construction === 'perpendicular' ? h : Math.max(h, minHeight)
+  const p: Record<string, P3> = { A: [-R, 0, 0], O: [0, 0, 0], B: [R, 0, 0], "A'": [-upper, 0, height], "O'": [0, 0, height], "B'": [upper, 0, height] }
+  if (construction === 'cut') p.V = [0, 0, height * R / (R - r)]
+  if (construction === 'diagonals') p.M = [0, 0, height * R / (R + upper)]
+  const diagonals = construction === 'cut' ? "A'-V-B' O'-V" : construction === 'diagonals' ? "A-B' B-A'" : "A-B'"
+  const fig = spaceSketch(p, {
+    s: "A-A'-B'-B", d: `A-B O-O' ${diagonals}`,
+    ra: construction === 'perpendicular' ? ["AB'B"] : undefined,
+    dot: construction === 'diagonals' ? "O O' M" : "O O'",
+    l: { O: 's', "O'": construction === 'cut' ? 'nw' : 'n', V: 'n', M: '' },
+  })
+  const rx = (fig.p.B[0] - fig.p.A[0]) / 2
+  const ry = rx * 0.18
+  for (const pt of Object.values(fig.p)) pt[1] += ry
+  fig.h = Math.ceil(fig.h + 2 * ry)
+  fig.e = [{ at: 'O', rx, ry, back: true }, { at: "O'", rx: rx * upper / R, ry: ry * upper / R }]
+  if (fig.p.M) fig.t = [{ at: [fig.p.M[0] + 16, fig.p.M[1] + 5], s: 'M', italic: true, size: 14 }]
+  return fig
 }
 
 // =============== solids with flat faces ===============
@@ -196,6 +224,17 @@ const HEX1 = HEX.map((n) => n + "'")
 const ring = (a: string[]) => a.join('-')
 const sides = (a: string[], b: string[]) => a.map((n, i) => `${n}-${a[(i + 1) % a.length]}-${b[(i + 1) % a.length]}-${b[i]}`).join(' ')
 const fan = (a: string[], v: string) => a.map((n, i) => `${n}-${a[(i + 1) % a.length]}-${v}`).join(' ')
+const HEX_PRISM_FACES = `${ring(HEX)} ${ring(HEX1)} ${sides(HEX, HEX1)}`
+
+/** The minimum path across the first three lateral faces of the workbook's hexagonal prism. */
+export function hexPrismPathFigure(side: number, height: number): Fig {
+  const p = { ...hexAt(side, 0, HEX), ...hexAt(side, height, HEX1) }
+  p.M = along3(p.B, p["B'"], 1 / 3)
+  p.N = along3(p.C, p["C'"], 2 / 3)
+  return solidSketch(unskew(p), HEX_PRISM_FACES, 190, {
+    seg: "A-M M-N N-D' D'-A", dot: 'M N', l: { M: 'sw', N: 'e' },
+  })
+}
 
 function bodyFor(text: string): Body | undefined {
   const L = lengths(text)
@@ -221,7 +260,7 @@ function bodyFor(text: string): Body | undefined {
     }
     const lo = hexAt(big, 0, HEX)
     const hi = Object.fromEntries(HEX.map((n, i) => [HEX1[i], [lo[n][0] * k, big + (lo[n][1] - big) * k, h] as P3]))
-    return { p: { ...lo, ...hi }, faces: `${ring(HEX)} ${ring(HEX1)} ${sides(HEX, HEX1)}`, base: HEX }
+    return { p: { ...lo, ...hi }, faces: HEX_PRISM_FACES, base: HEX }
   }
   if (/piramid\S* hexagonal|VABCDEF\b/.test(text)) {
     const l = side ?? 10
@@ -231,9 +270,9 @@ function bodyFor(text: string): Body | undefined {
   if (/prism\S* hexagonal|ABCDEFA'B'C'D'E'F'/.test(text)) {
     const l = side ?? 10
     const h = clamp((height ?? l * 1.8) / l, 0.6, 3) * l
-    return { p: { ...hexAt(l, 0, HEX), ...hexAt(l, h, HEX1), O: [0, l, 0] }, faces: `${ring(HEX)} ${ring(HEX1)} ${sides(HEX, HEX1)}`, base: HEX }
+    return { p: { ...hexAt(l, 0, HEX), ...hexAt(l, h, HEX1), O: [0, l, 0] }, faces: HEX_PRISM_FACES, base: HEX }
   }
-  if (/tetraedr/.test(text)) {
+  if (/tetraedr/i.test(text)) {
     const names = /VABC/.test(text) ? ['A', 'B', 'C', 'V'] : ['A', 'B', 'C', 'D']
     const t = tetra(10, names)
     const [a, b, c, v] = names
@@ -277,7 +316,15 @@ const pick4 = (b: Record<string, P3>) => ({ A: b.A, B: b.B, C: b.C, D: b.D })
 const withCentre = (b: Record<string, P3>): Body => ({ p: { ...b, O: mid3(b.A, b.C) }, faces: BOX, base: ['A', 'B', 'C', 'D'] })
 
 function solidFigure(text: string, body: Body): Fig {
-  const p = { ...body.p }
+  let p = { ...body.p }
+  // the apex as the statement names it ("piramida SABC"), V otherwise
+  const apex = p.V ? text.match(/\$([A-UW-Z])ABC(?:DEF|D)?\$/)?.[1] : undefined
+  let top = 'V'
+  if (apex && !p[apex]) {
+    top = apex
+    p = Object.fromEntries(Object.entries(p).map(([n, q]) => [n === 'V' ? apex : n, q]))
+    body = { ...body, faces: body.faces.replace(/\bV\b/g, apex) }
+  }
   // the centre of the base only when the statement uses it
   if (!mentions(text).has('O')) delete p.O
   for (const [m, a, b] of midpoints(text)) if (p[a] && p[b] && !p[m]) p[m] = mid3(p[a], p[b])
@@ -287,7 +334,7 @@ function solidFigure(text: string, body: Body): Fig {
   const segs = named(text, new Set(Object.keys(p)), faces)
   // the centre of a quadrilateral base, where the diagonals meet
   if (p.O && body.base.length === 4 && /centrul|∩|\\cap|intersecția diagonalelor/.test(text)) segs.push('A-C', 'B-D')
-  if (p.O && p.V) segs.push('V-O')
+  if (p.O && p[top]) segs.push(`${top}-O`)
   const labels: Record<string, '' | 's' | 'e'> = {}
   for (const n of Object.keys(p)) if (!vertices.has(n)) labels[n] = n === 'O' ? 's' : 'e'
   const opt = { seg: dedupe(segs, [body.faces], true) || undefined, l: labels }
@@ -368,16 +415,22 @@ function quad(text: string, L: Lens): Flat | undefined {
     return { p: { A: [0, 0], B: [5, 0], C: [5 + D[0], D[1]], D }, s: 'A-B-C-D-A' }
   }
   if (/[Tt]rapez/.test(text)) {
-    let big = len(L, 'AB'), small = len(L, 'CD', 'DC')
+    let ab = len(L, 'AB'), cd = len(L, 'CD', 'DC')
     const bases = text.match(/bazele (?:de )?\$?(\d+)\$? ?cm și \$?(\d+)/)
-    if (bases) [big, small] = [Math.max(+bases[1], +bases[2]), Math.min(+bases[1], +bases[2])]
-    if (big && small && small > big) [big, small] = [small, big]
-    const k = big && small ? clamp(small / big, 0.25, 0.85) : 0.55
-    const hh = after(text, /înălțimea/)
+    if (bases && !ab && !cd) [ab, cd] = [Math.max(+bases[1], +bases[2]), Math.min(+bases[1], +bases[2])]
+    const abShort = ab != null && cd != null ? ab < cd : /AB\s*<\s*(?:CD|DC)/.test(math(text))
+    const big = Math.max(ab ?? 0, cd ?? 0)
+    const short = ab && cd ? 6 * clamp(Math.min(ab, cd) / big, 0.25, 1) : 3.3
+    const bottom = abShort ? short : 6, upper = abShort ? 6 : short
+    const right = /trapez\S* dreptunghic/.test(text)
+    const bc = len(L, 'BC')
+    const diff = ab != null && cd != null ? Math.abs(ab - cd) : undefined
+    const hh = after(text, /înălțimea/) ?? (right
+      ? len(L, 'AD') ?? (bc != null && diff != null && bc > diff ? Math.sqrt(bc * bc - diff * diff) : undefined)
+      : undefined)
     const h = big && hh ? clamp(hh / big, 0.25, 0.9) * 6 : 3
-    if (/dreptunghic/.test(text)) return { p: { A: [0, 0], B: [6, 0], C: [6 * k, h], D: [0, h] }, s: 'A-B-C-D-A', ra: ['DAB', 'ADC'] }
-    const off = (6 - 6 * k) / 2
-    return { p: { A: [0, 0], B: [6, 0], C: [off + 6 * k, h], D: [off, h] }, s: 'A-B-C-D-A' }
+    const off = right ? 0 : (bottom - upper) / 2
+    return { p: { A: [0, 0], B: [bottom, 0], C: [off + upper, h], D: [off, h] }, s: 'A-B-C-D-A', ra: right ? ['DAB', 'ADC'] : undefined }
   }
   return undefined
 }
@@ -440,9 +493,32 @@ function fitWidth(p: Pts): number {
   return Math.round(clamp(130 / aspect, 90, 170))
 }
 
+type SketchMarks = Pick<Fig, 's' | 'd' | 'dot' | 'l' | 'ra'>
+
+/** Compress very tall sketches vertically to fit beside an exercise and keep the vertex labels legible. */
+function fitSketchHeight(fig: Fig): Fig {
+  const height = 195
+  if (fig.h <= height) return fig
+  const pad = 8
+  const scale = (height - 2 * pad) / (fig.h - 2 * pad)
+  const p = Object.fromEntries(Object.entries(fig.p).map(([n, [x, y]]) => [n, [x, pad + (y - pad) * scale] as Pt]))
+  return { ...fig, p, h: height }
+}
+
+/** An oblique projection for constructions that do not bound a solid. */
+export function spaceSketch(points: Record<string, P3>, options: SketchMarks, depth: Pt = [0.5, 0.33]): Fig {
+  const flat = Object.fromEntries(Object.entries(points).map(([n, [x, y, z]]) => [n, [x + depth[0] * y, z + depth[1] * y] as Pt]))
+  return fitSketchHeight(plane(flat, fitWidth(flat), options))
+}
+
+/** An annotated solid with visible and hidden edges, fitted beside the exercise. */
+export function solidSketch(points: Record<string, P3>, faces: string, width: number, options?: SketchMarks & { seg?: string }): Fig {
+  return fitSketchHeight(solid(points, faces, width, options))
+}
+
 /** "Pe planul pătratului ABCD se ridică perpendiculara AM": the plane figure lying flat, the perpendicular up. */
 function raisedFigure(text: string, f: Flat): Fig | undefined {
-  const m = text.match(new RegExp(`perpendicular\\w* \\$(${NAME})(${NAME})\\$`)) ?? text.match(/Punctul \$([A-Z])\$, exterior planului/)
+  const m = text.match(new RegExp(`perpendicular\\w* \\$(${NAME})(${NAME})(?=\\$|\\s*=)`)) ?? text.match(/Punctul \$([A-Z])\$, exterior planului/)
   if (!m) return undefined
   const base = { ...f.p }
   if (!base.O && /\$O\$/.test(text)) base.O = 'D' in base ? mid(base.A, base.C) : circumcentre(base.A, base.B, base.C)
@@ -454,11 +530,9 @@ function raisedFigure(text: string, f: Flat): Fig | undefined {
   const h = (Math.max(...xs) - Math.min(...xs)) * 0.85
   const p3: Record<string, P3> = Object.fromEntries(Object.entries(base).map(([n, q]) => [n, [q[0], q[1] * 0.9, 0] as P3]))
   p3[top] = [p3[footName][0], p3[footName][1], h]
-  const c = 0.354
-  const flat: Pts = Object.fromEntries(Object.entries(p3).map(([n, q]) => [n, [q[0] + c * q[1], q[2] + c * q[1]] as Pt]))
-  const known = new Set(Object.keys(flat))
+  const known = new Set(Object.keys(p3))
   const segs = dedupe([`${footName}-${top}`, ...named(text, known)], [f.s])
-  return plane(flat, 170, { s: `${f.s} ${segs}`, dot: base.O ? 'O' : undefined, l: { [top]: 'n' } })
+  return spaceSketch(p3, { s: `${f.s} ${segs}`, dot: base.O ? 'O' : undefined, l: { [top]: 'n' } }, [0.354, 0.354])
 }
 
 /**
@@ -510,21 +584,26 @@ export function figureFor(text: string): Fig | undefined {
   }
 }
 
+/** The student-facing figure, with text inference only for exercises without an authored solution drawing. */
+export function statementFigure(exercise: Pick<Made, 'text' | 'fig' | 'solutionFig'>, infer = true): Fig | undefined {
+  return exercise.fig ?? (infer && !exercise.solutionFig ? figureFor(exercise.text) : undefined)
+}
+
 /** The same, failing loudly: for the tests. */
 export function drawFigure(text: string): Fig | undefined {
   {
-    if (/planul \$\\alpha\$|îndoaie|în total \d+ muchii|reperul cartezian|vectori|Două drepte|Un unghi are/.test(text)) return undefined
+    if (/planul \$\\alpha\$|îndoaie|Ce fel de (?:prismă|piramidă) este|reperul cartezian|vectori|Două drepte|Un unghi are/.test(text)) return undefined
     if (/direct proporționale cu numerele 1, 2, 3/.test(text) && !/\bcerc/.test(text)) return undefined
     if (/trunchi(?:ul)? de con/.test(text)) return coneFrustum(text)
-    if (/\bsfer/.test(text) && !/trunchi/.test(text)) return /cilindru/.test(text) ? cylinder(text, true) : sphere()
-    const hasCone = /\bcon(?:ul|ului)?\b/.test(text), hasCyl = /cilindr/.test(text)
+    if (/\bsfer/i.test(text) && !/trunchi/.test(text)) return /cilindru/i.test(text) ? cylinder(text, true) : sphere()
+    const hasCone = /\bcon(?:ul|ului)?\b/i.test(text), hasCyl = /cilindr/i.test(text)
     if (hasCone && hasCyl) return undefined
     if (hasCone) return cone(text)
     if (hasCyl) return cylinder(text)
     const body = bodyFor(text)
     if (body) return solidFigure(text, body)
     const f = flatFor(text)
-    if (!f) return /\bcerc/.test(text) ? circleFigure(text) : undefined
+    if (!f) return /\bcerc/i.test(text) ? circleFigure(text) : undefined
     if (/se ridică|exterior planului/.test(text)) return raisedFigure(text, f)
     return flatFigure(text, f)
   }

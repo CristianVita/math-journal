@@ -4,6 +4,9 @@
 // parallel to the base, the perpendicular on a plane. Own numbers and wording, worked solutions in Romanian; the
 // statements use the usual notation, so they read without a figure.
 import type { Made } from './generators'
+import { along3 } from '../models/figure'
+import { prism3, TETRA } from '../models/data/shapes'
+import { solidSketch } from './figures'
 import { de, frac, gcd, int, pick, rightTriangle, root, rootParts, surd, type Rng } from './tex'
 
 const lines = (...l: string[]) => l.join('\n\n')
@@ -391,12 +394,19 @@ export function sectionRatio(rng: Rng): Made {
     if (gcd(p, q) !== 1) continue
     const t = int(rng, 1, 6)
     const BC = q * t
+    const { A, B, C } = prism3(BC, 0)
+    const V: [number, number, number] = [BC / 2, (BC * Math.sqrt(3)) / 3, BC]
+    const E = along3(V, B, p / q), F = along3(V, A, p / q), G = along3(V, C, p / q)
     return {
       text: `Pe muchia $VB$ a piramidei triunghiulare $VABC$ se ia punctul $E$ astfel încât $\\frac{VE}{VB} = \\frac{${p}}{${q}}$. Planul care trece prin $E$ și este paralel cu baza taie muchiile $VA$ și $VC$ în $F$ și $G$. Știind că $BC = ${BC}$ cm, aflați $EG$, raportul perimetrelor și raportul ariilor triunghiurilor $EFG$ și $BCA$.`,
       solution: lines(
         `Secțiunea paralelă cu baza este asemenea cu baza: $\\triangle VEG \\sim \\triangle VBC$ (din $EG \\parallel BC$), deci raportul de asemănare este $k = \\frac{VE}{VB} = \\frac{${p}}{${q}}$.`,
         show(`EG = ${frac(p, q)} \\cdot ${BC} = ${p * t}\\text{ cm}, \\qquad \\frac{P_{EFG}}{P_{BCA}} = ${frac(p, q)}, \\qquad \\frac{\\mathcal{A}_{EFG}}{\\mathcal{A}_{BCA}} = k^2 = ${frac(p * p, q * q)}`),
       ),
+      fig: solidSketch({ A, B, C, V }, TETRA('A', 'B', 'C', 'V'), 125),
+      solutionFig: solidSketch({ A, B, C, V, E, F, G }, TETRA('A', 'B', 'C', 'V'), 160, {
+        seg: 'F-E E-G G-F', dot: 'E F G', l: { E: 'sw', F: 'w', G: 'e' },
+      }),
       verify: () => (p * BC) / q === p * t,
     }
   }

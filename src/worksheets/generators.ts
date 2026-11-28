@@ -64,9 +64,10 @@ export interface Made {
   solution: string
   /** for the tests: the arithmetic of the exercise holds, independently of how it is written */
   verify?: () => boolean
-  /** the figure the statement needs (a number line, angles, a chart…), drawn by the form itself; without it, geometry
-   * gets the figure read from the statement (`figures.ts`) */
+  /** the figure the statement needs (a number line, angles, a chart…), drawn by the form itself */
   fig?: Fig
+  /** a construction reserved for the solution; when `fig` is absent, the statement is text-only */
+  solutionFig?: Fig
 }
 
 /** One kind of exercise as first written: one form for each level. */

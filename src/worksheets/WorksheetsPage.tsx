@@ -10,7 +10,7 @@ import { GENERATORS, LEVELS, PROFILES, type Grade, type Level, type Profile } fr
 import { seeded } from './tex'
 import { sheetPictures } from './worksheetExport'
 import { PHOTO_PROMPT, brokenFormulas, spacedLines, splitExercises } from './fromPhoto'
-import { figureFor } from './figures'
+import { statementFigure } from './figures'
 import { TESTS8 } from './tests8'
 import { headAfter, titleWhenEmpty } from './sheetTitle'
 import { CHAPTERS, bookExercises, chapterForms, fitsChapter, type BookExercise } from './chapters'
@@ -26,14 +26,13 @@ export const BANK_KEY = 'math-journal:exercises'
 /** Where an exercise on the sheet came from: made by a generator (and can be made again), or taken from the bank. */
 type Source = { gen: string; level: Level; seed: number; form?: number } | { bank: string } | { own: true } | { model: string; n: number }
 
-/** `figure`: the SVG beside the statement: from a national evaluation model, or drawn from the statement (`figures.ts`) */
-export interface SheetItem { id: string; text: string; solution: string; source: Source; grade?: Grade; figure?: string }
+export interface SheetItem { id: string; text: string; solution: string; source: Source; grade?: Grade; figure?: string; solutionFigure?: string; hiddenFigure?: string }
 interface Sheet {
   title: string; studentId: number | null; date: string; items: SheetItem[]; space: 0 | 1 | 2; solutions: boolean
   /** fingerprints of the last RECENT exercises made for this sheet, removed ones included, so that none comes again */
   recent?: string[]
 }
-interface BankItem { id: string; grade: Grade | null; text: string; solution: string; createdAt: number }
+interface BankItem { id: string; grade: Grade | null; text: string; solution: string; createdAt: number; figure?: string; solutionFigure?: string }
 
 const SPACE: Record<Sheet['space'], { label: string; px: number }> = {
   0: { label: 'fără', px: 10 },
@@ -63,9 +62,11 @@ const make = (genId: string, level: Level, seed: number, form: number): SheetIte
   const g = GENERATORS.find((x) => x.id === genId)
   if (!g) return null
   const m = g.make(seeded(seed), level, form)
-  // geometry comes with its figure, read from the statement (13 November 2026); a form may draw its own (15 November)
-  const fig = m.fig ?? (g.topic === 'Geometrie' ? figureFor(m.text) : undefined)
-  return { id: uid(), text: m.text, solution: m.solution, source: { gen: genId, level, seed, form }, grade: g.grade, figure: fig ? figureSvg(fig) : undefined }
+  const fig = statementFigure(m, g.topic === 'Geometrie')
+  return {
+    id: uid(), text: m.text, solution: m.solution, source: { gen: genId, level, seed, form }, grade: g.grade,
+    figure: fig ? figureSvg(fig) : undefined, solutionFigure: m.solutionFig ? figureSvg(m.solutionFig) : undefined,
+  }
 }
 
 /** A new exercise of this kind and form, for "Încă unul la fel" on the Modele E.N. page. */
@@ -73,15 +74,31 @@ export const newExercise = (genId: string, level: Level, form: number) => make(g
 
 /** The figure of a statement as SVG, for any exercise on the sheet (from the bank or a photo too). */
 const drawFor = (item: SheetItem) => {
-  const fig = ownFigure(item) ?? figureFor(item.text)
+  if (item.hiddenFigure) return item.hiddenFigure
+  const fig = statementFigure(ownExercise(item) ?? { text: item.text }, !item.solutionFigure)
   return fig ? figureSvg(fig) : undefined
 }
-const canDraw = (item: SheetItem) => !!(ownFigure(item) ?? figureFor(item.text))
-/** The figure a generated exercise draws itself, made again from its seed. */
-function ownFigure(item: SheetItem) {
+
+/** The exercise as it was generated, for recovering its authored figures. */
+function ownExercise(item: SheetItem) {
   if (!('gen' in item.source)) return undefined
   const { gen, level, seed, form } = item.source
-  return GENERATORS.find((x) => x.id === gen)?.make(seeded(seed), level, form).fig
+  return GENERATORS.find((x) => x.id === gen)?.make(seeded(seed), level, form)
+}
+
+function loadSheet(): Sheet {
+  const sheet = load(SHEET_KEY, emptySheet)
+  const items = sheet.items.map((item) => {
+    if (item.solutionFigure || (item.grade != null && item.grade !== 8)) return item
+    const exercise = ownExercise(item)
+    if (!exercise?.solutionFig || exercise.text !== item.text) return item
+    return {
+      ...item,
+      figure: item.figure && exercise.fig ? figureSvg(exercise.fig) : undefined,
+      solutionFigure: figureSvg(exercise.solutionFig),
+    }
+  })
+  return { ...sheet, items }
 }
 
 /** How many of the last exercises made for a sheet are never repeated (asked for by the user on 10 November 2026). */
@@ -128,13 +145,13 @@ function nextForm(genId: string, level: Level, used: SheetItem[]): number {
 }
 
 export default function WorksheetsPage() {
-  const [sheet, setSheet] = useState<Sheet>(() => load(SHEET_KEY, emptySheet))
+  const [sheet, setSheet] = useState<Sheet>(loadSheet)
   const [bank, setBank] = useState<BankItem[]>(() => load(BANK_KEY, () => ({ items: [] as BankItem[] })).items)
   useEffect(() => writeLocal(SHEET_KEY, JSON.stringify(sheet)), [sheet])
   useEffect(() => writeLocal(BANK_KEY, JSON.stringify({ items: bank })), [bank])
   // another window changed them: take its version, so that this one does not write back an old copy
   useEffect(() => {
-    const a = onLocalChange(SHEET_KEY, () => setSheet(load(SHEET_KEY, emptySheet)))
+    const a = onLocalChange(SHEET_KEY, () => setSheet(loadSheet()))
     const b = onLocalChange(BANK_KEY, () => setBank(load(BANK_KEY, () => ({ items: [] as BankItem[] })).items))
     return () => { a(); b() }
   }, [])
@@ -306,13 +323,25 @@ export default function WorksheetsPage() {
   const saveDraft = () => {
     if (!draft || !draft.text.trim()) return
     const item: BankItem = { id: draft.id ?? uid(), grade: draft.grade, text: draft.text.trim(), solution: draft.solution.trim(), createdAt: Date.now() }
-    setBank((b) => (draft.id ? b.map((x) => (x.id === draft.id ? { ...item, createdAt: x.createdAt } : x)) : [item, ...b]))
+    setBank((b) => draft.id ? b.map((x) => x.id === draft.id ? {
+      ...item, createdAt: x.createdAt,
+      figure: x.text === item.text ? x.figure : undefined,
+      solutionFigure: x.text === item.text && x.solution === item.solution ? x.solutionFigure : undefined,
+    } : x) : [item, ...b])
     setDraft(null)
   }
   const toBank = (item: SheetItem) => {
-    setBank((b) => [{ id: uid(), grade: item.grade ?? null, text: item.text, solution: item.solution, createdAt: Date.now() }, ...b])
+    setBank((b) => [{
+      id: uid(), grade: item.grade ?? null, text: item.text, solution: item.solution, createdAt: Date.now(),
+      figure: item.solutionFigure ? item.figure : undefined, solutionFigure: item.solutionFigure,
+    }, ...b])
   }
-  const fromBank = (b: BankItem) => setSheet((s) => ({ ...s, ...headAfter(s, null, todayRo()), items: [...s.items, { id: uid(), text: b.text, solution: b.solution, source: { bank: b.id }, grade: b.grade ?? undefined }] }))
+  const fromBank = (b: BankItem) => setSheet((s) => ({
+    ...s, ...headAfter(s, null, todayRo()), items: [...s.items, {
+      id: uid(), text: b.text, solution: b.solution, source: { bank: b.id }, grade: b.grade ?? undefined,
+      figure: b.figure, solutionFigure: b.solutionFigure,
+    }],
+  }))
 
   // ---------- from a photo of a workbook, through a free chat (12 November 2026) ----------
   const [photo, setPhoto] = useState<{ raw: string; items: string[] } | null>(null)
@@ -605,15 +634,22 @@ export default function WorksheetsPage() {
                   <div className="ws-item-tools">
                     {'gen' in item.source && <button className="btn small" onClick={() => another(item)} title="Același fel de exercițiu, cu alte numere">↻ Altul</button>}
                     {item.figure
-                      ? <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: undefined } : x)))} title="Scoate figura: elevul o desenează singur">Fără figură</button>
-                      : canDraw(item) && <button className="btn small" onClick={() => patchItems((items) => items.map((x) => (x.id === item.id ? { ...x, figure: drawFor(x) } : x)))} title="Desenează figura după enunț">Figură</button>}
+                      ? <button className="btn small" onClick={() => patchItems((items) => items.map((x) => x.id === item.id ? {
+                        ...x, hiddenFigure: x.solutionFigure ? x.figure : undefined, figure: undefined,
+                      } : x))} title="Scoate figura: elevul o desenează singur">Fără figură</button>
+                      : drawFor(item) && <button className="btn small" onClick={() => patchItems((items) => items.map((x) => x.id === item.id ? {
+                        ...x, figure: drawFor(x), hiddenFigure: undefined,
+                      } : x))} title="Desenează figura după enunț">Figură</button>}
                     <button className="btn small" onClick={() => toggle(item.id)}>{open.has(item.id) ? 'Ascunde rezolvarea' : 'Rezolvarea'}</button>
                     <button className="btn small" disabled={i === 0} onClick={() => move(i, -1)} title="Mută mai sus" aria-label="Mută mai sus">↑</button>
                     <button className="btn small" disabled={i === sheet.items.length - 1} onClick={() => move(i, 1)} title="Mută mai jos" aria-label="Mută mai jos">↓</button>
                     {!('bank' in item.source) && <button className="btn small" onClick={() => toBank(item)} title="Păstrează exercițiul în banca ta, ca să-l folosești și la alți elevi">În bancă</button>}
                     <button className="btn small danger" onClick={() => patchItems((items) => items.filter((x) => x.id !== item.id))} title="Scoate exercițiul de pe fișă">✕ Scoate</button>
                   </div>
-                  {open.has(item.id) && <MathText text={spacedLines(item.solution || '*Fără rezolvare.*')} className="ws-solution ws-spaced" />}
+                  {open.has(item.id) && <div className="ws-solution">
+                    {item.solutionFigure && <div className="ws-solution-figure" dangerouslySetInnerHTML={{ __html: item.solutionFigure }} />}
+                    <MathText text={spacedLines(item.solution || '*Fără rezolvare.*')} className="ws-spaced" />
+                  </div>}
                 </li>
               ))}
             </ol>

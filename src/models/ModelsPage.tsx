@@ -131,7 +131,10 @@ export default function ModelsPage() {
     if (!model) return
     const made: SheetItem[] = indexes.map((i) => {
       const item = model.items[i]
-      return { id: uid(), text: itemText(item), solution: answerText(item), source: { model: model.id, n: i + 1 }, grade: 8, figure: item.fig ? figureSvg(item.fig) : undefined }
+      return {
+        id: uid(), text: itemText(item), solution: answerText(item), source: { model: model.id, n: i + 1 }, grade: 8,
+        figure: item.fig ? figureSvg(item.fig) : undefined, solutionFigure: item.solutionFig ? figureSvg(item.solutionFig) : undefined,
+      }
     })
     appendToSheet(made)
     setFlash(made.length === 1 ? `Exercițiul ${indexes[0] + 1} e pe fișă (pagina Fișe).` : `${made.length} exerciții sunt pe fișă (pagina Fișe).`)

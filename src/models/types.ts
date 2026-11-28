@@ -27,6 +27,7 @@ export interface EnItem {
   /** in a generated model, an exercise taken from a book model: which one, its number there and its name */
   book?: { model: string; n: number; title: string }
   fig?: Fig
+  solutionFig?: Fig
 }
 
 export interface EnModel {
