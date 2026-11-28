@@ -40,7 +40,8 @@ export const M4: EnModel = {
       choices: ['$30^\\circ$', '$45^\\circ$', '$60^\\circ$', '$90^\\circ$'], ans: 3,
       fig: {
         w: 185, h: 172,
-        p: { A: [15, 160], B: [130, 160], C: [165, 125], D: [50, 125], "A'": [15, 45], "B'": [130, 45], "C'": [165, 10], "D'": [50, 10] },
+        // Use a shallower depth direction so the rear diagonal stays clear of B' and B'C'.
+        p: { A: [15, 160], B: [130, 160], C: [170, 139], D: [55, 139], "A'": [15, 45], "B'": [130, 45], "C'": [170, 24], "D'": [55, 24] },
         l: { D: 'w' },
         s: "A-B-C-C'-D'-A'-A A'-B'-C' B-B'", d: "A-D-C D-D' D-C'",
       },

@@ -2,7 +2,8 @@
 // three, map scale, probabilities), equations and word problems, the triangle (congruence, the 30° angle, the median
 // on the hypotenuse), parallel lines, bisectors and the circle. No Pythagoras, no radicals, no similarity.
 import type { Made } from './generators'
-import { de, frac, gcd, int, nonZero, paren, pick, poly, reduce, shuffle, type Rng } from './tex'
+import { plane, type Pt } from '../models/figure'
+import { de, frac, gcd, int, nonZero, paren, pick, poly, reduce, rightTriangle, shuffle, type Rng } from './tex'
 
 type Form = (rng: Rng) => Made
 export interface GradeKind {
@@ -1031,29 +1032,23 @@ export function triangleMedianHypotenuse(rng: Rng): Made {
 
 /** Two congruent triangles: the perimeter and an angle of the second from the data of both. */
 export function triangleCongruent(rng: Rng): Made {
-  for (;;) {
-    const A = int(rng, 30, 100)
-    const B = int(rng, 25, 110)
-    const C = 180 - A - B
-    if (C < 25 || A === B || B === C || A === C) continue
-    const s1 = int(rng, 4, 15)
-    const s2 = s1 + int(rng, 1, 6)
-    const s3 = s2 + int(rng, 1, 5)
-    if (s1 + s2 <= s3) continue
-    // the larger side lies opposite the larger angle: BC opposite A, AC opposite B, AB opposite C
-    const order = [A, B, C].map((v) => [A, B, C].filter((w) => w < v).length)
-    const [bc, ac, ab] = order.map((i) => [s1, s2, s3][i])
-    const P = ab + bc + ac
-    return {
-      text: `Triunghiurile $ABC$ și $MNP$ sunt congruente, $\\triangle ABC \\equiv \\triangle MNP$. Se știe că $AB = ${ab}$ cm, $BC = ${bc}$ cm, $MP = ${ac}$ cm, $\\angle A = ${A}^\\circ$ și $\\angle N = ${B}^\\circ$. Aflați perimetrul triunghiului $MNP$ și măsura unghiului $P$.`,
-      solution: lines(
-        'În triunghiuri congruente, laturile și unghiurile care își corespund sunt congruente, în ordinea în care sunt scrise vârfurile:',
-        show(`MN = AB = ${ab}\\text{ cm}, \\quad NP = BC = ${bc}\\text{ cm}, \\quad \\angle M = \\angle A = ${A}^\\circ`),
-        show(`P_{MNP} = MN + NP + MP = ${ab} + ${bc} + ${ac} = ${P}\\text{ cm}`),
-        show(`\\angle P = 180^\\circ - \\angle M - \\angle N = 180^\\circ - ${A}^\\circ - ${B}^\\circ = ${C}^\\circ`),
-      ),
-      verify: () => A + B + C === 180 && ab + bc > ac && ab + ac > bc && bc + ac > ab && (A > B) === (bc > ac) && (B > C) === (ac > ab),
-    }
+  const [ab, bc, ac] = rightTriangle(rng, 150)
+  const P = ab + bc + ac
+  const A: Pt = ab > bc ? [ab, 0] : [0, ab]
+  const B: Pt = [0, 0]
+  const C: Pt = ab > bc ? [0, bc] : [bc, 0]
+  const fig = plane({ A, B, C }, 100, { s: 'A-B-C-A', ra: ['ABC'] })
+  fig.detail = plane({ M: A, N: B, P: C }, 100, { s: 'M-N-P-M', ra: ['MNP'] })
+  return {
+    text: `Triunghiurile $ABC$ și $MNP$ sunt congruente, $\\triangle ABC \\equiv \\triangle MNP$. Se știe că $AB = ${ab}$ cm, $BC = ${bc}$ cm, $MP = ${ac}$ cm, $m(\\angle A) = \\alpha$ și $m(\\angle N) = 90^\\circ$. Aflați perimetrul triunghiului $MNP$ și exprimați măsura unghiului $P$ în funcție de $\\alpha$.`,
+    solution: lines(
+      'În triunghiuri congruente, laturile și unghiurile care își corespund sunt congruente, în ordinea în care sunt scrise vârfurile:',
+      show(`MN = AB = ${ab}\\text{ cm}, \\quad NP = BC = ${bc}\\text{ cm}, \\quad m(\\angle M) = m(\\angle A) = \\alpha`),
+      show(`P_{MNP} = MN + NP + MP = ${ab} + ${bc} + ${ac} = ${P}\\text{ cm}`),
+      show('m(\\angle P) = 180^\\circ - m(\\angle M) - m(\\angle N) = 90^\\circ - \\alpha'),
+    ),
+    fig,
+    verify: () => ab ** 2 + bc ** 2 === ac ** 2,
   }
 }
 

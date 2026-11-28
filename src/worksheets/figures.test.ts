@@ -3,8 +3,9 @@ import { writeFileSync } from 'fs'
 import { GENERATORS, type Level } from './generators'
 import { seeded } from './tex'
 import { drawFigure, statementFigure } from './figures'
-import { figureSvg, namesUsed } from '../models/figure'
+import { figureSvg, foot, namesUsed, type Pt } from '../models/figure'
 import { sectionRatio } from './geometry8b'
+import { similarArea } from './forms'
 import { cubeFaceCenter, cylinderAxialDiagonals, rightTrapezoidPerp, trapezoidProjections, trapezoidTriangleSpace } from './geometry8e'
 import { coneFrustumPerpDiag, frustumProportional, squarePrismRhombus, squarePrismSine, triPyrCutMin } from './geometry8f'
 
@@ -52,6 +53,78 @@ describe('figures of the generated geometry', () => {
   it('most forms of grades VII and up get a figure', () => {
     if (process.env.FIG_MISSES) writeFileSync(process.env.FIG_MISSES, misses.join('\n'))
     expect(drawn / forms, misses.join('\n')).toBeGreaterThan(0.8)
+  })
+})
+
+describe('parallel segments in a triangle', () => {
+  it('draws the Thales segment parallel to the base when only AD and AB are given', () => {
+    const variants = Array.from({ length: 25 }, (_, i) => {
+      const { text } = similarArea(seeded(i + 1))
+      const [, ad, ab] = text.match(/AD = (\d+).*AB = (\d+)/)!
+      return { text, ratio: Number(ad) / Number(ab) }
+    })
+    variants.push({
+      text: String.raw`În triunghiul $ABC$, $D\in BA$ și $E\in [AC]$, cu $BC\parallel ED$, $EC = 18$ cm și $AC = 24$ cm.`,
+      ratio: 0.25,
+    })
+    for (const { text, ratio } of variants) {
+      const { p: { A, B, C, D, E }, s } = drawFigure(text)!
+      const left = (D[1] - A[1]) / (B[1] - A[1])
+      const right = (E[1] - A[1]) / (C[1] - A[1])
+      expect(left).toBeCloseTo(ratio)
+      expect(left).toBeCloseTo(right)
+      expect(D[0]).toBeCloseTo(A[0] + left * (B[0] - A[0]))
+      expect(E[0]).toBeCloseTo(A[0] + right * (C[0] - A[0]))
+      expect(s).toMatch(/D-E|E-D/)
+    }
+  })
+})
+
+describe('measurements in inferred figures', () => {
+  const degrees = ([ax, ay]: Pt, [bx, by]: Pt, [cx, cy]: Pt) => {
+    const u = [ax - bx, ay - by], v = [cx - bx, cy - by]
+    return Math.atan2(Math.abs(u[0] * v[1] - u[1] * v[0]), u[0] * v[0] + u[1] * v[1]) * 180 / Math.PI
+  }
+
+  it.each([
+    [String.raw`În triunghiul $ABC$ dreptunghic în $A$, $\angle B = 63^\circ$ și $BC = 20$ cm.`, 'ABC', 63],
+    [String.raw`În triunghiul $ABC$, $\angle A = 42^\circ$ și $\angle B = 104^\circ$.`, 'BAC', 42],
+    [String.raw`În triunghiul isoscel $ABC$, $AB = AC$ și $\angle A = 120^\circ$.`, 'BAC', 120],
+    [String.raw`Dreptunghiul $ABCD$ are centrul $O$ și $\angle AOB = 48^\circ$.`, 'AOB', 48],
+    [String.raw`În rombul $ABCD$, $\angle BAC = 24^\circ$.`, 'BAC', 24],
+    [String.raw`Punctele $A$ și $B$ sunt pe cercul de centru $O$, iar $\angle AOB = 50^\circ$.`, 'AOB', 50],
+    [String.raw`Din punctul $P$, exterior cercului de centru $O$ și rază 8 cm, se duc tangentele $PA$ și $PB$. $\angle APB = 120^\circ$.`, 'APB', 120],
+    [String.raw`Pe un cerc de centru $O$, arcul mic $AB$ are măsura de $50^\circ$, iar $C$ se află pe arcul mare $AB$.`, 'ACB', 25],
+  ])('draws the prescribed angle for %s', (text, name, expected) => {
+    const { p } = drawFigure(text)!
+    expect(degrees(p[name[0]], p[name[1]], p[name[2]])).toBeCloseTo(expected)
+  })
+
+  it('draws the exterior angle using an extension of the side', () => {
+    const { p, ang } = drawFigure(String.raw`În triunghiul $ABC$, $\angle A = 52^\circ$ și $\angle B = 37^\circ$. Aflați măsura unghiului exterior din vârful $C$.`)!
+    expect(ang).toEqual(['ACx'])
+    expect(degrees(p.B, p.C, p.x)).toBeCloseTo(180)
+    expect(degrees(p.A, p.C, p.x)).toBeCloseTo(89)
+  })
+
+  it('shows both arms of the angle at the centre of a rectangle', () => {
+    const { s } = drawFigure(String.raw`Dreptunghiul $ABCD$ are centrul $O$ și $\angle AOB = 48^\circ$.`)!
+    expect(s?.split(' ')).toEqual(expect.arrayContaining(['A-O', 'O-B']))
+  })
+
+  it('uses the leg and its projection to place the altitude foot', () => {
+    const { p } = drawFigure(String.raw`În triunghiul $ABC$, dreptunghic în $A$, $AD \perp BC$, $D \in BC$, $AB = 135$ cm și $BD = 75$ cm.`)!
+    expect((p.D[0] - p.B[0]) / (p.C[0] - p.B[0])).toBeCloseTo(75 ** 2 / 135 ** 2)
+  })
+
+  it('draws the axial circle tangent to the sides of the circumscribed frustum', () => {
+    const { p, c } = drawFigure('Un trunchi de con circular drept este circumscris unei sfere și are razele bazelor de 4 cm și 9 cm.')!
+    const { at, r } = c![0]
+    const centre = at as Pt
+    const tangent = foot(centre, p.A, p["A'"])
+    expect(Math.hypot(centre[0] - tangent[0], centre[1] - tangent[1])).toBeCloseTo(r)
+    expect(p.O[1] - centre[1]).toBeCloseTo(r)
+    expect(centre[1] - p["O'"][1]).toBeCloseTo(r)
   })
 })
 

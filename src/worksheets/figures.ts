@@ -4,7 +4,7 @@
 // pătratului ABCD se ridică perpendiculara AM"), the points it defines (midpoints, the centre O, the foot of an
 // altitude) and the segments and planes it names. Lengths written as plain numbers set the proportions; the others
 // keep a usual shape, as the figures in a book do. Nothing is drawn when the statement is not understood.
-import { along3, foot, foot3, mid, mid3, plane, solid, type Fig, type P3, type Pt } from '../models/figure'
+import { along, along3, foot, foot3, meet, mid, mid3, plane, solid, type Fig, type P3, type Pt } from '../models/figure'
 import { BOX, PRISM3, PYR4, TETRA, box, prism3, pyr4, tetra } from '../models/data/shapes'
 import type { Made } from './generators'
 
@@ -43,6 +43,15 @@ function after(text: string, words: RegExp): number | undefined {
 
 /** The math of a statement, where the points and segments are named. */
 const math = (text: string) => [...text.matchAll(/\$([^$]+)\$/g)].map((m) => m[1]).join(' ')
+
+const radians = (degrees: number) => degrees * Math.PI / 180
+
+function measuredAngles(text: string): Lens {
+  return Object.fromEntries([...math(text).matchAll(/\\(?:angle|sphericalangle)\s*([A-Z]{1,3})\s*\)?\s*=\s*(\d+)\s*\^\s*\{?\\circ/g)]
+    .map(([, name, value]) => [name, Number(value)]))
+}
+
+const measuredAngle = (angles: Lens, name: string) => angles[name] ?? angles[[...name].reverse().join('')]
 
 /** The point names written in the formulas of a statement. */
 const mentions = (text: string) => new Set(math(text).replace(/\\[a-zA-Z]+/g, ' ').match(/[A-Z]'?/g) ?? [])
@@ -151,12 +160,14 @@ function sphere(): Fig {
 function coneFrustum(text: string): Fig {
   const L = lengths(text)
   const d = roundDims(text)
-  const R = d.R ?? (len(L, 'AB') ? len(L, 'AB')! / 2 : undefined)
-  const r = d.r ?? (len(L, 'CD') ? len(L, 'CD')! / 2 : undefined)
+  const radii = text.match(/razele bazelor de (\d+) cm și (\d+) cm/)
+  const R = radii ? Math.max(Number(radii[1]), Number(radii[2])) : d.R ?? (len(L, 'AB') ? len(L, 'AB')! / 2 : undefined)
+  const r = radii ? Math.min(Number(radii[1]), Number(radii[2])) : d.r ?? (len(L, 'CD') ? len(L, 'CD')! / 2 : undefined)
   const H = d.H
   const withApex = /conului din care|conul din care|conul mic|conului mic/.test(text)
+  const withSphere = /circumscris unei sfere/.test(text)
   const k = R && r && r < R ? clamp(r / R, 0.3, withApex ? 0.7 : 0.85) : 0.6
-  const ratio = R && H ? clamp(H / R, 0.4, 1.8) : 0.8
+  const ratio = withSphere ? 2 * Math.sqrt(k) : R && H ? clamp(H / R, 0.4, 1.8) : 0.8
   const rx = 66, ry = 15, m = 10, h = rx * ratio
   const apexH = h / (1 - k)
   const top = withApex ? m + apexH - h : m + ry
@@ -169,6 +180,7 @@ function coneFrustum(text: string): Fig {
   return {
     w: 2 * (m + rx), h: Math.ceil(base + ry + m), p, l: { O: 'n', "O'": 'n' },
     e: [{ at: 'O', rx, ry, back: true }, { at: "O'", rx: k * rx, ry: k * ry }],
+    c: withSphere ? [{ at: [m + rx, (base + top) / 2], r: h / 2 }] : undefined,
     s: `A-${c} B-${dd} ${c}-${dd}`, d: `A-B O-O'${withApex ? ` ${c}-V-${dd} O'-V` : ''}`, dot: "O O'",
   }
 }
@@ -346,25 +358,29 @@ function solidFigure(text: string, body: Body): Fig {
 
 // =============== plane figures ===============
 
-interface Flat { p: Pts; s: string; ra?: string[] }
+interface Flat { p: Pts; s: string; ra?: string[]; ang?: string[]; l?: Fig['l'] }
 
-function triangle(text: string, L: Lens): Flat {
+function triangle(text: string, L: Lens, angles: Lens): Flat {
+  const corner = (name: string, a: string, b: string) => angles[name] ?? measuredAngle(angles, a + name + b)
+  const [aAngle, bAngle, cAngle] = [corner('A', 'B', 'C'), corner('B', 'A', 'C'), corner('C', 'A', 'B')]
   const right = text.match(/dreptunghic(?:ă|e)? în (?:vârful )?\$?([A-Z])\$?/)
-  if (right || /\\angle A = 90\^\\circ|m\(\\angle A\) = 90/.test(text)) {
-    const a = right ? right[1] : 'A'
+  const rightCorner = right?.[1] ?? ['A', 'B', 'C'][[aAngle, bAngle, cAngle].indexOf(90)]
+  if (rightCorner && 'ABC'.includes(rightCorner)) {
+    const a = rightCorner
     const [b, c] = ['A', 'B', 'C'].filter((x) => x !== a)
+    const bDegrees = corner(b, a, c), cDegrees = corner(c, a, b)
     let lb = len(L, a + b), lc = len(L, a + c)
-    const hyp = len(L, b + c)
+    const bd = len(L, b + 'D'), dc = len(L, 'D' + c)
+    const hyp = len(L, b + c) ?? (bd && dc ? bd + dc : bd && lb ? lb * lb / bd : dc && lc ? lc * lc / dc : undefined)
     if (hyp && lb && !lc && hyp > lb) lc = Math.sqrt(hyp * hyp - lb * lb)
     if (hyp && lc && !lb && hyp > lc) lb = Math.sqrt(hyp * hyp - lc * lc)
-    const bd = len(L, 'BD'), dc = len(L, 'DC', 'CD')
     if (!lb && !lc && bd && dc) {
       lb = Math.sqrt(bd * (bd + dc))
       lc = Math.sqrt(dc * (bd + dc))
     }
-    lb = lb ?? 3
-    lc = lc ?? 4
-    const r = clamp(lb / lc, 0.5, 2)
+    const r = bDegrees > 0 && bDegrees < 90 ? 1 / Math.tan(radians(bDegrees))
+      : cDegrees > 0 && cDegrees < 90 ? Math.tan(radians(cDegrees))
+      : lb && lc ? lb / lc : 0.75
     lb = r * 4
     lc = 4
     const h = Math.hypot(lb, lc)
@@ -377,18 +393,27 @@ function triangle(text: string, L: Lens): Flat {
   const ab = len(L, 'AB'), ac = len(L, 'AC'), bc = len(L, 'BC')
   if (iso) {
     const leg = ab ?? ac ?? 5, base = bc ?? 6
-    const r = clamp(base / leg, 0.4, 1.9)
-    const h = Math.sqrt(Math.max(0.2, 1 - (r * r) / 4)) * 4
+    const half = aAngle ? aAngle / 2 : bAngle ? 90 - bAngle : cAngle ? 90 - cAngle : undefined
+    const r = half != null ? 2 * Math.sin(radians(half)) : clamp(base / leg, 0.4, 1.99)
+    const h = Math.sqrt(1 - (r * r) / 4) * 4
     return { p: { A: [2 * r, h], B: [0, 0], C: [4 * r, 0] }, s: 'A-B-C-A' }
   }
   if (ab && ac && bc && ab + ac > bc && ab + bc > ac && ac + bc > ab) {
     const x = (ab * ab - ac * ac + bc * bc) / (2 * bc)
     return { p: { B: [0, 0], C: [bc, 0], A: [x, Math.sqrt(Math.max(0, ab * ab - x * x))] }, s: 'A-B-C-A' }
   }
+  if (aAngle || bAngle || cAngle) {
+    const b = bAngle ?? (aAngle && cAngle ? 180 - aAngle - cAngle : (180 - (aAngle ?? cAngle)) * 0.54)
+    const c = cAngle ?? (aAngle ? 180 - aAngle - b : (180 - b) * 0.54)
+    if (b > 0 && c > 0 && b + c < 180) {
+      const side = 5 * Math.sin(radians(c)) / Math.sin(radians(b + c))
+      return { p: { A: [side * Math.cos(radians(b)), side * Math.sin(radians(b))], B: [0, 0], C: [5, 0] }, s: 'A-B-C-A' }
+    }
+  }
   return { p: { A: [1.7, 3.1], B: [0, 0], C: [5, 0] }, s: 'A-B-C-A' }
 }
 
-function quad(text: string, L: Lens): Flat | undefined {
+function quad(text: string, L: Lens, angles: Lens): Flat | undefined {
   if (/[Pp]ătrat/.test(text)) return { p: { A: [0, 0], B: [4, 0], C: [4, 4], D: [0, 4] }, s: 'A-B-C-D-A' }
   if (/[Dd]reptunghi(?!c)/.test(text)) {
     let a = len(L, 'AB', 'DC') ?? after(text, /lungimea/)
@@ -396,7 +421,8 @@ function quad(text: string, L: Lens): Flat | undefined {
     const d = len(L, 'AC', 'BD')
     if (a && d && !b && d > a) b = Math.sqrt(d * d - a * a)
     if (b && d && !a && d > b) a = Math.sqrt(d * d - b * b)
-    const r = a && b ? clamp(b / a, 0.3, 1.6) : 0.6
+    const centreAngle = measuredAngle(angles, 'AOB')
+    const r = centreAngle > 0 && centreAngle < 180 ? 1 / Math.tan(radians(centreAngle / 2)) : a && b ? clamp(b / a, 0.3, 1.6) : 0.6
     return { p: { A: [0, 0], B: [5, 0], C: [5, 5 * r], D: [0, 5 * r] }, s: 'A-B-C-D-A' }
   }
   if (/[Rr]omb/.test(text)) {
@@ -404,11 +430,12 @@ function quad(text: string, L: Lens): Flat | undefined {
     let p = ac ? ac / 2 : undefined, q = bd ? bd / 2 : undefined
     if (side && p && !q && side > p) q = Math.sqrt(side * side - p * p)
     if (side && q && !p && side > q) p = Math.sqrt(side * side - q * q)
-    const r = p && q ? clamp(q / p, 0.35, 1.5) : 0.6
+    const halfA = measuredAngle(angles, 'BAC'), halfB = measuredAngle(angles, 'ABD')
+    const r = halfA ? Math.tan(radians(halfA)) : halfB ? 1 / Math.tan(radians(halfB)) : p && q ? clamp(q / p, 0.35, 1.5) : 0.6
     return { p: { A: [-3, 0], B: [0, -3 * r], C: [3, 0], D: [0, 3 * r] }, s: 'A-B-C-D-A' }
   }
   if (/[Pp]aralelogram/.test(text)) {
-    const ang = Number(text.match(/\\angle A = (\d+)/)?.[1] ?? 60)
+    const ang = angles.A ?? 180 - (angles.B ?? 120)
     const a = len(L, 'AB') ?? 6, b = len(L, 'AD', 'BC') ?? 4
     const r = clamp(b / a, 0.35, 1.4) * 5
     const D: Pt = [r * Math.cos((ang * Math.PI) / 180), r * Math.sin((ang * Math.PI) / 180)]
@@ -428,8 +455,10 @@ function quad(text: string, L: Lens): Flat | undefined {
     const hh = after(text, /înălțimea/) ?? (right
       ? len(L, 'AD') ?? (bc != null && diff != null && bc > diff ? Math.sqrt(bc * bc - diff * diff) : undefined)
       : undefined)
-    const h = big && hh ? clamp(hh / big, 0.25, 0.9) * 6 : 3
     const off = right ? 0 : (bottom - upper) / 2
+    const h = !right && off > 0 && angles.A > 0 && angles.A < 90
+      ? off * Math.tan(radians(angles.A))
+      : big && hh ? clamp(hh / big, 0.25, 0.9) * 6 : 3
     return { p: { A: [0, 0], B: [bottom, 0], C: [off + upper, h], D: [off, h] }, s: 'A-B-C-D-A', ra: right ? ['DAB', 'ADC'] : undefined }
   }
   return undefined
@@ -438,10 +467,25 @@ function quad(text: string, L: Lens): Flat | undefined {
 /** The plane figure the statement is about, with the points it defines. */
 function flatFor(text: string): Flat | undefined {
   const L = lengths(text)
-  const f = quad(text, L) ?? (/[Tt]riunghi/.test(text) ? triangle(text, L) : undefined)
+  const angles = measuredAngles(text)
+  const f = quad(text, L, angles) ?? (/[Tt]riunghi/.test(text) ? triangle(text, L, angles) : undefined)
   if (!f) return undefined
   const p = f.p
   const quadShape = 'D' in p
+  if (!quadShape && /[Bb]isectoarele unghiurilor \$B\$ și \$C\$ se intersectează în punctul \$I\$/.test(text)) {
+    const distance = (a: Pt, b: Pt) => Math.hypot(a[0] - b[0], a[1] - b[1])
+    const [a, b, c] = [distance(p.B, p.C), distance(p.A, p.C), distance(p.A, p.B)]
+    p.I = [(a * p.A[0] + b * p.B[0] + c * p.C[0]) / (a + b + c), (a * p.A[1] + b * p.B[1] + c * p.C[1]) / (a + b + c)]
+    f.s += ' B-I-C'
+  }
+  const exterior = !quadShape ? text.match(/unghiului exterior din vârful \$([ABC])\$/)?.[1] : undefined
+  if (exterior) {
+    const [other, base] = ['A', 'B', 'C'].filter((n) => n !== exterior)
+    p.x = along(p[base], p[exterior], 1.27)
+    f.s += ` ${exterior}-x`
+    f.ang = [other + exterior + 'x']
+    f.l = { x: '' }
+  }
   if (mentions(text).has('O')) {
     if (quadShape) p.O = mid(p.A, p.C)
     else if (/cercului circumscris|cercul circumscris/.test(text)) p.O = circumcentre(p.A, p.B, p.C)
@@ -454,14 +498,30 @@ function flatFor(text: string): Flat | undefined {
     const others = ['A', 'B', 'C'].filter((x) => x !== a)
     if (p[a] && !p[d] && !quadShape && others.every((x) => p[x])) p[d] = foot(p[a], p[others[0]], p[others[1]])
   }
-  // Thales: D ∈ AB and E ∈ AC with DE ∥ BC
-  const on = [...text.matchAll(new RegExp(`(${NAME}) \\\\in \\[?(${NAME})(${NAME})\\]?`, 'g'))]
-  for (const m of on) {
-    const [x, a, b] = [m[1], m[2], m[3]]
+  const formulas = math(text)
+  const freeOnSide = new Map<string, [string, string]>()
+  for (const [, x, a, b] of formulas.matchAll(/(?<![A-Za-z'])([A-Z]'?)\s*\\in\s*[[(]?\s*([A-Z]'?)([A-Z]'?)(?![A-Za-z'])/g)) {
     if (p[x] || !p[a] || !p[b]) continue
     const ax = len(L, a + x), ab = len(L, a + b), xb = len(L, x + b)
-    const t = ax && ab ? ax / ab : ax && xb ? ax / (ax + xb) : 0.45
-    p[x] = [p[a][0] + (p[b][0] - p[a][0]) * clamp(t, 0.15, 0.85), p[a][1] + (p[b][1] - p[a][1]) * clamp(t, 0.15, 0.85)]
+    const t = ax && ab ? ax / ab : ax && xb ? ax / (ax + xb) : ab && xb ? 1 - xb / ab : undefined
+    if (t == null) freeOnSide.set(x, [a, b])
+    p[x] = along(p[a], p[b], clamp(t ?? 0.45, 0.15, 0.85))
+  }
+  // A point without a length of its own is placed on the parallel through the other endpoint.
+  for (const [, a, b, c, d] of formulas.matchAll(/(?<![A-Za-z'])([A-Z]'?)([A-Z]'?)[)\]]?\s*\\parallel\s*[[(]?\s*([A-Z]'?)([A-Z]'?)(?![A-Za-z'])/g)) {
+    for (const [point, through, start, end] of [[a, b, c, d], [b, a, c, d], [c, d, a, b], [d, c, a, b]]) {
+      const side = freeOnSide.get(point)
+      if (!side || !p[through] || !p[start] || !p[end]) continue
+      const [from, to] = side.map((name) => p[name])
+      const origin = p[through]
+      const hit = meet(from, to, origin, [origin[0] + p[end][0] - p[start][0], origin[1] + p[end][1] - p[start][1]])
+      const dx = to[0] - from[0], dy = to[1] - from[1]
+      const t = ((hit[0] - from[0]) * dx + (hit[1] - from[1]) * dy) / (dx * dx + dy * dy)
+      if (!(t > 0 && t < 1)) continue
+      p[point] = hit
+      freeOnSide.delete(point)
+      break
+    }
   }
   return f
 }
@@ -474,7 +534,10 @@ function circumcentre(a: Pt, b: Pt, c: Pt): Pt {
 
 function flatFigure(text: string, f: Flat): Fig {
   const known = new Set(Object.keys(f.p))
-  const segs = dedupe(named(text, known), [f.s])
+  const angleSides = Object.keys(measuredAngles(text))
+    .filter((name) => name.length === 3 && [...name].every((point) => known.has(point)))
+    .flatMap(([a, b, c]) => [`${a}-${b}`, `${b}-${c}`])
+  const segs = dedupe([...named(text, known), ...angleSides], [f.s])
   const extra = Object.keys(f.p).filter((n) => !f.s.includes(n))
   const ra = [...(f.ra ?? [])]
   for (const [a, d, b] of feet(text)) if (f.p[a] && f.p[d] && f.p[b]) ra.push(`${a}${d}${b}`)
@@ -483,14 +546,14 @@ function flatFigure(text: string, f: Flat): Fig {
   const c = /înscris într-un cerc|pe un cerc|pe cercul|cercul circumscris|cercului circumscris/.test(text) && f.p.A && f.p.B && f.p.C
     ? (() => { const o = circumcentre(f.p.A, f.p.B, f.p.C); return [{ at: o, r: Math.hypot(f.p.A[0] - o[0], f.p.A[1] - o[1]) }] })()
     : undefined
-  return plane(f.p, fitWidth(f.p), { s, ra, c, dot: extra.filter((n) => n === 'O').join(' ') || undefined })
+  return plane(f.p, fitWidth(f.p), { s, ra, ang: f.ang, l: f.l, c, dot: extra.filter((n) => n === 'O').join(' ') || undefined })
 }
 
 /** A width that keeps a plane figure at most about 130 px high and 170 px wide. */
 function fitWidth(p: Pts): number {
   const xs = Object.values(p).map((q) => q[0]), ys = Object.values(p).map((q) => q[1])
   const aspect = (Math.max(...ys) - Math.min(...ys) || 1) / (Math.max(...xs) - Math.min(...xs) || 1)
-  return Math.round(clamp(130 / aspect, 90, 170))
+  return Math.round(clamp(20 + 125 / aspect, 48, 170))
 }
 
 type SketchMarks = Pick<Fig, 's' | 'd' | 'dot' | 'l' | 'ra'>
@@ -547,31 +610,69 @@ function circleFigure(text: string): Fig | undefined {
   const deg = (d: number): Pt => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)]
   const p: Pts = {}
   if (centre) p[centre] = [0, 0]
+  const angles = measuredAngles(text)
+  const L = lengths(text)
+  const radius = after(text, /raz[ăa]/)
   const ratio = text.match(/proporționale cu numerele (\d+), (\d+) și (\d+)/)
   const diam = text.match(/diametr\S* \$\[?([A-Z])([A-Z])\]?\$/)
+    ?? text.match(/\$\[?([A-Z])([A-Z])\]?\$ este diametru/)
+  const smallArc = text.match(/arcul mic \$([A-Z])([A-Z])\$ (?:are măsura de|măsoară) \$?(\d+)/)
+  const parallelChords = text.match(/coardele paralele \$([A-Z])([A-Z])\$ și \$([A-Z])([A-Z])\$/)
+  const onRadius = (segment: string) => radius ? (len(L, segment) ?? 0) / (2 * radius) : 0
   // a point outside, with the tangents from it: the points of contact where the tangents touch
   const out = text.match(/punctul \$([A-Z])\$,? exterior/)?.[1]
   if (out && on.includes(out)) {
-    const d = 2.4
+    const contacts = on.filter((name) => name !== out)
+    const vertexAngle = contacts.length >= 2 ? measuredAngle(angles, contacts[0] + out + contacts[1]) : undefined
+    const op = centre ? len(L, centre + out) : undefined
+    const d = vertexAngle != null && vertexAngle > 0 && vertexAngle < 180 ? 1 / Math.sin(radians(vertexAngle / 2))
+      : radius && op && op > radius ? op / radius : 2.4
     const a = (Math.acos(1 / d) * 180) / Math.PI
     p[out] = [-d, 0]
-    on.filter((n) => n !== out).slice(0, 2).forEach((n, i) => { p[n] = deg(i ? 180 + a : 180 - a) })
+    contacts.slice(0, 2).forEach((n, i) => { p[n] = deg(i ? 180 + a : 180 - a) })
   } else if (ratio && on.length >= 3) {
     const k = [1, 2, 3].map((i) => Number(ratio[i]))
     const sum = k[0] + k[1] + k[2]
     let a = 210
     on.slice(0, 3).forEach((n, i) => { p[n] = deg(a); a -= (360 * k[i]) / sum })
+  } else if (parallelChords) {
+    const [, a, b, c, d] = parallelChords
+    const ab = onRadius(a + b) || 0.75, cd = onRadius(c + d) || 0.55
+    const up = Math.sqrt(Math.max(0, 1 - ab * ab)), down = Math.sqrt(Math.max(0, 1 - cd * cd))
+    const sameSide = /aceeași parte/.test(text)
+    p[a] = [-ab, up]
+    p[b] = [ab, up]
+    p[c] = [-cd, sameSide ? down : -down]
+    p[d] = [cd, sameSide ? down : -down]
+  } else if (smallArc) {
+    const [, a, b, value] = smallArc
+    const half = Number(value) / 2
+    p[a] = deg(90 + half)
+    p[b] = deg(90 - half)
+    on.filter((n) => n !== a && n !== b).forEach((n, i) => { p[n] = deg(270 + 20 * i) })
+  } else if (on.length === 2 && !diam) {
+    const [a, b] = on
+    const chord = len(L, a + b) ?? after(text, /coarda \$[A-Z]{2}\$ are(?: lungimea de)?/)
+    const atCentre = centre ? measuredAngle(angles, a + centre + b) : undefined
+    const half = atCentre != null ? atCentre / 2
+      : chord && radius && chord <= 2 * radius ? Math.asin(chord / (2 * radius)) * 180 / Math.PI : 58
+    p[a] = deg(90 + half)
+    p[b] = deg(90 - half)
   } else {
     const rest = diam ? on.filter((n) => n !== diam[1] && n !== diam[2]) : on
     if (diam) { p[diam[1]] = deg(180); p[diam[2]] = deg(0) }
-    rest.forEach((n, i) => { p[n] = diam ? deg(40 + (100 * i) / Math.max(1, rest.length - 1)) : deg(210 - (360 * i) / rest.length) })
+    rest.forEach((n, i) => {
+      const ac = diam ? len(L, diam[1] + n) : undefined, bc = diam ? len(L, diam[2] + n) : undefined
+      p[n] = diam
+        ? deg(ac && bc ? 2 * Math.atan2(bc, ac) * 180 / Math.PI : 40 + (100 * i) / Math.max(1, rest.length - 1))
+        : deg(210 - (360 * i) / rest.length)
+    })
   }
   const known = new Set(Object.keys(p))
   const t = math(text).replace(/\\[a-zA-Z]+/g, ' ')
-  const angles = [...t.matchAll(/(?<![A-Za-z'])([A-Z])([A-Z])([A-Z])(?![A-Za-z'])/g)]
+  const angleSides = [...t.matchAll(/(?<![A-Za-z'])([A-Z])([A-Z])([A-Z])(?![A-Za-z'])/g)]
     .filter((m) => known.has(m[1]) && known.has(m[2]) && known.has(m[3])).map((m) => `${m[1]}-${m[2]}-${m[3]}`)
-  const chords = dedupe(named(text, known), angles)
-  const s = [...angles, chords].filter(Boolean).join(' ')
+  const s = [...angleSides, dedupe(named(text, known), angleSides)].filter(Boolean).join(' ')
   return plane(p, 150, { c: [{ at: [0, 0], r: 1 }], s, dot: centre })
 }
 

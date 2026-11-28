@@ -14,8 +14,9 @@ import { GENERATORS, type Level } from './generators'
 
 /** `on`, `off`: what the statement of a generated exercise must, and must not, have to belong to the chapter (some kinds,
  * as the recap tests, are about several things; the user wants a chapter to keep to its subject, 25 November 2026).
- * `skip`: forms of a kind that do not belong to the chapter, as "level/form" */
-export interface Chapter { id: string; title: string; gens: string[]; skip?: Record<string, string[]>; on?: RegExp; off?: RegExp }
+ * `skip`: forms of a kind that do not belong to the chapter, as "level/form".
+ * `priorityGens`: kinds to cover first when the chapter names specific topics. */
+export interface Chapter { id: string; title: string; gens: string[]; priorityGens?: string[]; skip?: Record<string, string[]>; on?: RegExp; off?: RegExp }
 
 export const CHAPTERS: Chapter[] = [
   { id: 'numbers', title: 'Numere: operații, puteri, fracții, divizibilitate', off: /\b(?:cm|km|kg|lei|dm|ml)\b|litr|perimetr|\bari[ae]|medi[ae] (?:aritm|geom)|probabil|unghi|volum|ecuați|cumpăr|plăti|ore\b|elevi|copii|pagini/i, gens: ['v-ops', 'v-powers', 'v-fractions', 'v-decimals', 'vi-fractions', 'vi-integers', 'viii-numbers', 'viii-sets', 'viii-intervals', 'v-division', 'v-divisibility', 'vi-sets', 'vi-gcd-lcm', 'vii-real-numbers', 'v-writing-numbers', 'v-compare-round', 'v-addition', 'v-subtraction', 'v-powers-digits', 'v-bases', 'v-add-sub', 'v-multiplication', 'v-division-exact', 'v-remainder', 'v-ops-brackets', 'v-power-rules', 'v-power-compare', 'v-perfect-squares', 'v-fraction-mult', 'v-fraction-order', 'v-fraction-props', 'v-decimal-writing', 'v-decimal-order', 'v-decimal-add-sub', 'v-decimal-multiply', 'v-decimal-powers', 'v-decimal-periodic', 'v-decimal-division', 'v-decimal-order-ops', 'v-final-naturals', 'v-final-fractions', 'v-final-tests', 'v-final-recap-numbers', 'v-number-line', 'v-fraction-figures'] },
@@ -28,7 +29,11 @@ export const CHAPTERS: Chapter[] = [
   { id: 'equations', title: 'Ecuații, inecuații, sisteme', off: /\b(?:cm|km|kg|lei)\b|magazin|triunghi|elevi|copii|bilete/i, gens: ['vii-linear', 'viii-inequality', 'viii-system', 'viii-quadratic', 'v-equations', 'vi-equations', 'vii-equations'] },
   { id: 'problems', title: 'Probleme cu situații reale', off: /^(?:Calculați|Efectuați)[: ]|^(?:Arătați|Demonstrați)|perimetr|triunghi|unghi|\bcub|volum|Descompuneți/, gens: ['viii-problems', 'v-problems', 'v-recap-grade4', 'v-unit-method', 'v-comparison-method', 'v-figurative-method', 'v-backwards-method', 'v-false-hypothesis', 'v-recap-tests', 'v-everyday', 'v-decimal-methods', 'v-final-methods'] },
   { id: 'function', title: 'Funcții. Funcția liniară', gens: ['viii-function', 'viii-functions'] },
-  { id: 'triangles', title: 'Unghiuri și triunghiuri: Pitagora, Thales, trigonometrie', off: /paralelipiped|volum|litr|\bcub|cerc|romb|trapez|paralelogram|pătrat|(?<![a-zăâîșț])dreptunghi(?!c)/i, gens: ['vi-angles', 'vii-pythagoras', 'vii-thales', 'vii-trig', 'v-geometry', 'vi-triangle', 'vii-metric', 'v-points-lines', 'v-segment-length', 'v-midpoint-symmetric', 'v-angle-measure', 'v-angle-calc', 'v-symmetry-axis', 'v-final-geometry', 'v-count-figures'] },
+  { id: 'triangles', title: 'Unghiuri și triunghiuri: Pitagora, Thales, trigonometrie',
+    on: /triunghi|unghi|Pitagora|Thales|trigonometr|\\(?:sphericalangle|angle|widehat|triangle|sin|cos)\b/i,
+    off: /paralelipiped|volum|litr|\bcub|piramid|prism|cerc|romb|trapez|paralelogram|pătrat|(?<![a-zăâîșț])dreptunghi(?!c)/i,
+    priorityGens: ['vii-pythagoras', 'vii-thales', 'vii-trig'],
+    gens: ['vi-angles', 'vii-pythagoras', 'vii-thales', 'vii-trig', 'v-geometry', 'vi-triangle', 'vii-metric', 'v-points-lines', 'v-segment-length', 'v-midpoint-symmetric', 'v-angle-measure', 'v-angle-calc', 'v-symmetry-axis', 'v-final-geometry', 'v-count-figures'] },
   { id: 'quads', title: 'Patrulatere și arii', off: /\bcub|paralelipiped|volum|litr|piramid|prism/i, gens: ['v-rectangle', 'vii-areas', 'vii-quadrilaterals', 'v-length-perimeter', 'v-area-units', 'v-final-recap-figures'] },
   { id: 'circle', title: 'Cercul', on: /cerc|coard|arcul|tangent|\bdisc/i, gens: ['vi-lines-circle', 'vii-circle'] },
   { id: 'solids', title: 'Corpuri: arii și volume', on: /\bcub|paralelipiped|piramid|tetraedr|prism|\bcon\b|\bconul|cilindr|sfer|trunchi|volum|litr|\^3|\bhl|\bml|acvari|piscin|bazin|cutie/i, gens: ['viii-solids', 'viii-cuboid', 'viii-prisms', 'viii-pyramids', 'viii-round', 'viii-frustums', 'viii-elements', 'v-volume-units', 'v-final-measures'] },
@@ -46,9 +51,14 @@ const keeps = (c: Chapter, gen: string, level: Level, form: number) => {
 }
 
 /** The generated forms of a chapter at a level. */
-export const chapterForms = (c: Chapter, level: Level) => GENERATORS.filter((g) => c.gens.includes(g.id))
-  .map((g) => ({ gen: g.id, forms: Array.from({ length: g.forms(level) }, (_, f) => f).filter((f) => !c.skip?.[g.id]?.includes(`${level}/${f}`)) }))
-  .flatMap((x) => x.forms.filter((f) => keeps(c, x.gen, level, f)).map((form) => ({ gen: x.gen, form })))
+export function chapterForms(c: Chapter, level: Level) {
+  const generators = GENERATORS.filter((g) => c.gens.includes(g.id))
+  const priority = c.priorityGens ?? []
+  const ordered = [...priority.flatMap((id) => generators.filter((g) => g.id === id)), ...generators.filter((g) => !priority.includes(g.id))]
+  return ordered.flatMap((g) => Array.from({ length: g.forms(level) }, (_, form) => form)
+    .filter((f) => !c.skip?.[g.id]?.includes(`${level}/${f}`) && keeps(c, g.id, level, f))
+    .map((form) => ({ gen: g.id, form })))
+}
 
 const byGen = new Map(CHAPTERS.flatMap((c) => c.gens.map((g) => [g, c.id] as const)))
 
@@ -116,4 +126,8 @@ export function bookExercises(): BookExercise[] {
     })
   }
   return book
+}
+
+export function chapterBookExercises(c: Chapter): BookExercise[] {
+  return bookExercises().filter((b) => b.chapters.includes(c.id) && (c.id !== 'triangles' || fitsChapter(c, b.text)))
 }

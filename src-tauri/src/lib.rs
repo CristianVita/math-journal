@@ -1,3 +1,6 @@
+#[cfg(windows)]
+mod tray;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -11,6 +14,10 @@ pub fn run() {
             .level(log::LevelFilter::Info)
             .build(),
         )?;
+      }
+      #[cfg(windows)]
+      if let Err(error) = tray::setup(app) {
+        log::warn!("Could not set up the notification area icon: {error}");
       }
       Ok(())
     })

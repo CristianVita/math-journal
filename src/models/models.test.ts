@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import katex from 'katex'
 import { BUILTIN } from './store'
-import { figureSvg, namesUsed } from './figure'
+import { figureSvg, foot, namesUsed } from './figure'
 import { LETTERS, itemText } from './types'
 import barem from './data/barem.md?raw'
 
@@ -13,6 +13,13 @@ function formulas(text: string): { tex: string; display: boolean }[] {
   for (const m of rest.matchAll(/\$([^$]+?)\$/g)) out.push({ tex: m[1], display: false })
   return out
 }
+
+it("keeps the rear diagonal DC' in Model E.N. 4 clear of B'", () => {
+  const { p, d } = BUILTIN.find((model) => model.id === 'en-4')!.items[11].fig!
+  expect(d?.split(/\s+/)).toContain("D-C'")
+  const [x, y] = foot(p["B'"], p.D, p["C'"])
+  expect(Math.hypot(p["B'"][0] - x, p["B'"][1] - y)).toBeGreaterThan(10)
+})
 
 for (const model of BUILTIN) {
   describe(model.title, () => {

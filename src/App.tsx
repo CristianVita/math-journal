@@ -58,45 +58,55 @@ export default function App() {
   }, [])
   useEffect(() => {
     if (!isDesktop()) return
-    let unlisten: (() => void) | undefined
+    const unlisteners: Array<() => void> = []
+    let disposed = false
     let asking = false
-    import('@tauri-apps/api/window').then(async ({ getCurrentWindow }) => {
+    import('@tauri-apps/api/window').then(async ({ getCurrentWindow, getAllWindows }) => {
       const win = getCurrentWindow()
-      unlisten = await win.onCloseRequested(async (e) => {
-        e.preventDefault()
-        // another window of the app: it closes without asking, once its saves are written
-        if (isExtraWindow()) {
-          await new Promise((r) => setTimeout(r, 500))
-          await flushLocal()
-          await win.destroy()
-          return
-        }
+      const closeWindow = async (quitFromTray = false) => {
         if (asking) return
         asking = true
-        const close = await confirmRef.current('Închizi aplicația?', 'Închide', false, {
-          detail: 'Tot ce ai lucrat — jurnalul, caietul și tabla — e salvat automat. Îl regăsești exact așa data viitoare.',
-          cancelLabel: 'Rămân',
-        })
-        asking = false
-        if (!close) return
-        // the notebook saves a moment after the last change: let it, then wait for the database
-        await new Promise((r) => setTimeout(r, 500))
-        await flushLocal()
-        // a copy of today's work, if one is due, before the app goes
-        await autoBackup()
-        if (localSaveFailed()) {
-          asking = true
-          const anyway = await confirmRef.current('Ultimele modificări din Caiet sau de pe Tablă nu au putut fi salvate.', 'Închide oricum', true, {
-            detail: 'Dacă închizi acum, le pierzi. Poți rămâne și face un backup din Jurnal.',
+        try {
+          const confirmClose = quitFromTray || !isExtraWindow()
+          if (confirmClose && !(await confirmRef.current('Închizi aplicația?', 'Închide', false, {
+            detail: 'Tot ce ai lucrat — jurnalul, caietul și tabla — e salvat automat. Îl regăsești exact așa data viitoare.',
             cancelLabel: 'Rămân',
-          })
+          }))) return
+
+          // The notebook saves a moment after the last change. Give it time, then wait for the database.
+          await new Promise((r) => setTimeout(r, 500))
+          await flushLocal()
+          if (confirmClose) {
+            await autoBackup()
+            if (localSaveFailed() && !(await confirmRef.current('Ultimele modificări din Caiet sau de pe Tablă nu au putut fi salvate.', 'Închide oricum', true, {
+              detail: 'Dacă închizi acum, le pierzi. Poți rămâne și face un backup din Jurnal.',
+              cancelLabel: 'Rămân',
+            }))) return
+          }
+          if (quitFromTray) {
+            const others = (await getAllWindows()).filter((other) => other.label !== win.label)
+            // Request normal closes so secondary windows can flush their own pending saves.
+            await Promise.allSettled(others.map((other) => other.close()))
+          }
+          await win.destroy()
+        } finally {
           asking = false
-          if (!anyway) return
         }
-        await win.destroy()
-      })
+      }
+      const listeners = await Promise.all([
+        win.onCloseRequested(async (e) => {
+          e.preventDefault()
+          await closeWindow()
+        }),
+        win.listen('journal-tray-close', () => void closeWindow(true)),
+      ])
+      if (disposed) listeners.forEach((unlisten) => unlisten())
+      else unlisteners.push(...listeners)
     })
-    return () => unlisten?.()
+    return () => {
+      disposed = true
+      unlisteners.forEach((unlisten) => unlisten())
+    }
   }, [])
 
   // open the first student on start so the journal is never blank when data exists

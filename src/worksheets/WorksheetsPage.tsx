@@ -13,7 +13,7 @@ import { PHOTO_PROMPT, brokenFormulas, spacedLines, splitExercises } from './fro
 import { statementFigure } from './figures'
 import { TESTS8 } from './tests8'
 import { headAfter, titleWhenEmpty } from './sheetTitle'
-import { CHAPTERS, bookExercises, chapterForms, fitsChapter, type BookExercise } from './chapters'
+import { CHAPTERS, chapterBookExercises, chapterForms, fitsChapter, type BookExercise } from './chapters'
 import { figureSvg } from '../models/figure'
 import { isDesktop } from '../platform'
 import katex from 'katex'
@@ -223,7 +223,7 @@ export default function WorksheetsPage() {
     const onSheet = new Set(sheet.items.flatMap((x) => ('model' in x.source ? [`${x.source.model}#${x.source.n}`] : [])))
     const avoid = new Set([...(sheet.recent ?? []), ...sheet.items.map((x) => fingerprint(x.text))])
     const fromBook = chBook
-      ? bookExercises().filter((b) => b.chapters.includes(ch.id) && !onSheet.has(`${b.source.model}#${b.source.n}`)).sort(() => Math.random() - 0.5)
+      ? chapterBookExercises(ch).filter((b) => !onSheet.has(`${b.source.model}#${b.source.n}`)).sort(() => Math.random() - 0.5)
       : []
     const forms = chGen ? chapterForms(ch, chLevel) : []
     const gens = [...new Set(forms.map((f) => f.gen))]

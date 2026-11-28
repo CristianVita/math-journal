@@ -1,6 +1,6 @@
 // The title of a worksheet says what is on it, and what is on it belongs under that title.
 import { describe, expect, it } from 'vitest'
-import { CHAPTERS, bookExercises, chapterForms, chapterOfGen, chaptersOf, fitsChapter } from './chapters'
+import { CHAPTERS, bookExercises, chapterBookExercises, chapterForms, chapterOfGen, chaptersOf, fitsChapter } from './chapters'
 import { BOOK_CHAPTERS } from './bookChapters'
 import { GENERATORS, type Level } from './generators'
 import { DEFAULT_TITLE, headAfter, isAutoTitle, titleWhenEmpty } from './sheetTitle'
@@ -96,6 +96,22 @@ describe('the exercises belong under the title', () => {
     for (const [k, c] of Object.entries(BOOK_CHAPTERS)) {
       expect(all.has(k), k).toBe(true)
       expect(CHAPTERS.some((x) => x.id === c), c).toBe(true)
+    }
+  })
+
+  it('a six-exercise triangles sheet has the three named topics in its generated half', () => {
+    const chapter = CHAPTERS.find((c) => c.id === 'triangles')!
+    const fromBook = chapterBookExercises(chapter)
+    expect(fromBook.length).toBeGreaterThan(3)
+    const excluded = ['Model E.N. 8, ex. 7', 'Model E.N. 18, ex. 8', 'Model E.N. 19, ex. 8']
+    expect(bookExercises().filter((item) => excluded.includes(item.where))).toHaveLength(3)
+    expect(fromBook.filter((item) => excluded.includes(item.where))).toHaveLength(0)
+    for (const level of [1, 2, 3] as const) {
+      const forms = chapterForms(chapter, level)
+      const kinds = [...new Set(forms.map((f) => f.gen))]
+      expect(kinds.slice(0, 3)).toEqual(['vii-pythagoras', 'vii-thales', 'vii-trig'])
+      expect(kinds).not.toContain('v-midpoint-symmetric')
+      expect(kinds).not.toContain('v-segment-length')
     }
   })
 
