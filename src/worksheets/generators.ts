@@ -47,6 +47,8 @@ import { KINDS as KB5FIG } from './grade5book5Figures'
 import { KINDS as K8A } from './grade8puisor1'
 import { KINDS as K8B } from './grade8puisor2'
 import { KINDS as K8C } from './grade8puisor3'
+import { KINDS as K8E } from './geometry8e'
+import { KINDS as K8F } from './geometry8f'
 import { KINDS as KFIG, CONTEST as CFIG } from './grade5drawn'
 
 export type Level = 1 | 2 | 3 | 4
@@ -1108,7 +1110,9 @@ GENERATORS.push(
 // added after those of the existing kinds (so that the forms on saved sheets keep their numbers)
 /** Where each of these forms ended up: its kind, level and number (for the tests of the workbook, `tests8.ts`). */
 export const FORM8 = new Map<Form, { gen: string; level: Level; form: number }>()
-for (const k of [...K8A, ...K8B, ...K8C]) {
+// geometry8e.ts (27 November 2026): what the tests of chapter 5 of the same workbook ask, joined to the geometry kinds;
+// geometry8f.ts (28 November 2026): the same for chapter 6
+for (const k of [...K8A, ...K8B, ...K8C, ...K8E, ...K8F]) {
   const i = k.joins ? GENERATORS.findIndex((g) => g.id === k.joins) : -1
   const g = i < 0 ? null : GENERATORS[i]
   for (const l of [1, 2, 3] as const) k.forms[l].forEach((f, n) => FORM8.set(f, { gen: g?.id ?? k.id, level: l, form: (g?.forms(l) ?? 0) + n }))

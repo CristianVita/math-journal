@@ -3,7 +3,7 @@ import type { Made } from './generators'
 import { frac, poly } from './tex'
 
 export type Form = (rng: () => number) => Made
-export interface Kind8 { id: string; label: string; topic: 'Algebră'; joins?: string; forms: Record<1 | 2 | 3, Form[]> }
+export interface Kind8 { id: string; label: string; topic: 'Algebră' | 'Geometrie'; joins?: string; forms: Record<1 | 2 | 3, Form[]> }
 
 /** Coefficients from the highest power down: [1, -2, 3] = x² − 2x + 3. */
 export type P = number[]

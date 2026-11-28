@@ -9,7 +9,7 @@ describe('the tests of the grade VIII workbook', () => {
   it('name only kinds and forms that exist, each test once', () => {
     expect(testsOk()).toBe(true)
     expect(new Set(TESTS8.map((t) => t.id)).size).toBe(TESTS8.length)
-    expect(TESTS8.length).toBe(20)
+    expect(TESTS8.length).toBe(40)
   })
 
   it('a form is found again by its number: the same exercise as the form itself', () => {

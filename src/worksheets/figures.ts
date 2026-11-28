@@ -176,6 +176,21 @@ interface Body { p: Record<string, P3>; faces: string; base: string[] }
 
 const hexAt = (l: number, z: number, names: string[]): Record<string, P3> =>
   Object.fromEntries(names.map((n, i) => [n, [l * Math.cos(((240 + 60 * i) * Math.PI) / 180), l * Math.sin(((240 + 60 * i) * Math.PI) / 180) + l, z] as P3]))
+/**
+ * A hexagonal base drawn as in the textbooks (28 November 2026, asked): the oblique projection of `solid` moves what is
+ * further back to the right, and the hexagon came out lopsided (D next to C). Shearing the points back by the same
+ * amount (all but 55%) leaves mostly the depth, drawn upwards: AB in front, F and C at the ends, E and D behind and a
+ * little to the right (with no shift at all, EE' of the prism fell on AA'), V above the centre.
+ */
+const unskew = (p: Record<string, P3>): Record<string, P3> => {
+  const c = 0.45 * Math.cos(Math.PI / 4) * 0.5 // of the shift of `solid` per unit of depth, at its default depth
+  // and, as in perspective, what is further back is narrower (ED 30% shorter than AB, asked), so that the hidden
+  // lateral edges VE, VD do not fall on VA, VB; the hexagons are centred on x = 0
+  const ys = Object.values(p).map((q) => q[1])
+  const [y0, y1] = [Math.min(...ys), Math.max(...ys)]
+  const narrow = (y: number) => 1 - (0.3 * (y - y0)) / (y1 - y0 || 1)
+  return Object.fromEntries(Object.entries(p).map(([n, q]) => [n, [q[0] * narrow(q[1]) - c * q[1], q[1], q[2]] as P3]))
+}
 const HEX = ['A', 'B', 'C', 'D', 'E', 'F']
 const HEX1 = HEX.map((n) => n + "'")
 const ring = (a: string[]) => a.join('-')
@@ -226,13 +241,14 @@ function bodyFor(text: string): Body | undefined {
   }
   if (/piramid\S* triunghiular|\$VABC\$/.test(text)) {
     const l = side ?? 10
-    const h = clamp((height ?? l * 0.8) / l, 0.4, 1.8) * l
+    const h = clamp((height ?? l * 0.8) / l, 0.7, 1.8) * l
     const y = (l * Math.sqrt(3)) / 2
     return { p: { A: [0, y, 0], B: [l / 2, 0, 0], C: [l, y, 0], V: [l / 2, (2 * y) / 3, h], O: [l / 2, (2 * y) / 3, 0] }, faces: 'A-B-C A-B-V B-C-V C-A-V', base: ['A', 'B', 'C'] }
   }
   if (/piramid|\$VABCD\$/.test(text)) {
     const l = side ?? 10
-    return { p: pyr4(l, clamp((height ?? l * 0.9) / l, 0.45, 1.8) * l), faces: PYR4, base: ['A', 'B', 'C', 'D'] }
+    // at least 0.8 of the side (28 November 2026, asked): a flat pyramid (side 60, height 16) put V almost on DC
+    return { p: pyr4(l, clamp((height ?? l * 0.9) / l, 0.8, 1.8) * l), faces: PYR4, base: ['A', 'B', 'C', 'D'] }
   }
   if (/prism\S* triunghiular|ABCA'B'C'/.test(text)) {
     const l = side ?? 10
@@ -275,9 +291,10 @@ function solidFigure(text: string, body: Body): Fig {
   const labels: Record<string, '' | 's' | 'e'> = {}
   for (const n of Object.keys(p)) if (!vertices.has(n)) labels[n] = n === 'O' ? 's' : 'e'
   const opt = { seg: dedupe(segs, [body.faces], true) || undefined, l: labels }
-  const fig = solid(p, body.faces, body.base.length === 6 ? 190 : 170, opt)
+  const q = body.base.length === 6 ? unskew(p) : p
+  const fig = solid(q, body.faces, body.base.length === 6 ? 190 : 170, opt)
   // a tall solid is drawn narrower, so that it stays about 190 px high
-  return fig.h > 190 ? solid(p, body.faces, Math.max(80, Math.round((fig.w * 190) / fig.h)), opt) : fig
+  return fig.h > 190 ? solid(q, body.faces, Math.max(80, Math.round((fig.w * 190) / fig.h)), opt) : fig
 }
 
 // =============== plane figures ===============

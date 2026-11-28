@@ -3,19 +3,23 @@
 import * as A from './grade8puisor1'
 import * as B from './grade8puisor2'
 import * as C from './grade8puisor3'
+import * as G from './geometry8e'
+import * as H from './geometry8f'
 import type { Form } from './alg8'
 import { FORM8, GENERATORS, type Level } from './generators'
 
 export interface TestItem { gen: string; level: Level; form?: number }
 export interface Test8 { id: string; title: string; group: string; items: TestItem[] }
 
-const of = (x: Form | [string, Level]): TestItem => {
-  if (Array.isArray(x)) return { gen: x[0], level: x[1] }
+/** A form of this workbook, or a kind at a level, or a kind, level and the number of an older form. */
+type Ref = Form | [string, Level] | [string, Level, number]
+const of = (x: Ref): TestItem => {
+  if (Array.isArray(x)) return { gen: x[0], level: x[1], form: x[2] }
   const f = FORM8.get(x)
   if (!f) throw new Error(`Tiparul ${x.name} nu este înregistrat`)
   return f
 }
-const group = (id: string, name: string, tests: (Form | [string, Level])[][]): Test8[] =>
+const group = (id: string, name: string, tests: Ref[][]): Test8[] =>
   tests.map((t, i) => ({ id: `${id}-${i + 1}`, group: name, title: `${name}, testul ${i + 1}`, items: t.map(of) }))
 
 export const TESTS8: Test8[] = [
@@ -56,6 +60,48 @@ export const TESTS8: Test8[] = [
     [C.lfDraw, C.fnParameter, C.lfParamPoints, C.fnImage, C.lfEquation, C.lfCollinear, C.lfTangent, C.lfSymmetric],
     [C.lfDraw, C.lfParamPoints, C.fnOnGraph, ['viii-function', 2], C.lfAreaGiven, C.lfEquation],
     [C.lfDraw, C.fnOnGraph, C.fnImage, C.lfIntersection, C.lfTwoLinesArea, C.lfSymmetric],
+  ]),
+  // geometry, chapter 5 (photographed on 27 November 2026); older forms by their number in the kind, so that a test
+  // keeps the exercise of the book: 1.4, 1.5 and 2.5 of pp. 61–62 are plane geometry (grade VII forms)
+  // pp. 61–62
+  ...group('t8-solids', 'Corpuri geometrice', [
+    [['viii-elements', 3, 0], ['viii-solids', 1, 3], ['viii-solids', 1, 1], ['vii-pythagoras', 1, 1], ['vii-circle', 1, 1], ['viii-solids', 1, 4], ['viii-solids', 2, 10], G.triPyramidFaces, G.quadPyramidEqualEdges],
+    [['viii-elements', 1, 0], ['viii-elements', 3, 0], ['vii-areas', 1, 1], ['viii-solids', 1, 0], ['viii-solids', 1, 1], ['viii-prisms', 1, 1], G.triPyramidFaces, G.cylinderAxialDiagonals, G.sectorToCone],
+  ]),
+  // pp. 71–72
+  ...group('t8-parallel', 'Paralelism și perpendicularitate', [
+    [['viii-dihedral', 1, 5], G.trapezoidTriangleSpace, G.trapezoidProjections],
+    [G.cubeExamples, G.cubeFromEdgeSum, G.cubeFaceCenter, G.tetraBasics],
+  ]),
+  // pp. 81–82
+  ...group('t8-angles', 'Unghiuri și distanțe în spațiu', [
+    [G.squarePerpFull, G.parallelSquare],
+    [G.cubeFromEdgeSum, ['viii-dihedral', 1, 7], ['viii-dihedral', 2, 5]],
+    [G.cubeExamples, G.rightTrapezoidPerp],
+    [G.truthValues, ['viii-dihedral', 3, 1]],
+  ]),
+  // chapter 6, areas and volumes (photographed on 27 November 2026); the quick questions with answers a)–d) of the book
+  // are asked plainly
+  // pp. 90–91
+  ...group('t8-prisms', 'Prisme: arii și volume', [
+    [H.cubeQuick, H.prismBlanks, H.triPrismAbV],
+    [H.cuboidQuick, ['viii-solids', 1, 0], H.prismBlanks, H.squarePrismSine],
+    [H.cubeOne, ['viii-dihedral', 1, 2], H.cuboidFromDistance, H.hexPrismPath],
+    [H.hexPrismQuick, ['viii-solids', 3, 2], H.squarePrismRhombus, ['viii-cuboid', 3, 3]],
+  ]),
+  // pp. 101–102
+  ...group('t8-pyramids', 'Piramide și trunchiuri de piramidă', [
+    [['viii-solids', 2, 1], ['viii-frustums', 1, 5], H.hexPyrDistances, H.triPyrCutMin],
+    [['viii-pyramids', 1, 1], ['viii-solids', 3, 0], H.frustumLateral, H.hexFrustumAll],
+    [['viii-pyramids', 2, 0], H.triFrustumOrigin, H.hexPyrCutFaces],
+    [['viii-solids', 3, 5], ['viii-frustums', 2, 4], H.hexPyrAdjacentFaces],
+  ]),
+  // pp. 109–110
+  ...group('t8-round', 'Cilindrul, conul, trunchiul de con, sfera', [
+    [['viii-round', 1, 2], ['viii-round', 2, 6], ['viii-frustums', 1, 7], H.sectorConeCut],
+    [['viii-round', 2, 3], ['viii-frustums', 2, 2], H.coneLateralRatio, H.coneFrustumFromV],
+    [['viii-round', 1, 1], ['viii-frustums', 2, 2], H.coneCentroidCut, H.coneFrustumPerpDiag],
+    [['viii-round', 1, 0], ['viii-frustums', 1, 7], H.semicircleConeCut, H.frustumProportional],
   ]),
 ]
 

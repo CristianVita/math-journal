@@ -448,7 +448,7 @@ export default function WorksheetsPage() {
           </section>
 
           <section className="card">
-            <div className="card-title">Test de evaluare (clasa a VIII-a, algebră)</div>
+            <div className="card-title">Test de evaluare (clasa a VIII-a)</div>
             <div className="ws-form">
               {/* the chapter, then its tests by number (26 November 2026: one list of „Chapter, testul N (k ex.)” was too long) */}
               <div className="field-row">
